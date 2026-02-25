@@ -198,10 +198,16 @@ function M() {
   const totalDraws=cap.filter(r=>r.type==='Draw').reduce((s,r)=>s+num(r.amount),0);
   const startingCash=num(sett.startingCash);
   const otherAssets=num(sett.suppliesInventory)+num(sett.equipment)+num(sett.otherAssets);
-  const totalLiabilities=num(sett.accountsPayable)+num(sett.unpaidGrading)+num(sett.salesTaxOwed)+num(sett.creditCardBal);
-  const totalInvested = startingCash + totalContributions + D.purchases.reduce((s,r)=>s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax)),0);
+  // Auto-calculate unpaid grading fees (submissions not yet returned)
+  const unpaidGrading=gr.filter(r=>!r.dateReturned).reduce((s,r)=>s+num(r.totalCost),0);
+  const totalLiabilities=num(sett.accountsPayable)+unpaidGrading+num(sett.salesTaxOwed)+num(sett.creditCardBal);
+  // Auto-calculate cash: starting cash + contributions - draws + net sales revenue - purchases - expenses - paid grading fees
+  const tPurchases=D.purchases.reduce((s,r)=>s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax)),0);
+  const paidGrading=gr.filter(r=>r.dateReturned).reduce((s,r)=>s+num(r.totalCost),0);
+  const cashBalance=startingCash+totalContributions-totalDraws+tSale-tPlatFee-tConFee-tShip-tPurchases-tExp-paidGrading-unpaidGrading;
+  const totalInvested = startingCash + totalContributions + tPurchases;
   const bizROI = totalInvested ? net / totalInvested : 0;
-  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI};
+  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI,cashBalance,unpaidGrading,tPurchases,paidGrading};
 }
 
 // ============================================================
@@ -731,15 +737,15 @@ function rFinancials(m) {
     <div class="panel">
       <h3 style="color:var(--cyan)">🏦 Balance Sheet <button class="btn btn-sm" onclick="exportPDF('balance')">📄 PDF</button></h3>
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">ASSETS</span></div>
-      <div class="fin-row indent"><span class="lbl">Cash (Business Account)</span><span class="amt">${fmtD(m.startingCash)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Cash (Auto-calculated)</span><span class="amt">${fmtD(m.cashBalance)}</span></div>
       <div class="fin-row indent"><span class="lbl">Card Inventory (at cost)</span><span class="amt">${fmtD(m.invCost)}</span></div>
       <div class="fin-row indent"><span class="lbl">Card Inventory (market)*</span><span class="amt" style="font-style:italic;color:var(--text-dim)">${fmtD(m.invMkt)}</span></div>
       <div class="fin-row indent"><span class="lbl">Supplies & Equipment</span><span class="amt">${fmtD(m.otherAssets)}</span></div>
-      <div class="fin-row bold bt"><span class="lbl">Total Assets</span><span class="amt">${fmtD(m.startingCash+m.invCost+m.otherAssets)}</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Total Assets</span><span class="amt">${fmtD(m.cashBalance+m.invCost+m.otherAssets)}</span></div>
       <div style="height:10px"></div>
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">LIABILITIES</span></div>
       ${num(m.sett.accountsPayable)?`<div class="fin-row indent"><span class="lbl">Accounts Payable</span><span class="amt">${fmtD(num(m.sett.accountsPayable))}</span></div>`:''}
-      ${num(m.sett.unpaidGrading)?`<div class="fin-row indent"><span class="lbl">Unpaid Grading Fees</span><span class="amt">${fmtD(num(m.sett.unpaidGrading))}</span></div>`:''}
+      ${m.unpaidGrading?`<div class="fin-row indent"><span class="lbl">Unpaid Grading Fees (auto)</span><span class="amt">${fmtD(m.unpaidGrading)}</span></div>`:''}
       ${num(m.sett.salesTaxOwed)?`<div class="fin-row indent"><span class="lbl">Sales Tax Owed</span><span class="amt">${fmtD(num(m.sett.salesTaxOwed))}</span></div>`:''}
       ${num(m.sett.creditCardBal)?`<div class="fin-row indent"><span class="lbl">Credit Card Balance</span><span class="amt">${fmtD(num(m.sett.creditCardBal))}</span></div>`:''}
       <div class="fin-row bold bt"><span class="lbl">Total Liabilities</span><span class="amt">${fmtD(m.totalLiabilities)}</span></div>
@@ -772,7 +778,7 @@ function rFinancials(m) {
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">FINANCING</span></div>
       <div class="fin-row indent"><span class="lbl">Owner Contributions</span><span class="amt pos">${fmtD(m.totalContributions)}</span></div>
       <div class="fin-row indent"><span class="lbl">Owner Draws</span><span class="amt neg">(${fmtD(m.totalDraws)})</span></div>
-      <div class="fin-row bold bd"><span class="lbl">Ending Cash</span><span class="amt">${fmtD(m.startingCash+m.totalContributions-m.totalDraws+m.net)}</span></div>
+      <div class="fin-row bold bd"><span class="lbl">Ending Cash</span><span class="amt">${fmtD(m.cashBalance)}</span></div>
     </div></div>
   </div>`;
 }
@@ -800,11 +806,11 @@ window.exportPDF = function(type) {
     doc.text('Balance Sheet',14,22);doc.setFontSize(10);doc.setFont('helvetica','normal');doc.text(`As of: ${today}`,14,30);
     doc.autoTable({startY:36,head:[['Item','Amount']],body:[
       [{content:'ASSETS',styles:{fontStyle:'bold',fontSize:11}},''],
-      ['  Cash (Business Account)',fmtD(m.startingCash)],['  Card Inventory (at cost)',fmtD(m.invCost)],['  Supplies & Equipment',fmtD(m.otherAssets)],
-      [{content:'Total Assets',styles:{fontStyle:'bold'}},{content:fmtD(m.startingCash+m.invCost+m.otherAssets),styles:{fontStyle:'bold'}}],['',''],
+      ['  Cash (Auto-calculated)',fmtD(m.cashBalance)],['  Card Inventory (at cost)',fmtD(m.invCost)],['  Supplies & Equipment',fmtD(m.otherAssets)],
+      [{content:'Total Assets',styles:{fontStyle:'bold'}},{content:fmtD(m.cashBalance+m.invCost+m.otherAssets),styles:{fontStyle:'bold'}}],['',''],
       [{content:'LIABILITIES',styles:{fontStyle:'bold',fontSize:11}},''],
       ...(num(m.sett.accountsPayable)?[['  Accounts Payable',fmtD(num(m.sett.accountsPayable))]]:[]),
-      ...(num(m.sett.unpaidGrading)?[['  Unpaid Grading Fees',fmtD(num(m.sett.unpaidGrading))]]:[]),
+      ...(m.unpaidGrading?[['  Unpaid Grading Fees (auto)',fmtD(m.unpaidGrading)]]:[]),
       ...(num(m.sett.salesTaxOwed)?[['  Sales Tax Owed',fmtD(num(m.sett.salesTaxOwed))]]:[]),
       ...(num(m.sett.creditCardBal)?[['  Credit Card Balance',fmtD(num(m.sett.creditCardBal))]]:[]),
       [{content:'Total Liabilities',styles:{fontStyle:'bold'}},{content:fmtD(m.totalLiabilities),styles:{fontStyle:'bold'}}],['',''],
@@ -819,7 +825,7 @@ window.exportPDF = function(type) {
       [{content:'OPERATING',styles:{fontStyle:'bold'}},''],['  Net Income',fmtD(m.net)],
       [{content:'Net Cash from Operations',styles:{fontStyle:'bold'}},{content:fmtD(m.net),styles:{fontStyle:'bold'}}],['',''],
       [{content:'FINANCING',styles:{fontStyle:'bold'}},''],['  Owner Contributions',fmtD(m.totalContributions)],["  Owner's Draws",`(${fmtD(m.totalDraws)})`],['',''],
-      [{content:'Ending Cash Position',styles:{fontStyle:'bold'}},{content:fmtD(m.startingCash+m.totalContributions-m.totalDraws+m.net),styles:{fontStyle:'bold'}}]
+      [{content:'Ending Cash Position',styles:{fontStyle:'bold'}},{content:fmtD(m.cashBalance),styles:{fontStyle:'bold'}}]
     ],theme:'plain',styles:{fontSize:10,cellPadding:3},columnStyles:{1:{halign:'right'}}});
     doc.save('Cash_Flow.pdf');showToast('Cash Flow PDF exported!');
   } else if(type==='ratios'){
