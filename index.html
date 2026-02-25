@@ -1,1 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardTracker — Business Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script type="module">
+// ============================================================
+// PASSWORD GATE
+// ============================================================
+const PW_HASH = '6226630ff689c1879f1439e37ec1e4989a65d2fb3850ed87afa6c4edbad34664';
 
+async function hashPassword(pw) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pw);
+  const buffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function isAuthenticated() {
+  return sessionStorage.getItem('ct_auth') === 'true';
+}
+
+function showLoginScreen() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90vh;animation:fadeUp .5s ease;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:800;background:linear-gradient(135deg,#FF3366,#4E7CFF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px;">CardTracker</div>
+      <div style="color:#7878A0;font-size:14px;margin-bottom:40px;">Enter password to access your dashboard</div>
+      <div style="background:#161630;border:1px solid #252545;border-radius:14px;padding:32px;width:380px;max-width:90vw;">
+        <div style="margin-bottom:16px;">
+          <label style="font-size:10px;color:#7878A0;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px;">Password</label>
+          <input type="password" id="pwInput" placeholder="Enter password" style="width:100%;padding:12px 16px;background:#0B0B14;border:1px solid #252545;border-radius:8px;color:#E4E4F0;font-size:15px;font-family:'DM Sans',sans-serif;outline:none;" autofocus>
+        </div>
+        <div id="pwError" style="color:#FF4757;font-size:12px;margin-bottom:12px;display:none;">Incorrect password. Try again.</div>
+        <button id="pwBtn" style="width:100%;padding:12px;background:#FF3366;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;">Sign In</button>
+      </div>
+      <div style="color:#4A4A6A;font-size:11px;margin-top:24px;">🔒 Password protected · Data encrypted in transit</div>
+    </div>
+  `;
+
+  const input = document.getElementById('pwInput');
+  const btn = document.getElementById('pwBtn');
+  const err = document.getElementById('pwError');
+
+  async function tryLogin() {
+    const hash = await hashPassword(input.value);
+    if (hash === PW_HASH) {
+      sessionStorage.setItem('ct_auth', 'true');
+      err.style.display = 'none';
+      initApp();
+    } else {
+      err.style.display = 'block';
+      input.value = '';
+      input.focus();
+      input.style.borderColor = '#FF4757';
+      setTimeout(() => { input.style.borderColor = '#252545'; }, 1500);
+    }
+  }
+
+  btn.addEventListener('click', tryLogin);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+}
+
+function initApp() {
+// ============================================================
+// FIREBASE SETUP
+// ============================================================
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBT0T12KPmeBZDKlfs2mnUAmQSoHDKzMIY",
+  authDomain: "cardtracker-7bda2.firebaseapp.com",
+  projectId: "cardtracker-7bda2",
+  storageBucket: "cardtracker-7bda2.firebasestorage.app",
+  messagingSenderId: "879765099692",
+  appId: "1:879765099692:web:c1c78f496d0ad24b43bb09"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+const DOC_REF = doc(db, "cardtracker", "main_data");
+
+let firebaseReady = false;
+let saving = false;
+let lastSaveTime = 0;
+let pendingSave = false;
+
+// Load from Firebase on startup
+async function loadFromFirebase() {
+  try {
+    const snap = await getDoc(DOC_REF);
+    if (snap.exists()) {
+      const fbData = snap.data();
+      if (fbData.inventory) {
+        D = fbData;
+        ensureFields();
+      }
+    }
+    firebaseReady = true;
+    render();
+    showToast('🔄 Connected — data synced from cloud');
+  } catch(e) {
+    console.error('Firebase load error:', e);
+    firebaseReady = true;
+    render();
+    showToast('⚠️ Offline mode — using local data');
+  }
+}
+
+// Save to Firebase (debounced)
+async function saveToFirebase() {
+  if (saving) { pendingSave = true; return; }
+  const now = Date.now();
+  if (now - lastSaveTime < 1000) {
+    pendingSave = true;
+    setTimeout(() => { pendingSave = false; saveToFirebase(); }, 1000);
+    return;
+  }
+  saving = true;
+  lastSaveTime = now;
+  try {
+    await setDoc(DOC_REF, JSON.parse(JSON.stringify(D)));
+  } catch(e) {
+    console.error('Firebase save error:', e);
+  }
+  saving = false;
+  if (pendingSave) { pendingSave = false; saveToFirebase(); }
+}
+
+// Real-time listener — updates when partner makes changes
+onSnapshot(DOC_REF, (snap) => {
+  if (!snap.exists() || saving) return;
+  const fbData = snap.data();
+  if (fbData && fbData.inventory) {
+    D = fbData;
+    ensureFields();
+    render();
+  }
+});
+
+// ============================================================
+// DATA STORE
+// ============================================================
+const emptyData = () => ({
+  inventory: [], sales: [], purchases: [], grading: [], sealed: [], expenses: [],
+  capital: [],
+  settings: { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0 },
+  nextIds: { C:1, S:1, P:1, G:1, SL:1, E:1, CAP:1 }
+});
+
+function ensureFields() {
+  if (!D.capital) D.capital = [];
+  if (!D.settings) D.settings = { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0 };
+  if (!D.nextIds) D.nextIds = { C:1,S:1,P:1,G:1,SL:1,E:1,CAP:1 };
+  if (!D.nextIds.CAP) D.nextIds.CAP = 1;
+  if (!D.sealed) D.sealed = [];
+  if (!D.purchases) D.purchases = [];
+}
+
+let D = emptyData();
+let tab = 'overview';
+let modal = null;
+let editIdx = null;
+let toast = null;
+let charts = {};
+
+function nextId(prefix) {
+  if (!D.nextIds) D.nextIds = { C:1,S:1,P:1,G:1,SL:1,E:1,CAP:1 };
+  const n = D.nextIds[prefix] || 1;
+  D.nextIds[prefix] = n + 1;
+  return prefix + String(n).padStart(3,'0');
+}
+
+function saveData() {
+  localStorage.setItem('cardtracker_data_v1', JSON.stringify(D));
+  saveToFirebase();
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+const num = v => { if (typeof v === 'number') return v; const n = parseFloat(String(v||'').replace(/[$,()]/g,'')); return isNaN(n)?0:n; };
+const fmt = v => '$' + Math.round(v).toLocaleString();
+const fmtD = v => '$' + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+const pct = v => (v*100).toFixed(1)+'%';
+const badge = s => { const c = String(s||'').toLowerCase().replace(/\s/g,''); return `<span class="badge b-${c}">${s||''}</span>`; };
+
+function showToast(msg) {
+  toast = msg;
+  const el = document.getElementById('toast');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+  else render();
+  setTimeout(() => { toast = null; const el2 = document.getElementById('toast'); if(el2) el2.style.display='none'; }, 3000);
+}
+
+function destroyCharts() { Object.values(charts).forEach(c => { if(c&&c.destroy)c.destroy(); }); charts = {}; }
+function cOpts() {
+  return {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7878A0',font:{family:'DM Sans',size:10},boxWidth:10,padding:12}},tooltip:{backgroundColor:'#161630',titleColor:'#E4E4F0',bodyColor:'#E4E4F0',borderColor:'#252545',borderWidth:1,cornerRadius:8,bodyFont:{family:'JetBrains Mono',size:11},callbacks:{label:ctx=>' '+ctx.dataset.label+': '+fmt(ctx.parsed.y||ctx.parsed)}}},scales:{x:{ticks:{color:'#7878A0',font:{family:'DM Sans',size:10}},grid:{display:false},border:{display:false}},y:{ticks:{color:'#7878A0',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+v.toLocaleString()},grid:{color:'#252545'},border:{display:false}}}};
+}
+function pOpts(){return{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom',labels:{color:'#7878A0',font:{family:'DM Sans',size:10},boxWidth:10,padding:12}},tooltip:{backgroundColor:'#161630',titleColor:'#E4E4F0',bodyColor:'#E4E4F0',borderColor:'#252545',borderWidth:1,cornerRadius:8}}};}
+
+// ============================================================
+// METRICS
+// ============================================================
+function M() {
+  const inv=D.inventory,sales=D.sales,exp=D.expenses,gr=D.grading;
+  const active=inv.filter(c=>c.status!=='Sold');
+  const tSale=sales.reduce((s,r)=>s+num(r.salePrice),0);
+  const tPlatFee=sales.reduce((s,r)=>s+num(r.platformFee),0);
+  const tConFee=sales.reduce((s,r)=>s+num(r.consignFee),0);
+  const tShip=sales.reduce((s,r)=>s+num(r.shipCost),0);
+  const tCOGS=sales.reduce((s,r)=>s+num(r.costBasis),0);
+  const netRev=tSale-tPlatFee-tConFee-tShip;
+  const tGrade=gr.reduce((s,r)=>s+num(r.totalCost),0);
+  const gross=netRev-tCOGS-tGrade;
+  const tExp=exp.reduce((s,r)=>s+num(r.amount),0);
+  const net=gross-tExp;
+  const gm=tSale?gross/tSale:0;
+  const nm=tSale?net/tSale:0;
+  const sc=sales.length;
+  const avgP=sc?gross/sc:0;
+  const invCost=active.reduce((s,r)=>s+num(r.costBasis)+num(r.gradingCost),0);
+  const invMkt=active.reduce((s,r)=>s+num(r.marketValue),0);
+  const statusCounts={};
+  active.forEach(c=>{const st=c.status||'Unknown';statusCounts[st]=(statusCounts[st]||0)+1;});
+  const byPlat={};
+  sales.forEach(r=>{const p=r.platform||'Other';if(!byPlat[p])byPlat[p]={rev:0,prof:0,cnt:0};byPlat[p].rev+=num(r.salePrice);byPlat[p].prof+=num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis);byPlat[p].cnt++;});
+  const invByType={};
+  active.forEach(r=>{const t=r.cardType||'Other';invByType[t]=(invByType[t]||0)+1;});
+  const monthly={};
+  sales.forEach(r=>{const m2=(r.date||'').slice(0,7);if(!m2)return;if(!monthly[m2])monthly[m2]={rev:0,prof:0};monthly[m2].rev+=num(r.salePrice);monthly[m2].prof+=num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis);});
+  const expByCat={};
+  exp.forEach(r=>{const c=r.category||'Other';expByCat[c]=(expByCat[c]||0)+num(r.amount);});
+  const gradData=gr.map(r=>({name:(r.cardName||'').slice(0,16),fee:num(r.totalCost),pre:num(r.preValue),post:num(r.postValue),va:num(r.postValue)-num(r.preValue)-num(r.totalCost)})).filter(r=>r.name);
+  const cap=D.capital||[];
+  const sett=D.settings||{};
+  const totalContributions=cap.filter(r=>r.type==='Contribution').reduce((s,r)=>s+num(r.amount),0);
+  const totalDraws=cap.filter(r=>r.type==='Draw').reduce((s,r)=>s+num(r.amount),0);
+  const startingCash=num(sett.startingCash);
+  const otherAssets=num(sett.suppliesInventory)+num(sett.equipment)+num(sett.otherAssets);
+  const totalLiabilities=num(sett.accountsPayable)+num(sett.unpaidGrading)+num(sett.salesTaxOwed)+num(sett.creditCardBal);
+  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett};
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+window.render = function render() {
+  const m = M();
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="header">
+      <div><h1>CardTracker</h1><div class="header-sub">
+        <span class="sync-dot ${firebaseReady?'online':'offline'}"></span>
+        ${firebaseReady?'Live — synced to cloud':'Connecting...'} · ${D.inventory.length} cards tracked
+      </div></div>
+      <div class="header-actions">
+        <button class="btn" onclick="importExcel()">📥 Import</button>
+        <button class="btn" onclick="exportExcel()">📤 Export</button>
+        <button class="btn" onclick="exportMenu()">📄 Reports</button>
+        <button class="btn btn-danger btn-sm" onclick="if(confirm('Clear ALL data? This cannot be undone.'))resetAll()">Reset</button>
+      </div>
+    </div>
+    <div class="tabs">
+      ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','financials'].map(t2=>{
+        const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',financials:'Financials'};
+        const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
+        return `<button class="tab ${tab===t2?'active':''}" onclick="tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
+      }).join('')}
+    </div>
+    <div id="content">${
+      tab==='overview'?rOverview(m):
+      tab==='inventory'?rTable('inventory',m):
+      tab==='sales'?rTable('sales',m):
+      tab==='purchases'?rTable('purchases',m):
+      tab==='grading'?rTable('grading',m):
+      tab==='sealed'?rTable('sealed',m):
+      tab==='expenses'?rTable('expenses',m):
+      tab==='capital'?rCapital(m):
+      rFinancials(m)
+    }</div>
+    ${modal?rModal():''}
+    <div class="toast" id="toast" style="display:${toast?'block':'none'}">${toast||''}</div>
+    <div class="footer">CardTracker · Real-time cloud sync · Data shared between all users</div>
+    <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none" onchange="handleImport(event)">
+  `;
+  if(tab==='overview') renderCharts(m);
+};
+
+// ============================================================
+// OVERVIEW
+// ============================================================
+function rOverview(m) {
+  return `
+    <div class="metrics">
+      <div class="mc" style="border-left-color:var(--blue)"><div class="lbl">Total Revenue</div><div class="val">${fmt(m.tSale)}</div><div class="sub" style="color:var(--text-dim)">${m.sc} sales</div></div>
+      <div class="mc" style="border-left-color:${m.gross>=0?'var(--green)':'var(--red)'}"><div class="lbl">Gross Profit</div><div class="val ${m.gross>=0?'pos':'neg'}">${fmt(m.gross)}</div><div class="sub" style="color:${m.gm>=.3?'var(--green)':'var(--yellow)'}">${pct(m.gm)} margin</div></div>
+      <div class="mc" style="border-left-color:${m.net>=0?'var(--green)':'var(--red)'}"><div class="lbl">Net Income</div><div class="val ${m.net>=0?'pos':'neg'}">${fmt(m.net)}</div><div class="sub" style="color:var(--text-dim)">After ${fmt(m.tExp)} expenses</div></div>
+      <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Avg Profit/Card</div><div class="val">${fmtD(m.avgP)}</div></div>
+      <div class="mc" style="border-left-color:var(--purple)"><div class="lbl">Inventory (Cost)</div><div class="val">${fmt(m.invCost)}</div><div class="sub" style="color:var(--text-dim)">${m.ac} cards</div></div>
+      <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Inventory (Market)</div><div class="val">${fmt(m.invMkt)}</div><div class="sub" style="color:${m.invMkt>m.invCost?'var(--green)':'var(--red)'}">${m.invMkt>m.invCost?'+':''}${fmt(m.invMkt-m.invCost)} unrealized</div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="panel chart-card"><h3>Revenue & Profit by Platform</h3><div class="chart-wrap"><canvas id="ch1"></canvas></div></div>
+      <div class="panel chart-card"><h3>Inventory by Status</h3><div class="chart-wrap"><canvas id="ch2"></canvas></div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="panel chart-card"><h3>Monthly Sales Trend</h3><div class="chart-wrap"><canvas id="ch3"></canvas></div></div>
+      <div class="panel chart-card"><h3>Inventory by Card Type</h3><div class="chart-wrap"><canvas id="ch4"></canvas></div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="panel chart-card"><h3>Grading ROI by Card</h3><div class="chart-wrap"><canvas id="ch5"></canvas></div></div>
+      <div class="panel chart-card"><h3>Value Added by Grading</h3><div class="chart-wrap"><canvas id="ch6"></canvas></div></div>
+    </div>`;
+}
+
+function renderCharts(m) {
+  destroyCharts();
+  const p=Object.keys(m.byPlat);
+  if(p.length){charts.c1=new Chart(document.getElementById('ch1'),{type:'bar',data:{labels:p,datasets:[{label:'Revenue',data:p.map(x=>m.byPlat[x].rev),backgroundColor:'#4E7CFF',borderRadius:6},{label:'Profit',data:p.map(x=>m.byPlat[x].prof),backgroundColor:'#00D68F',borderRadius:6}]},options:cOpts()});}
+  const st=Object.keys(m.statusCounts);
+  const sc2={Raw:'#FFBE0B',Submitted:'#A855F7',Graded:'#4E7CFF',Listed:'#06D6A0',Hold:'#7878A0',Cracked:'#FF4757',Sold:'#00D68F'};
+  if(st.length){charts.c2=new Chart(document.getElementById('ch2'),{type:'doughnut',data:{labels:st,datasets:[{data:st.map(s=>m.statusCounts[s]),backgroundColor:st.map(s=>sc2[s]||'#7878A0'),borderWidth:0}]},options:pOpts()});}
+  const mo=Object.keys(m.monthly).sort();
+  if(mo.length){charts.c3=new Chart(document.getElementById('ch3'),{type:'line',data:{labels:mo,datasets:[{label:'Revenue',data:mo.map(x=>m.monthly[x].rev),borderColor:'#4E7CFF',backgroundColor:'#4E7CFF22',fill:true,tension:.3},{label:'Profit',data:mo.map(x=>m.monthly[x].prof),borderColor:'#00D68F',backgroundColor:'#00D68F22',fill:true,tension:.3}]},options:cOpts()});}
+  const ty=Object.keys(m.invByType);
+  const tc=['#FF3366','#4E7CFF','#00D68F','#FFBE0B','#A855F7','#06D6A0'];
+  if(ty.length){charts.c4=new Chart(document.getElementById('ch4'),{type:'doughnut',data:{labels:ty,datasets:[{data:ty.map(t=>m.invByType[t]),backgroundColor:tc,borderWidth:0}]},options:pOpts()});}
+  const gd=m.gradData;
+  if(gd.length){
+    charts.c5=new Chart(document.getElementById('ch5'),{type:'bar',data:{labels:gd.map(g=>g.name),datasets:[{label:'Grading Fee',data:gd.map(g=>g.fee),backgroundColor:'#FF3366',borderRadius:6},{label:'Net Value Added',data:gd.map(g=>g.va),backgroundColor:gd.map(g=>g.va>=0?'#00D68F':'#FF4757'),borderRadius:6}]},options:{...cOpts(),indexAxis:'y',scales:{x:{ticks:{color:'#7878A0',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+v.toLocaleString()},grid:{color:'#252545'},border:{display:false}},y:{ticks:{color:'#E4E4F0',font:{family:'DM Sans',size:11}},grid:{display:false},border:{display:false}}}}});
+    charts.c6=new Chart(document.getElementById('ch6'),{type:'bar',data:{labels:gd.map(g=>g.name),datasets:[{label:'Pre-Grade Value',data:gd.map(g=>g.pre),backgroundColor:'#4E7CFF44',borderColor:'#4E7CFF',borderWidth:1,borderRadius:6},{label:'Post-Grade Value',data:gd.map(g=>g.post),backgroundColor:'#00D68F44',borderColor:'#00D68F',borderWidth:1,borderRadius:6}]},options:cOpts()});
+  }
+}
+
+// ============================================================
+// SCHEMAS
+// ============================================================
+const SCHEMAS = {
+  inventory: {
+    title:'Card Inventory',addLabel:'+ Add Card',
+    cols:[
+      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:90,type:'date'},{k:'cardName',l:'Card Name',w:160},
+      {k:'setSeries',l:'Set',w:120},{k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
+      {k:'grade',l:'Grade',w:80},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
+      {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
+      {k:'marketValue',l:'Market',w:80,r:1,render:v=>num(v)?fmt(num(v)):'—'},
+      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);if(!mv||row.status==='Sold')return'—';const r2=(mv-c)/c;return`<span class="${r2>=0?'pos':'neg'}">${pct(r2)}</span>`;}}
+    ],
+    fields:[
+      {k:'cardName',l:'Card Name',required:true},{k:'setSeries',l:'Set / Series'},
+      {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG']},
+      {k:'status',l:'Status',type:'select',opts:['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked']},
+      {k:'grade',l:'Condition / Grade'},{k:'gradingCompany',l:'Grading Co.',type:'select',opts:['','PSA','CGC']},
+      {k:'costBasis',l:'Cost Basis ($)',type:'number'},{k:'gradingCost',l:'Grading Cost ($)',type:'number'},
+      {k:'marketValue',l:'Market Value ($)',type:'number'},{k:'dateAdded',l:'Date Added',type:'date'},
+      {k:'platform',l:'Platform Listed'},{k:'listPrice',l:'List Price ($)',type:'number'},
+      {k:'notes',l:'Notes',type:'textarea',full:true}
+    ],
+    idPrefix:'C'
+  },
+  sales: {
+    title:'Sales Log',addLabel:'+ Log Sale',
+    cols:[
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'cardName',l:'Card',w:150},
+      {k:'platform',l:'Platform',w:90},{k:'salePrice',l:'Sale$',w:80,r:1,render:v=>fmt(num(v))},
+      {k:'platformFee',l:'Fees',w:70,r:1,render:(_,row)=>fmt(num(row.platformFee)+num(row.consignFee))},
+      {k:'shipCost',l:'Ship$',w:70,r:1,render:v=>fmt(num(v))},
+      {k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
+      {k:'_profit',l:'Profit',w:80,r:1,render:(_,row)=>{const p2=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return`<strong class="${p2>=0?'pos':'neg'}">${fmt(p2)}</strong>`;}},
+      {k:'_margin',l:'Margin',w:70,r:1,render:(_,row)=>{const sp=num(row.salePrice);const p2=sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return sp?`<span class="${p2>=0?'pos':'neg'}">${pct(p2/sp)}</span>`:'—';}}
+    ],
+    fields:[
+      {k:'cardName',l:'Card Name',required:true},{k:'date',l:'Sale Date',type:'date'},
+      {k:'platform',l:'Platform',type:'select',opts:['eBay','Card Show','Consignment']},
+      {k:'salePrice',l:'Sale Price ($)',type:'number'},{k:'platformFee',l:'Platform Fee ($)',type:'number'},
+      {k:'consignFee',l:'Consignment Fee ($)',type:'number'},{k:'shipCost',l:'Shipping Cost ($)',type:'number'},
+      {k:'costBasis',l:'Cost Basis ($)',type:'number'},
+      {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG']},
+      {k:'buyer',l:'Buyer Info'},{k:'notes',l:'Notes',type:'textarea',full:true}
+    ],
+    idPrefix:'S'
+  },
+  purchases: {
+    title:'Purchase Log',addLabel:'+ Add Purchase',
+    cols:[
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'source',l:'Source',w:120},
+      {k:'description',l:'Description',w:180},{k:'category',l:'Category',w:100},
+      {k:'qty',l:'Qty',w:50,r:1},{k:'unitCost',l:'Unit$',w:80,r:1,render:v=>fmt(num(v))},
+      {k:'_total',l:'Total',w:80,r:1,render:(_,row)=>fmt(num(row.qty)*num(row.unitCost))},
+      {k:'grandTotal',l:'Grand Total',w:90,r:1,render:v=>fmt(num(v))}
+    ],
+    fields:[
+      {k:'description',l:'Item Description',required:true},{k:'date',l:'Date',type:'date'},
+      {k:'source',l:'Source'},{k:'sourceType',l:'Source Type',type:'select',opts:['eBay','Card Show','LCS','Online Store','Private Sale']},
+      {k:'category',l:'Category',type:'select',opts:['Raw Card','Graded Card','Sealed Product','Supplies']},
+      {k:'qty',l:'Quantity',type:'number'},{k:'unitCost',l:'Unit Cost ($)',type:'number'},
+      {k:'shipping',l:'Shipping ($)',type:'number'},{k:'tax',l:'Tax ($)',type:'number'},
+      {k:'payMethod',l:'Payment Method'},{k:'notes',l:'Notes',type:'textarea',full:true}
+    ],
+    idPrefix:'P',
+    onSave:r=>{r.grandTotal=num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax);}
+  },
+  grading: {
+    title:'Grading Log',addLabel:'+ Add Submission',
+    cols:[
+      {k:'id',l:'ID',w:70},{k:'dateSubmitted',l:'Submitted',w:90},{k:'cardName',l:'Card',w:150},
+      {k:'company',l:'Grader',w:70},{k:'gradeReceived',l:'Grade',w:60,render:v=>v?`<strong style="color:var(--yellow)">${v}</strong>`:'—'},
+      {k:'totalCost',l:'Fee',w:70,r:1,render:v=>fmt(num(v))},
+      {k:'preValue',l:'Pre$',w:70,r:1,render:v=>fmt(num(v))},{k:'postValue',l:'Post$',w:70,r:1,render:v=>num(v)?fmt(num(v)):'—'},
+      {k:'_va',l:'Value+',w:80,r:1,render:(_,row)=>{const a=num(row.postValue)-num(row.preValue);return num(row.postValue)?`<strong class="${a>=0?'pos':'neg'}">${fmt(a)}</strong>`:'—';}},
+      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const f=num(row.totalCost);const a=num(row.postValue)-num(row.preValue)-f;return f&&num(row.postValue)?`<span class="${a>=0?'pos':'neg'}">${pct(a/f)}</span>`:'—';}}
+    ],
+    fields:[
+      {k:'cardName',l:'Card Name',required:true},{k:'cardId',l:'Card ID (from Inventory)'},
+      {k:'company',l:'Grading Company',type:'select',opts:['PSA','CGC']},
+      {k:'serviceLevel',l:'Service Level'},{k:'dateSubmitted',l:'Date Submitted',type:'date'},
+      {k:'dateReturned',l:'Date Returned',type:'date'},{k:'gradingFee',l:'Grading Fee ($)',type:'number'},
+      {k:'shipTo',l:'Shipping to Grader ($)',type:'number'},{k:'shipBack',l:'Return Shipping ($)',type:'number'},
+      {k:'preCondition',l:'Pre-Grade Condition'},{k:'gradeReceived',l:'Grade Received'},
+      {k:'preValue',l:'Pre-Grade Value ($)',type:'number'},{k:'postValue',l:'Post-Grade Value ($)',type:'number'},
+      {k:'action',l:'Action',type:'select',opts:['New Grade','Regrade','Crossover']},
+      {k:'notes',l:'Notes',type:'textarea',full:true}
+    ],
+    idPrefix:'G',
+    onSave:r=>{r.totalCost=num(r.gradingFee)+num(r.shipTo)+num(r.shipBack);}
+  },
+  sealed: {
+    title:'Sealed Product',addLabel:'+ Add Sealed',
+    cols:[
+      {k:'id',l:'ID',w:70},{k:'dateAcquired',l:'Date',w:90},{k:'productName',l:'Product',w:180},
+      {k:'productType',l:'Type',w:100},{k:'status',l:'Status',w:80,render:v=>badge(v)},
+      {k:'purchasePrice',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
+      {k:'salePrice',l:'Sale$',w:80,r:1,render:v=>num(v)?fmt(num(v)):'—'},
+      {k:'_pl',l:'P/L',w:80,r:1,render:(_,row)=>{if(row.status==='Sold'){const p2=num(row.salePrice)-num(row.purchasePrice);return`<span class="${p2>=0?'pos':'neg'}">${fmt(p2)}</span>`;}return'—';}}
+    ],
+    fields:[
+      {k:'productName',l:'Product Name',required:true},{k:'productType',l:'Type',type:'select',opts:['Booster Box','ETB','Booster Pack','Collection Box','Blister','Other']},
+      {k:'setSeries',l:'Set / Series'},{k:'year',l:'Year',type:'number'},
+      {k:'purchasePrice',l:'Purchase Price ($)',type:'number'},{k:'source',l:'Source'},
+      {k:'status',l:'Status',type:'select',opts:['Holding','Opened','Sold']},
+      {k:'dateAcquired',l:'Date Acquired',type:'date'},{k:'dateSold',l:'Date Opened/Sold',type:'date'},
+      {k:'salePrice',l:'Sale Price ($)',type:'number'},{k:'pullValue',l:'Est Pull Value ($)',type:'number'},
+      {k:'notes',l:'Notes',type:'textarea',full:true}
+    ],
+    idPrefix:'SL'
+  },
+  expenses: {
+    title:'Business Expenses',addLabel:'+ Add Expense',
+    cols:[
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'category',l:'Category',w:130},
+      {k:'description',l:'Description',w:220},{k:'amount',l:'Amount',w:90,r:1,render:v=>fmt(num(v))},
+      {k:'vendor',l:'Vendor',w:120},{k:'payMethod',l:'Payment',w:100}
+    ],
+    fields:[
+      {k:'description',l:'Description',required:true},{k:'date',l:'Date',type:'date'},
+      {k:'category',l:'Category',type:'select',opts:['Shipping Supplies','Packaging','Software','Table Fee','Travel','Storage','Marketing','Insurance','Other']},
+      {k:'amount',l:'Amount ($)',type:'number'},{k:'payMethod',l:'Payment Method'},
+      {k:'vendor',l:'Vendor'},{k:'receipt',l:'Receipt?',type:'select',opts:['Yes','No']},
+      {k:'notes',l:'Notes',type:'textarea',full:true}
+    ],
+    idPrefix:'E'
+  },
+  capital: {
+    title:'Capital Transactions',addLabel:'+ Add Transaction',
+    cols:[
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},
+      {k:'type',l:'Type',w:100,render:v=>v==='Contribution'?'<span class="badge b-listed">Contribution</span>':v==='Draw'?'<span class="badge b-cracked">Draw</span>':`<span class="badge b-hold">${v||''}</span>`},
+      {k:'amount',l:'Amount',w:100,r:1,render:(v,row)=>{const a=num(v);return`<span class="${row.type==='Contribution'?'pos':'neg'}">${fmt(a)}</span>`;}},
+      {k:'description',l:'Description',w:250},{k:'method',l:'Method',w:120}
+    ],
+    fields:[
+      {k:'type',l:'Type',type:'select',opts:['Contribution','Draw'],required:true},
+      {k:'date',l:'Date',type:'date'},{k:'amount',l:'Amount ($)',type:'number',required:true},
+      {k:'description',l:'Description'},{k:'method',l:'Payment Method'},
+      {k:'notes',l:'Notes',type:'textarea',full:true}
+    ],
+    idPrefix:'CAP'
+  }
+};
+
+// ============================================================
+// TABLE RENDERER
+// ============================================================
+function rTable(type,m) {
+  const s=SCHEMAS[type];const data=D[type];
+  const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
+  if(!data.length) return `<div class="panel"><h3>${s.title} ${addBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
+  return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}</span></h3>
+    <table><thead><tr>${s.cols.map(c=>`<th${c.r?' class="r"':''}>${c.l}</th>`).join('')}<th style="width:70px"></th></tr></thead>
+    <tbody>${data.map((row,i)=>`<tr>${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r"><button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+// ============================================================
+// CAPITAL TAB
+// ============================================================
+function rCapital(m) {
+  const s=D.settings||{};const cap=D.capital||[];
+  const totalIn=cap.filter(r=>r.type==='Contribution').reduce((a,r)=>a+num(r.amount),0);
+  const totalOut=cap.filter(r=>r.type==='Draw').reduce((a,r)=>a+num(r.amount),0);
+  return `
+    <div class="panel" style="margin-bottom:16px">
+      <h3 style="color:var(--cyan)">⚙️ Business Settings & Balances</h3>
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Edit these values to reflect your current business position. Changes save and sync automatically.</p>
+      <div class="form-grid" id="settingsForm">
+        <div class="form-group"><label>Starting Cash Balance ($)</label><input type="number" step="0.01" value="${num(s.startingCash)}" onchange="saveSetting('startingCash',this.value)"></div>
+        <div class="form-group"><label>Supplies Inventory ($)</label><input type="number" step="0.01" value="${num(s.suppliesInventory)}" onchange="saveSetting('suppliesInventory',this.value)"></div>
+        <div class="form-group"><label>Equipment Value ($)</label><input type="number" step="0.01" value="${num(s.equipment)}" onchange="saveSetting('equipment',this.value)"></div>
+        <div class="form-group"><label>Other Assets ($)</label><input type="number" step="0.01" value="${num(s.otherAssets)}" onchange="saveSetting('otherAssets',this.value)"></div>
+        <div class="form-group"><label>Accounts Payable ($)</label><input type="number" step="0.01" value="${num(s.accountsPayable)}" onchange="saveSetting('accountsPayable',this.value)"></div>
+        <div class="form-group"><label>Unpaid Grading Fees ($)</label><input type="number" step="0.01" value="${num(s.unpaidGrading)}" onchange="saveSetting('unpaidGrading',this.value)"></div>
+        <div class="form-group"><label>Sales Tax Owed ($)</label><input type="number" step="0.01" value="${num(s.salesTaxOwed)}" onchange="saveSetting('salesTaxOwed',this.value)"></div>
+        <div class="form-group"><label>Credit Card Balance ($)</label><input type="number" step="0.01" value="${num(s.creditCardBal)}" onchange="saveSetting('creditCardBal',this.value)"></div>
+      </div>
+    </div>
+    <div class="metrics" style="margin-bottom:16px">
+      <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Total Contributions</div><div class="val pos">${fmt(num(s.startingCash)+totalIn)}</div><div class="sub" style="color:var(--text-dim)">${fmt(num(s.startingCash))} starting + ${fmt(totalIn)} added</div></div>
+      <div class="mc" style="border-left-color:var(--red)"><div class="lbl">Total Draws</div><div class="val neg">${fmt(totalOut)}</div></div>
+      <div class="mc" style="border-left-color:var(--blue)"><div class="lbl">Net Owner's Equity</div><div class="val">${fmt(num(s.startingCash)+totalIn-totalOut+m.net)}</div><div class="sub" style="color:var(--text-dim)">Contributions - Draws + Earnings</div></div>
+      <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Total Liabilities</div><div class="val">${fmt(m.totalLiabilities)}</div></div>
+    </div>
+    ${rTable('capital',m)}`;
+}
+
+window.saveSetting = function(key, value) {
+  if(!D.settings) D.settings={};
+  D.settings[key]=parseFloat(value)||0;
+  saveData();
+  showToast('Setting saved & synced');
+};
+
+// ============================================================
+// MODAL
+// ============================================================
+window.openAdd = function(type) { modal={type,mode:'add',data:{date:new Date().toISOString().slice(0,10),dateAdded:new Date().toISOString().slice(0,10),dateAcquired:new Date().toISOString().slice(0,10),dateSubmitted:new Date().toISOString().slice(0,10)}};editIdx=null;render(); };
+window.openEdit = function(type,idx) { modal={type,mode:'edit',data:{...D[type][idx]}};editIdx=idx;render(); };
+
+function rModal() {
+  if(!modal) return '';
+  const s=SCHEMAS[modal.type];
+  const title=modal.mode==='add'?s.addLabel:`Edit ${s.title.replace(/s$/,'')}`;
+  return `<div class="modal-bg" onclick="if(event.target===this){modal=null;render();}">
+    <div class="modal">
+      <h2>${title}<button class="close" onclick="modal=null;render()">&times;</button></h2>
+      <div class="form-grid">
+        ${s.fields.map(f=>`<div class="form-group${f.full?' full':''}">
+          <label>${f.l}${f.required?' *':''}</label>
+          ${f.type==='select'?`<select id="f_${f.k}">${f.opts.map(o=>`<option${(modal.data[f.k]||'')===o?' selected':''}>${o}</option>`).join('')}</select>`:
+          f.type==='textarea'?`<textarea id="f_${f.k}">${modal.data[f.k]||''}</textarea>`:
+          `<input type="${f.type||'text'}" id="f_${f.k}" value="${modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}>`}
+        </div>`).join('')}
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="modal=null;render()">Cancel</button>
+        <button class="btn btn-accent" onclick="saveModal()">💾 Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+window.saveModal = function() {
+  const s=SCHEMAS[modal.type];
+  const row=modal.mode==='edit'?{...modal.data}:{};
+  s.fields.forEach(f=>{const el=document.getElementById('f_'+f.k);if(el)row[f.k]=f.type==='number'?parseFloat(el.value)||0:el.value;});
+  if(s.onSave)s.onSave(row);
+  if(modal.mode==='add'){row.id=nextId(s.idPrefix);D[modal.type].push(row);showToast(`Record added & synced`);}
+  else{D[modal.type][editIdx]=row;showToast('Record updated & synced');}
+  saveData();modal=null;render();
+};
+
+window.delRow = function(type,idx) { D[type].splice(idx,1); saveData(); showToast('Record deleted & synced'); render(); };
+window.resetAll = function() { D=emptyData(); saveData(); render(); };
+
+// ============================================================
+// FINANCIALS
+// ============================================================
+function rFinancials(m) {
+  const expEntries=Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1]);
+  return `<div class="fin-grid">
+    <div class="panel">
+      <h3 style="color:var(--blue)">📊 Income Statement <button class="btn btn-sm" onclick="exportPDF('income')">📄 PDF</button></h3>
+      <div class="fin-row indent"><span class="lbl">Card Sales (Gross)</span><span class="amt">${fmtD(m.tSale)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Less: Platform Fees</span><span class="amt neg">(${fmtD(m.tPlatFee)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Less: Consignment Fees</span><span class="amt neg">(${fmtD(m.tConFee)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Less: Shipping Costs</span><span class="amt neg">(${fmtD(m.tShip)})</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Net Revenue</span><span class="amt">${fmtD(m.netRev)}</span></div>
+      <div style="height:6px"></div>
+      <div class="fin-row indent"><span class="lbl">Cost of Goods Sold</span><span class="amt">${fmtD(m.tCOGS)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Grading Costs</span><span class="amt">${fmtD(m.tGrade)}</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Gross Profit</span><span class="amt ${m.gross>=0?'pos':'neg'}">${fmtD(m.gross)}</span></div>
+      <div class="fin-row indent"><span class="lbl" style="font-size:11px">Gross Margin</span><span class="amt" style="font-size:11px">${pct(m.gm)}</span></div>
+      <div style="height:6px"></div>
+      ${expEntries.map(([c,a])=>`<div class="fin-row indent"><span class="lbl">${c}</span><span class="amt">${fmtD(a)}</span></div>`).join('')}
+      <div class="fin-row bold bt"><span class="lbl">Total Expenses</span><span class="amt">${fmtD(m.tExp)}</span></div>
+      <div style="height:6px"></div>
+      <div class="fin-row bold bd"><span class="lbl">NET INCOME</span><span class="amt ${m.net>=0?'pos':'neg'}">${fmtD(m.net)}</span></div>
+      <div class="fin-row indent"><span class="lbl" style="font-size:11px">Net Margin</span><span class="amt" style="font-size:11px">${pct(m.nm)}</span></div>
+    </div>
+    <div class="panel">
+      <h3 style="color:var(--cyan)">🏦 Balance Sheet <button class="btn btn-sm" onclick="exportPDF('balance')">📄 PDF</button></h3>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">ASSETS</span></div>
+      <div class="fin-row indent"><span class="lbl">Cash (Business Account)</span><span class="amt">${fmtD(m.startingCash)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Card Inventory (at cost)</span><span class="amt">${fmtD(m.invCost)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Card Inventory (market)*</span><span class="amt" style="font-style:italic;color:var(--text-dim)">${fmtD(m.invMkt)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Supplies & Equipment</span><span class="amt">${fmtD(m.otherAssets)}</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Total Assets</span><span class="amt">${fmtD(m.startingCash+m.invCost+m.otherAssets)}</span></div>
+      <div style="height:10px"></div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">LIABILITIES</span></div>
+      ${num(m.sett.accountsPayable)?`<div class="fin-row indent"><span class="lbl">Accounts Payable</span><span class="amt">${fmtD(num(m.sett.accountsPayable))}</span></div>`:''}
+      ${num(m.sett.unpaidGrading)?`<div class="fin-row indent"><span class="lbl">Unpaid Grading Fees</span><span class="amt">${fmtD(num(m.sett.unpaidGrading))}</span></div>`:''}
+      ${num(m.sett.salesTaxOwed)?`<div class="fin-row indent"><span class="lbl">Sales Tax Owed</span><span class="amt">${fmtD(num(m.sett.salesTaxOwed))}</span></div>`:''}
+      ${num(m.sett.creditCardBal)?`<div class="fin-row indent"><span class="lbl">Credit Card Balance</span><span class="amt">${fmtD(num(m.sett.creditCardBal))}</span></div>`:''}
+      <div class="fin-row bold bt"><span class="lbl">Total Liabilities</span><span class="amt">${fmtD(m.totalLiabilities)}</span></div>
+      <div style="height:10px"></div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">OWNER'S EQUITY</span></div>
+      <div class="fin-row indent"><span class="lbl">Owner's Contributions</span><span class="amt">${fmtD(m.startingCash+m.totalContributions)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Retained Earnings</span><span class="amt">${fmtD(m.net)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Less: Owner's Draws</span><span class="amt neg">(${fmtD(m.totalDraws)})</span></div>
+      <div class="fin-row bold bd"><span class="lbl">Total Equity</span><span class="amt">${fmtD(m.startingCash+m.totalContributions-m.totalDraws+m.net)}</span></div>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:8px;font-style:italic">* Market value for reference; assets at cost · Edit in Capital tab</div>
+      <h3 style="color:var(--yellow);margin-top:24px">📈 Key Ratios <button class="btn btn-sm" onclick="exportPDF('ratios')">📄 PDF</button></h3>
+      <div class="ratio-row"><span class="lbl">Gross Margin</span><span class="val ${m.gm>=.3?'pos':'neg'}">${pct(m.gm)}</span></div>
+      <div class="ratio-row"><span class="lbl">Net Margin</span><span class="val ${m.net>=0?'pos':'neg'}">${pct(m.nm)}</span></div>
+      <div class="ratio-row"><span class="lbl">Inventory Turnover</span><span class="val">${m.invCost?(m.tCOGS/m.invCost).toFixed(2)+'x':'—'}</span></div>
+      <div class="ratio-row"><span class="lbl">Cards Sold</span><span class="val">${m.sc}</span></div>
+      <div class="ratio-row"><span class="lbl">Avg Sale Price</span><span class="val">${m.sc?fmtD(m.tSale/m.sc):'—'}</span></div>
+      <div class="ratio-row"><span class="lbl">Avg Profit/Card</span><span class="val ${m.avgP>=0?'pos':'neg'}">${fmtD(m.avgP)}</span></div>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--purple)">💰 Cash Flow <button class="btn btn-sm" onclick="exportPDF('cashflow')">📄 PDF</button></h3>
+    <div class="fin-grid"><div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">OPERATING</span></div>
+      <div class="fin-row indent"><span class="lbl">Net Income</span><span class="amt">${fmtD(m.net)}</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Net Cash from Operations</span><span class="amt">${fmtD(m.net)}</span></div>
+    </div><div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">FINANCING</span></div>
+      <div class="fin-row indent"><span class="lbl">Owner Contributions</span><span class="amt pos">${fmtD(m.totalContributions)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Owner Draws</span><span class="amt neg">(${fmtD(m.totalDraws)})</span></div>
+      <div class="fin-row bold bd"><span class="lbl">Ending Cash</span><span class="amt">${fmtD(m.startingCash+m.totalContributions-m.totalDraws+m.net)}</span></div>
+    </div></div>
+  </div>`;
+}
+
+// ============================================================
+// PDF EXPORT
+// ============================================================
+window.exportPDF = function(type) {
+  const {jsPDF}=window.jspdf;const doc=new jsPDF();const m=M();const today=new Date().toLocaleDateString();
+  doc.setFont('helvetica','bold');doc.setFontSize(18);
+  if(type==='income'){
+    doc.text('Income Statement',14,22);doc.setFontSize(10);doc.setFont('helvetica','normal');doc.text(`Generated: ${today}`,14,30);
+    const ee=Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1]);
+    doc.autoTable({startY:36,head:[['Line Item','Amount']],body:[
+      ['Card Sales (Gross)',fmtD(m.tSale)],['  Less: Platform Fees',`(${fmtD(m.tPlatFee)})`],['  Less: Consignment Fees',`(${fmtD(m.tConFee)})`],['  Less: Shipping Costs',`(${fmtD(m.tShip)})`],
+      [{content:'Net Revenue',styles:{fontStyle:'bold'}},{content:fmtD(m.netRev),styles:{fontStyle:'bold'}}],['',''],
+      ['Cost of Goods Sold',fmtD(m.tCOGS)],['Grading Costs',fmtD(m.tGrade)],
+      [{content:'Gross Profit',styles:{fontStyle:'bold'}},{content:fmtD(m.gross),styles:{fontStyle:'bold'}}],['  Gross Margin',pct(m.gm)],['',''],
+      ...ee.map(([c,a])=>[`  ${c}`,fmtD(a)]),
+      [{content:'Total Expenses',styles:{fontStyle:'bold'}},{content:fmtD(m.tExp),styles:{fontStyle:'bold'}}],['',''],
+      [{content:'NET INCOME',styles:{fontStyle:'bold',fontSize:12}},{content:fmtD(m.net),styles:{fontStyle:'bold',fontSize:12}}],['  Net Margin',pct(m.nm)]
+    ],theme:'plain',styles:{fontSize:10,cellPadding:3},columnStyles:{1:{halign:'right'}}});
+    doc.save('Income_Statement.pdf');showToast('Income Statement PDF exported!');
+  } else if(type==='balance'){
+    doc.text('Balance Sheet',14,22);doc.setFontSize(10);doc.setFont('helvetica','normal');doc.text(`As of: ${today}`,14,30);
+    doc.autoTable({startY:36,head:[['Item','Amount']],body:[
+      [{content:'ASSETS',styles:{fontStyle:'bold',fontSize:11}},''],
+      ['  Cash (Business Account)',fmtD(m.startingCash)],['  Card Inventory (at cost)',fmtD(m.invCost)],['  Supplies & Equipment',fmtD(m.otherAssets)],
+      [{content:'Total Assets',styles:{fontStyle:'bold'}},{content:fmtD(m.startingCash+m.invCost+m.otherAssets),styles:{fontStyle:'bold'}}],['',''],
+      [{content:'LIABILITIES',styles:{fontStyle:'bold',fontSize:11}},''],
+      ...(num(m.sett.accountsPayable)?[['  Accounts Payable',fmtD(num(m.sett.accountsPayable))]]:[]),
+      ...(num(m.sett.unpaidGrading)?[['  Unpaid Grading Fees',fmtD(num(m.sett.unpaidGrading))]]:[]),
+      ...(num(m.sett.salesTaxOwed)?[['  Sales Tax Owed',fmtD(num(m.sett.salesTaxOwed))]]:[]),
+      ...(num(m.sett.creditCardBal)?[['  Credit Card Balance',fmtD(num(m.sett.creditCardBal))]]:[]),
+      [{content:'Total Liabilities',styles:{fontStyle:'bold'}},{content:fmtD(m.totalLiabilities),styles:{fontStyle:'bold'}}],['',''],
+      [{content:"OWNER'S EQUITY",styles:{fontStyle:'bold',fontSize:11}},''],
+      ["  Owner's Contributions",fmtD(m.startingCash+m.totalContributions)],['  Retained Earnings',fmtD(m.net)],["  Less: Owner's Draws",`(${fmtD(m.totalDraws)})`],
+      [{content:'Total Equity',styles:{fontStyle:'bold'}},{content:fmtD(m.startingCash+m.totalContributions-m.totalDraws+m.net),styles:{fontStyle:'bold'}}]
+    ],theme:'plain',styles:{fontSize:10,cellPadding:3},columnStyles:{1:{halign:'right'}}});
+    doc.save('Balance_Sheet.pdf');showToast('Balance Sheet PDF exported!');
+  } else if(type==='cashflow'){
+    doc.text('Cash Flow Statement',14,22);doc.setFontSize(10);doc.setFont('helvetica','normal');doc.text(`Period ending: ${today}`,14,30);
+    doc.autoTable({startY:36,head:[['Item','Amount']],body:[
+      [{content:'OPERATING',styles:{fontStyle:'bold'}},''],['  Net Income',fmtD(m.net)],
+      [{content:'Net Cash from Operations',styles:{fontStyle:'bold'}},{content:fmtD(m.net),styles:{fontStyle:'bold'}}],['',''],
+      [{content:'FINANCING',styles:{fontStyle:'bold'}},''],['  Owner Contributions',fmtD(m.totalContributions)],["  Owner's Draws",`(${fmtD(m.totalDraws)})`],['',''],
+      [{content:'Ending Cash Position',styles:{fontStyle:'bold'}},{content:fmtD(m.startingCash+m.totalContributions-m.totalDraws+m.net),styles:{fontStyle:'bold'}}]
+    ],theme:'plain',styles:{fontSize:10,cellPadding:3},columnStyles:{1:{halign:'right'}}});
+    doc.save('Cash_Flow.pdf');showToast('Cash Flow PDF exported!');
+  } else if(type==='ratios'){
+    doc.text('Key Financial Ratios',14,22);doc.setFontSize(10);doc.setFont('helvetica','normal');doc.text(`As of: ${today}`,14,30);
+    doc.autoTable({startY:36,head:[['Metric','Value']],body:[
+      ['Gross Margin',pct(m.gm)],['Net Margin',pct(m.nm)],['Inventory Turnover',m.invCost?(m.tCOGS/m.invCost).toFixed(2)+'x':'—'],
+      ['Cards Sold',String(m.sc)],['Avg Sale Price',m.sc?fmtD(m.tSale/m.sc):'—'],['Avg Profit/Card',fmtD(m.avgP)],
+      ['Total Revenue',fmtD(m.tSale)],['Total COGS',fmtD(m.tCOGS)],['Total Expenses',fmtD(m.tExp)],['Net Income',fmtD(m.net)]
+    ],theme:'striped',styles:{fontSize:10,cellPadding:4},columnStyles:{1:{halign:'right',fontStyle:'bold'}}});
+    doc.save('Key_Ratios.pdf');showToast('Key Ratios PDF exported!');
+  }
+};
+
+window.exportMenu = function() {
+  const c=prompt('Export which report as PDF?\n\n1 - Income Statement\n2 - Balance Sheet\n3 - Cash Flow\n4 - Key Ratios\n5 - All Four');
+  if(c==='1')exportPDF('income');else if(c==='2')exportPDF('balance');else if(c==='3')exportPDF('cashflow');else if(c==='4')exportPDF('ratios');
+  else if(c==='5'){exportPDF('income');setTimeout(()=>exportPDF('balance'),500);setTimeout(()=>exportPDF('cashflow'),1000);setTimeout(()=>exportPDF('ratios'),1500);}
+};
+
+// ============================================================
+// IMPORT / EXPORT EXCEL
+// ============================================================
+window.importExcel = function() { document.getElementById('fileIn').click(); };
+
+window.handleImport = function(e) {
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true});
+      const readSheet=(name,startRow)=>{const ws=wb.Sheets[name];if(!ws)return[];const json=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});const headers=json[startRow-1]||[];return json.slice(startRow).filter(r=>r&&!r.every(c=>c===''||c===null)).map(row=>{const obj={};headers.forEach((h,i)=>{if(h)obj[String(h).trim()]=row[i]!==undefined?row[i]:'';});return obj;});};
+      const mapInv=r=>({id:r['Card ID']||'',dateAdded:r['Date Added']||'',cardName:r['Card Name']||'',setSeries:r['Set/Series']||'',cardType:r['Card Type']||'',status:r['Status']||'',grade:r['Condition/Grade']||'',gradingCompany:r['Grading Co.']||'',costBasis:num(r['Cost Basis ($)']),gradingCost:num(r['Grading Cost ($)']),marketValue:num(r['Current Market Value ($)']),platform:r['Platform Listed']||'',notes:r['Notes']||''});
+      const mapSale=r=>({id:r['Sale ID']||'',date:r['Date']||'',cardName:r['Card Name']||'',platform:r['Platform']||'',salePrice:num(r['Sale Price ($)']),platformFee:num(r['Platform Fee ($)']),consignFee:num(r['Consignment Fee ($)']),shipCost:num(r['Actual Shipping Cost ($)']),costBasis:num(r['Cost Basis ($)']),buyer:r['Buyer Info']||'',notes:r['Notes']||''});
+      const mapGrade=r=>({id:r['Submission ID']||'',dateSubmitted:r['Date Submitted']||'',cardName:r['Card Name']||'',company:r['Grading Company']||'',gradeReceived:r['Grade Received']||'',totalCost:num(r['Total Grading Cost ($)']),gradingFee:num(r['Grading Fee ($)']),shipTo:num(r['Shipping to Grader ($)']),shipBack:num(r['Return Shipping ($)']),preValue:num(r['Pre-Grade Value ($)']),postValue:num(r['Post-Grade Value ($)']),action:r['Action']||'',notes:r['Notes']||''});
+      const mapExp=r=>({id:r['Expense ID']||'',date:r['Date']||'',category:r['Category']||'',description:r['Description']||'',amount:num(r['Amount ($)']),payMethod:r['Payment Method']||'',vendor:r['Vendor']||'',notes:r['Notes']||''});
+      const inv=readSheet('Inventory',3).filter(r=>r['Card ID']||r['Card Name']).map(mapInv);
+      const sales=readSheet('Sales',3).filter(r=>r['Sale ID']||r['Card Name']).map(mapSale);
+      const grading=readSheet('Grading Log',3).filter(r=>r['Submission ID']||r['Card Name']).map(mapGrade);
+      const expenses=readSheet('Expenses',3).filter(r=>r['Expense ID']||r['Description']).map(mapExp);
+      function mergeRecords(existing,incoming,idPrefix){let added=0,updated=0;const map={};existing.forEach((r,i)=>{if(r.id)map[r.id]=i;});incoming.forEach(r=>{if(r.id&&map[r.id]!==undefined){existing[map[r.id]]=r;updated++;}else{if(!r.id)r.id=nextId(idPrefix);existing.push(r);added++;}});return{added,updated};}
+      let tA=0,tU=0;
+      if(inv.length){const r=mergeRecords(D.inventory,inv,'C');tA+=r.added;tU+=r.updated;}
+      if(sales.length){const r=mergeRecords(D.sales,sales,'S');tA+=r.added;tU+=r.updated;}
+      if(grading.length){const r=mergeRecords(D.grading,grading,'G');tA+=r.added;tU+=r.updated;}
+      if(expenses.length){const r=mergeRecords(D.expenses,expenses,'E');tA+=r.added;tU+=r.updated;}
+      saveData();showToast(`Import complete! ${tA} added, ${tU} updated — synced to cloud`);render();
+    }catch(err){alert('Error importing: '+err.message);}
+  };
+  reader.readAsArrayBuffer(file);e.target.value='';
+};
+
+window.exportExcel = function() {
+  const wb=XLSX.utils.book_new();
+  const mkSheet=(data,headers,name)=>{const ws=XLSX.utils.aoa_to_sheet([headers.map(h=>h.v),...data.map(r=>headers.map(h=>r[h.field]!==undefined?r[h.field]:''))]);headers.forEach((h,i)=>{ws['!cols']=ws['!cols']||[];ws['!cols'][i]={wch:h.w||14};});XLSX.utils.book_append_sheet(wb,ws,name);};
+  mkSheet(D.inventory,[{v:'Card ID',field:'id',w:10},{v:'Date Added',field:'dateAdded',w:12},{v:'Card Name',field:'cardName',w:25},{v:'Set/Series',field:'setSeries',w:16},{v:'Card Type',field:'cardType',w:12},{v:'Status',field:'status',w:12},{v:'Condition/Grade',field:'grade',w:14},{v:'Grading Co.',field:'gradingCompany',w:10},{v:'Cost Basis ($)',field:'costBasis',w:14},{v:'Grading Cost ($)',field:'gradingCost',w:14},{v:'Current Market Value ($)',field:'marketValue',w:18},{v:'Platform Listed',field:'platform',w:14},{v:'Notes',field:'notes',w:25}],'Inventory');
+  mkSheet(D.sales,[{v:'Sale ID',field:'id',w:10},{v:'Date',field:'date',w:12},{v:'Card Name',field:'cardName',w:25},{v:'Platform',field:'platform',w:12},{v:'Sale Price ($)',field:'salePrice',w:14},{v:'Platform Fee ($)',field:'platformFee',w:14},{v:'Consignment Fee ($)',field:'consignFee',w:14},{v:'Actual Shipping Cost ($)',field:'shipCost',w:14},{v:'Cost Basis ($)',field:'costBasis',w:14},{v:'Notes',field:'notes',w:25}],'Sales');
+  mkSheet(D.grading,[{v:'Submission ID',field:'id',w:12},{v:'Date Submitted',field:'dateSubmitted',w:14},{v:'Card Name',field:'cardName',w:25},{v:'Grading Company',field:'company',w:14},{v:'Grade Received',field:'gradeReceived',w:12},{v:'Total Grading Cost ($)',field:'totalCost',w:14},{v:'Pre-Grade Value ($)',field:'preValue',w:16},{v:'Post-Grade Value ($)',field:'postValue',w:16},{v:'Notes',field:'notes',w:25}],'Grading Log');
+  mkSheet(D.expenses,[{v:'Expense ID',field:'id',w:10},{v:'Date',field:'date',w:12},{v:'Category',field:'category',w:16},{v:'Description',field:'description',w:30},{v:'Amount ($)',field:'amount',w:14},{v:'Vendor',field:'vendor',w:16},{v:'Payment Method',field:'payMethod',w:14},{v:'Notes',field:'notes',w:25}],'Expenses');
+  XLSX.writeFile(wb,'CardTracker_Export_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  showToast('Excel exported!');
+};
+
+// ============================================================
+// INIT
+// ============================================================
+render();
+loadFromFirebase();
+
+} // end initApp()
+
+// ============================================================
+// STARTUP — check auth before loading app
+// ============================================================
+if (isAuthenticated()) {
+  initApp();
+} else {
+  showLoginScreen();
+}
+</script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0B0B14;--bg2:#111122;--card:#161630;--card-hover:#1C1C3A;--accent:#FF3366;--accent-glow:#FF336633;--blue:#4E7CFF;--blue-soft:#4E7CFF22;--green:#00D68F;--green-soft:#00D68F22;--red:#FF4757;--yellow:#FFBE0B;--purple:#A855F7;--cyan:#06D6A0;--text:#E4E4F0;--text-dim:#7878A0;--text-faint:#4A4A6A;--border:#252545;--border-light:#303060;--radius:14px;--radius-sm:8px;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 20% 20%,#FF336608 0%,transparent 50%),radial-gradient(ellipse at 80% 80%,#4E7CFF06 0%,transparent 50%);pointer-events:none;z-index:0;}
+.app{position:relative;z-index:1;max-width:1440px;margin:0 auto;padding:24px 28px;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;animation:fadeUp .4s ease;flex-wrap:wrap;gap:12px;}
+.header h1{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-.5px;}
+.header-sub{font-size:12px;color:var(--text-dim);margin-top:2px;display:flex;align-items:center;gap:6px;}
+.header-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.sync-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+.sync-dot.online{background:var(--green);box-shadow:0 0 6px var(--green);}
+.sync-dot.offline{background:var(--yellow);animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.btn{padding:8px 16px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--card);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap;}
+.btn:hover{border-color:var(--accent);background:var(--card-hover);}
+.btn-accent{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn-accent:hover{background:#E62E5C;box-shadow:0 4px 20px var(--accent-glow);}
+.btn-sm{padding:5px 12px;font-size:11px;}
+.btn-danger{border-color:var(--red);color:var(--red);}
+.btn-danger:hover{background:var(--red);color:#fff;}
+.tabs{display:flex;gap:4px;margin-bottom:24px;border-bottom:1px solid var(--border);animation:fadeUp .45s ease;overflow-x:auto;}
+.tab{padding:10px 16px;font-size:12px;font-weight:600;color:var(--text-dim);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;position:relative;bottom:-1px;white-space:nowrap;}
+.tab:hover{color:var(--text);}.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tab .cnt{background:var(--border);padding:1px 7px;border-radius:10px;font-size:10px;margin-left:5px;}
+.tab.active .cnt{background:var(--accent-glow);color:var(--accent);}
+.metrics{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px;}
+.mc{background:var(--card);border-radius:var(--radius);padding:18px 20px;border-left:3px solid var(--accent);transition:all .25s;animation:fadeUp .5s ease backwards;}
+.mc:hover{transform:translateY(-2px);box-shadow:0 8px 25px #00000040;}
+.mc .lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px;}
+.mc .val{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;}
+.mc .sub{font-size:11px;margin-top:4px;}
+.mc:nth-child(1){animation-delay:.05s;}.mc:nth-child(2){animation-delay:.1s;}.mc:nth-child(3){animation-delay:.15s;}.mc:nth-child(4){animation-delay:.2s;}.mc:nth-child(5){animation-delay:.25s;}.mc:nth-child(6){animation-delay:.3s;}
+.panel{background:var(--card);border-radius:var(--radius);padding:20px;animation:fadeUp .5s ease;margin-bottom:16px;}
+.panel h3{font-size:14px;font-weight:700;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
+.panel h3 .right{font-size:12px;color:var(--text-dim);font-weight:400;}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+.chart-wrap{position:relative;height:230px;}
+.chart-card h3{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px;font-weight:600;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+thead th{text-align:left;padding:9px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);border-bottom:1px solid var(--border);white-space:nowrap;font-weight:600;}
+thead th.r{text-align:right;}
+tbody tr{border-bottom:1px solid #ffffff06;transition:background .15s;}
+tbody tr:hover{background:var(--card-hover);}
+tbody td{padding:9px 10px;white-space:nowrap;}
+tbody td.r{text-align:right;}
+tbody td.mono{font-family:'JetBrains Mono',monospace;font-size:11px;}
+.pos{color:var(--green);}.neg{color:var(--red);}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:600;}
+.b-raw{background:#FFBE0B22;color:var(--yellow);}.b-submitted{background:#A855F722;color:var(--purple);}.b-graded{background:#4E7CFF22;color:var(--blue);}.b-listed{background:#06D6A022;color:var(--cyan);}.b-sold{background:#00D68F22;color:var(--green);}.b-hold{background:#7878A022;color:var(--text-dim);}.b-cracked{background:#FF475722;color:var(--red);}.b-holding{background:#7878A022;color:var(--text-dim);}.b-opened{background:#FFBE0B22;color:var(--yellow);}
+.modal-bg{position:fixed;inset:0;background:#00000088;z-index:100;display:flex;align-items:center;justify-content:center;animation:fadeUp .2s ease;}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:28px;width:600px;max-width:95vw;max-height:90vh;overflow-y:auto;}
+.modal h2{font-size:18px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;}
+.modal h2 .close{background:none;border:none;color:var(--text-dim);font-size:22px;cursor:pointer;}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.form-group{display:flex;flex-direction:column;gap:4px;}
+.form-group.full{grid-column:1/-1;}
+.form-group label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;}
+.form-group input,.form-group select,.form-group textarea{padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;}
+.form-group input:focus,.form-group select:focus{outline:none;border-color:var(--accent);}
+.form-group textarea{resize:vertical;min-height:60px;}
+.form-actions{display:flex;gap:8px;margin-top:20px;justify-content:flex-end;}
+.fin-row{display:flex;justify-content:space-between;padding:7px 0;font-size:13px;}
+.fin-row.indent{padding-left:20px;}
+.fin-row .lbl{color:var(--text-dim);}.fin-row.bold .lbl{color:var(--text);font-weight:700;}
+.fin-row .amt{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:12px;}
+.fin-row.bold .amt{font-weight:700;}
+.fin-row.bt{border-top:1px solid var(--border);}.fin-row.bd{border-top:1px solid var(--border);border-bottom:3px double var(--border);}
+.fin-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.ratio-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #ffffff06;font-size:13px;}
+.ratio-row .lbl{color:var(--text-dim);}.ratio-row .val{font-family:'JetBrains Mono',monospace;font-weight:600;}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--green);color:#fff;padding:12px 20px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;z-index:200;animation:fadeUp .3s ease;box-shadow:0 4px 20px #00000066;}
+.footer{text-align:center;margin-top:36px;padding:14px 0;border-top:1px solid var(--border);color:var(--text-faint);font-size:11px;}
+.empty{text-align:center;padding:50px 20px;color:var(--text-dim);}.empty .icon{font-size:40px;margin-bottom:10px;}
+@media(max-width:900px){.charts-grid,.fin-grid{grid-template-columns:1fr;}.metrics{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}.app{padding:14px;}.form-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="app" id="app"><div style="text-align:center;padding:100px 20px;color:#7878A0;">
+<div style="font-size:32px;margin-bottom:12px;">📊</div>
+<div style="font-size:16px;font-weight:600;">Loading CardTracker...</div>
+<div style="font-size:12px;margin-top:8px;">Connecting to cloud database</div>
+</div></div>
+</body>
+</html>
