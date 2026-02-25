@@ -618,10 +618,11 @@ window.filterCardPicker = function(val) {
   if (!val || val.length < 1) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
   const term = val.toLowerCase();
   const matches = D.inventory.filter(c => c.status !== 'Sold' && (
-    (c.cardName||'').toLowerCase().includes(term) || (c.id||'').toLowerCase().includes(term)
+    (c.cardName||'').toLowerCase().includes(term) || (c.id||'').toLowerCase().includes(term) ||
+    (c.grade||'').toLowerCase().includes(term) || (c.gradingCompany||'').toLowerCase().includes(term)
   )).slice(0, 8);
   if (!matches.length) { resultsEl.innerHTML = '<div class="picker-item" style="color:var(--text-dim)">No matching cards</div>'; resultsEl.style.display = 'block'; return; }
-  resultsEl.innerHTML = matches.map((c,i) => `<div class="picker-item" onclick="selectCard(${D.inventory.indexOf(c)})"><strong>${c.id||''}</strong> — ${c.cardName||''} <span style="color:var(--text-dim);font-size:11px">${c.cardType||''} · ${c.status||''}</span></div>`).join('');
+  resultsEl.innerHTML = matches.map((c,i) => `<div class="picker-item" onclick="selectCard(${D.inventory.indexOf(c)})"><strong>${c.id||''}</strong> — ${c.cardName||''} ${c.gradingCompany||c.grade?'<span style="color:var(--yellow);font-weight:600">'+(c.gradingCompany?c.gradingCompany+' ':'')+(c.grade||'')+'</span>':''} <span style="color:var(--text-dim);font-size:11px">${c.cardType||''} · ${c.status||''}</span></div>`).join('');
   resultsEl.style.display = 'block';
 };
 
