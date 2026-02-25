@@ -329,7 +329,7 @@ const SCHEMAS = {
       {k:'cardName',l:'Card Name',required:true},
       {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG','Bulk Lot']},
       {k:'status',l:'Status',type:'select',opts:['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked']},
-      {k:'grade',l:'Condition / Grade'},{k:'gradingCompany',l:'Grading Co.',type:'select',opts:['','PSA','CGC','Other']},
+      {k:'grade',l:'Grade (e.g. 10, 9.5, 10.1, Auth)',placeholder:'10, 9.5, 10.1, Auth, etc.'},{k:'gradingCompany',l:'Grading Co.',type:'select',opts:['','PSA','CGC','Other']},
       {k:'costBasis',l:'Cost Basis ($)',type:'number'},{k:'gradingCost',l:'Grading Cost ($)',type:'number'},
       {k:'marketValue',l:'Market Value ($)',type:'number'},{k:'dateAdded',l:'Date Added',type:'date'},
       {k:'platform',l:'Platform Listed'},{k:'listPrice',l:'List Price ($)',type:'number'},
@@ -547,7 +547,7 @@ function rModal() {
           <label>${f.l}${f.required?' *':''}</label>
           ${f.type==='select'?`<select id="f_${f.k}">${f.opts.map(o=>`<option${(window.modal.data[f.k]||'')===o?' selected':''}>${o}</option>`).join('')}</select>`:
           f.type==='textarea'?`<textarea id="f_${f.k}">${window.modal.data[f.k]||''}</textarea>`:
-          `<input type="${f.type||'text'}" id="f_${f.k}" value="${window.modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}>`}
+          `<input type="${f.type||'text'}" id="f_${f.k}" value="${window.modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}${f.placeholder?' placeholder="'+f.placeholder+'"':''}>`}
         </div>`;}).join('')}
       </div>
       <div class="form-actions">
