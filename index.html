@@ -280,8 +280,8 @@ function rOverview(m) {
       <div class="panel chart-card"><h3>Inventory by Card Type</h3><div class="chart-wrap"><canvas id="ch4"></canvas></div></div>
     </div>
     <div class="charts-grid">
-      <div class="panel chart-card"><h3>Grading ROI by Card</h3><div class="chart-wrap"><canvas id="ch5"></canvas></div></div>
-      <div class="panel chart-card"><h3>Value Added by Grading</h3><div class="chart-wrap"><canvas id="ch6"></canvas></div></div>
+      <div class="panel chart-card"><h3>Top 10 Grading ROI</h3><div class="chart-wrap"><canvas id="ch5"></canvas></div></div>
+      <div class="panel chart-card"><h3>Top 10 Value Added by Grading</h3><div class="chart-wrap"><canvas id="ch6"></canvas></div></div>
     </div>`;
 }
 
@@ -299,8 +299,15 @@ function renderCharts(m) {
   if(ty.length){charts.c4=new Chart(document.getElementById('ch4'),{type:'doughnut',data:{labels:ty,datasets:[{data:ty.map(t=>m.invByType[t]),backgroundColor:tc,borderWidth:0}]},options:pOpts()});}
   const gd=m.gradData;
   if(gd.length){
-    charts.c5=new Chart(document.getElementById('ch5'),{type:'bar',data:{labels:gd.map(g=>g.name),datasets:[{label:'Grading Fee',data:gd.map(g=>g.fee),backgroundColor:'#FF3366',borderRadius:6},{label:'Net Value Added',data:gd.map(g=>g.va),backgroundColor:gd.map(g=>g.va>=0?'#00D68F':'#FF4757'),borderRadius:6}]},options:{...cOpts(),indexAxis:'y',scales:{x:{ticks:{color:'#7878A0',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+v.toLocaleString()},grid:{color:'#252545'},border:{display:false}},y:{ticks:{color:'#E4E4F0',font:{family:'DM Sans',size:11}},grid:{display:false},border:{display:false}}}}});
-    charts.c6=new Chart(document.getElementById('ch6'),{type:'bar',data:{labels:gd.map(g=>g.name),datasets:[{label:'Pre-Grade Value',data:gd.map(g=>g.pre),backgroundColor:'#4E7CFF44',borderColor:'#4E7CFF',borderWidth:1,borderRadius:6},{label:'Post-Grade Value',data:gd.map(g=>g.post),backgroundColor:'#00D68F44',borderColor:'#00D68F',borderWidth:1,borderRadius:6}]},options:cOpts()});
+    const gdSorted=[...gd].filter(g=>g.post>0).sort((a,b)=>b.va-a.va);
+    const top10=gdSorted.slice(0,10);
+    const top10va=[...gd].filter(g=>g.post>0).sort((a,b)=>(b.post-b.pre)-(a.post-a.pre)).slice(0,10);
+    if(top10.length){
+    charts.c5=new Chart(document.getElementById('ch5'),{type:'bar',data:{labels:top10.map(g=>g.name),datasets:[{label:'Grading Fee',data:top10.map(g=>g.fee),backgroundColor:'#FF3366',borderRadius:6},{label:'Net Value Added',data:top10.map(g=>g.va),backgroundColor:top10.map(g=>g.va>=0?'#00D68F':'#FF4757'),borderRadius:6}]},options:{...cOpts(),indexAxis:'y',scales:{x:{ticks:{color:'#7878A0',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+v.toLocaleString()},grid:{color:'#252545'},border:{display:false}},y:{ticks:{color:'#E4E4F0',font:{family:'DM Sans',size:11}},grid:{display:false},border:{display:false}}}}});
+    }
+    if(top10va.length){
+    charts.c6=new Chart(document.getElementById('ch6'),{type:'bar',data:{labels:top10va.map(g=>g.name),datasets:[{label:'Pre-Grade Value',data:top10va.map(g=>g.pre),backgroundColor:'#4E7CFF44',borderColor:'#4E7CFF',borderWidth:1,borderRadius:6},{label:'Post-Grade Value',data:top10va.map(g=>g.post),backgroundColor:'#00D68F44',borderColor:'#00D68F',borderWidth:1,borderRadius:6}]},options:cOpts()});
+    }
   }
 }
 
