@@ -572,9 +572,11 @@ window.saveModal = function() {
     }
   });
   if(s.onSave)s.onSave(row);
-  // Preserve linked data not in form fields
-  if(window.modal.data.gradingCompany) row.gradingCompany = window.modal.data.gradingCompany;
-  if(window.modal.data.grade) row.grade = window.modal.data.grade;
+  // Preserve linked data not in form fields (only for sales with linked inventory cards)
+  if(window.modal.type==='sales' && window.modal.data._linkedInvIdx !== undefined){
+    if(window.modal.data.gradingCompany) row.gradingCompany = window.modal.data.gradingCompany;
+    if(window.modal.data.grade) row.grade = window.modal.data.grade;
+  }
   if(window.modal.mode==='add'){
     row.id=nextId(s.idPrefix);D[window.modal.type].push(row);
     // Auto-update inventory card status when linked
