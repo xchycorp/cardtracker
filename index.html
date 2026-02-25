@@ -556,7 +556,7 @@ window.quickStatus = function(idx, newStatus) {
   render();
 };
 
-window.setSearch = function(val) { window.searchTerm = val; render(); };
+window.setSearch = function(val) { window.searchTerm = val; render(); setTimeout(()=>{const el=document.querySelector('.search-input');if(el){el.focus();el.selectionStart=el.selectionEnd=val.length;}},0); };
 window.toggleSort = function(col) {
   if (window.sortCol === col) {
     window.sortDir = window.sortDir === 'asc' ? 'desc' : 'asc';
