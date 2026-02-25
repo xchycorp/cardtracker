@@ -121,6 +121,8 @@ window.editIdx = null;
 window.searchTerm = '';
 window.sortCol = null;
 window.sortDir = 'asc';
+window.quickEntryMode = false;
+window.quickEntryRows = [];
 let toast = null;
 let charts = {};
 
@@ -465,6 +467,7 @@ const SCHEMAS = {
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
+  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button>`:'';
   // Apply search and sort
   const filtered = filterData(data, type);
   const sorted = sortData(filtered, s.cols);
@@ -473,9 +476,12 @@ function rTable(type,m) {
 
   const searchBar = `<div class="search-bar"><input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input">${window.searchTerm?'<button class="btn btn-sm" onclick="clearSearch()" style="margin-left:6px">✕ Clear</button>':''}<span class="search-count">${window.searchTerm?`${sorted.length} of ${data.length}`:''}</span></div>`;
 
-  if(!data.length) return `<div class="panel"><h3>${s.title} ${addBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
+  // Show quick entry mode if active
+  if(type==='inventory' && window.quickEntryMode) return rQuickEntry(data, addBtn, quickAddBtn);
 
-  return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}</span></h3>
+  if(!data.length) return `<div class="panel"><h3>${s.title} ${addBtn}${quickAddBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
+
+  return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
     ${searchBar}
     <table><thead><tr>${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
     <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return`<tr>${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r">${type==='inventory'?`<select class="quick-status" onchange="quickStatus(${i},this.value)" title="Quick status change"><option value="">⚡</option>${['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].map(st=>`<option value="${st}"${row.status===st?' disabled':''}>${st}</option>`).join('')}</select> `:''}<button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`;}).join(''):`<tr><td colspan="${s.cols.length+1}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
@@ -615,6 +621,139 @@ window.saveModal = function() {
 };
 
 window.delRow = function(type,idx) { D[type].splice(idx,1); saveData(); showToast('Record deleted & synced'); render(); };
+
+// ============================================================
+// QUICK ENTRY MODE
+// ============================================================
+window.openQuickEntry = function() {
+  window.quickEntryMode = true;
+  window.quickEntryRows = [makeQuickRow()];
+  render();
+  setTimeout(()=>{const el=document.getElementById('qe_0_cardName');if(el)el.focus();},50);
+};
+
+function makeQuickRow() {
+  return {cardName:'',cardType:'Pokemon',status:'Raw',grade:'',gradingCompany:'',costBasis:'',gradingCost:'',marketValue:'',dateAdded:new Date().toISOString().slice(0,10),notes:''};
+}
+
+window.qeAddRow = function() {
+  // Read current values first
+  qeReadAll();
+  window.quickEntryRows.push(makeQuickRow());
+  render();
+  const idx=window.quickEntryRows.length-1;
+  setTimeout(()=>{const el=document.getElementById('qe_'+idx+'_cardName');if(el)el.focus();},50);
+};
+
+window.qeRemoveRow = function(idx) {
+  qeReadAll();
+  window.quickEntryRows.splice(idx,1);
+  if(!window.quickEntryRows.length) window.quickEntryRows.push(makeQuickRow());
+  render();
+};
+
+window.qeDuplicate = function(idx) {
+  qeReadAll();
+  const copy = {...window.quickEntryRows[idx]};
+  window.quickEntryRows.splice(idx+1, 0, copy);
+  render();
+  setTimeout(()=>{const el=document.getElementById('qe_'+(idx+1)+'_cardName');if(el)el.focus();},50);
+};
+
+function qeReadAll() {
+  window.quickEntryRows.forEach((row,i)=>{
+    ['cardName','cardType','status','grade','gradingCompany','costBasis','gradingCost','marketValue','dateAdded','notes'].forEach(k=>{
+      const el=document.getElementById('qe_'+i+'_'+k);
+      if(el) row[k]=el.value;
+    });
+  });
+}
+
+window.qeSaveAll = function() {
+  qeReadAll();
+  const valid = window.quickEntryRows.filter(r=>r.cardName.trim());
+  if(!valid.length){showToast('No cards to save — enter at least one card name');return;}
+  valid.forEach(row=>{
+    const card = {
+      id: nextId('C'),
+      cardName: row.cardName.trim(),
+      cardType: row.cardType,
+      status: row.status,
+      grade: row.grade,
+      gradingCompany: row.gradingCompany,
+      costBasis: parseFloat(row.costBasis)||0,
+      gradingCost: parseFloat(row.gradingCost)||0,
+      marketValue: parseFloat(row.marketValue)||0,
+      dateAdded: row.dateAdded,
+      notes: row.notes
+    };
+    D.inventory.push(card);
+  });
+  saveData();
+  showToast(`${valid.length} card${valid.length>1?'s':''} added & synced!`);
+  window.quickEntryMode = false;
+  window.quickEntryRows = [];
+  render();
+};
+
+window.qeCancel = function() {
+  const rows = window.quickEntryRows.filter(r=>r.cardName&&r.cardName.trim());
+  if(rows.length && !confirm('Discard all unsaved entries?')) return;
+  window.quickEntryMode = false;
+  window.quickEntryRows = [];
+  render();
+};
+
+function rQuickEntry(data, addBtn, quickAddBtn) {
+  const rows = window.quickEntryRows;
+  return `<div class="panel">
+    <h3><span>Quick Add Cards</span><span class="right">
+      <button class="btn btn-sm" onclick="qeCancel()">✕ Cancel</button>
+      <button class="btn btn-accent btn-sm" onclick="qeSaveAll()">💾 Save All (${rows.length})</button>
+    </span></h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Tab through fields, hit "＋ Row" or "📋 Copy" to keep going. Save All when done.</div>
+    <div class="qe-table-wrap"><table class="qe-table">
+      <thead><tr>
+        <th style="width:30px">#</th>
+        <th>Card Name *</th>
+        <th style="width:110px">Type</th>
+        <th style="width:100px">Status</th>
+        <th style="width:70px">Grade</th>
+        <th style="width:80px">Grader</th>
+        <th style="width:85px">Cost $</th>
+        <th style="width:85px">Grade $</th>
+        <th style="width:85px">Market $</th>
+        <th style="width:100px">Date</th>
+        <th style="width:90px"></th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((r,i)=>`<tr>
+          <td class="mono" style="color:var(--text-dim)">${i+1}</td>
+          <td><input type="text" id="qe_${i}_cardName" class="qe-input qe-wide" value="${r.cardName||''}" placeholder="Card name..."></td>
+          <td><select id="qe_${i}_cardType" class="qe-input">${['Pokemon','Sports','Other TCG','Bulk Lot'].map(o=>`<option${r.cardType===o?' selected':''}>${o}</option>`).join('')}</select></td>
+          <td><select id="qe_${i}_status" class="qe-input">${['Raw','Submitted','Graded','Listed','Hold','Cracked'].map(o=>`<option${r.status===o?' selected':''}>${o}</option>`).join('')}</select></td>
+          <td><input type="text" id="qe_${i}_grade" class="qe-input" value="${r.grade||''}" placeholder="10, 9.5"></td>
+          <td><select id="qe_${i}_gradingCompany" class="qe-input">${['','PSA','CGC','Other'].map(o=>`<option${r.gradingCompany===o?' selected':''}>${o||'—'}</option>`).join('')}</select></td>
+          <td><input type="number" id="qe_${i}_costBasis" class="qe-input" step="0.01" value="${r.costBasis||''}" placeholder="0.00"></td>
+          <td><input type="number" id="qe_${i}_gradingCost" class="qe-input" step="0.01" value="${r.gradingCost||''}" placeholder="0.00"></td>
+          <td><input type="number" id="qe_${i}_marketValue" class="qe-input" step="0.01" value="${r.marketValue||''}" placeholder="0.00"></td>
+          <td><input type="date" id="qe_${i}_dateAdded" class="qe-input" value="${r.dateAdded||''}"></td>
+          <td>
+            <button class="btn btn-sm" onclick="qeDuplicate(${i})" title="Copy this row">📋</button>
+            <button class="btn btn-sm btn-danger" onclick="qeRemoveRow(${i})" title="Remove">🗑</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+      <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="qeAddRow()">＋ Add Row</button>
+      <span style="font-size:12px;color:var(--text-dim)">${rows.length} row${rows.length>1?'s':''}</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm" onclick="qeCancel()">Cancel</button>
+      <button class="btn btn-accent btn-sm" onclick="qeSaveAll()">💾 Save All</button>
+    </div>
+  </div>`;
+}
 
 // Card picker for grading submissions
 window.filterCardPicker = function(val) {
@@ -1101,6 +1240,15 @@ th.sorted{color:var(--accent);}
 .picker-item{padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);transition:background .15s;}
 .picker-item:hover{background:var(--accent);color:#fff;}
 .picker-item:last-child{border-bottom:none;}
+.qe-table-wrap{overflow-x:auto;}
+.qe-table{width:100%;border-collapse:collapse;}
+.qe-table th{font-size:11px;color:var(--text-dim);text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);}
+.qe-table td{padding:4px 3px;vertical-align:middle;}
+.qe-input{width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;}
+.qe-input:focus{outline:none;border-color:var(--accent);}
+.qe-input::placeholder{color:var(--text-faint);}
+.qe-wide{min-width:140px;}
+select.qe-input{padding:6px 4px;font-size:11px;}
 @media(max-width:900px){.charts-grid,.fin-grid{grid-template-columns:1fr;}.metrics{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}.app{padding:14px;}.form-grid{grid-template-columns:1fr;}}
 </style>
 <script>
