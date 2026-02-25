@@ -302,17 +302,17 @@ const SCHEMAS = {
     title:'Card Inventory',addLabel:'+ Add Card',
     cols:[
       {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:90,type:'date'},{k:'cardName',l:'Card Name',w:160},
-      {k:'setSeries',l:'Set',w:120},{k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
+      {k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
       {k:'grade',l:'Grade',w:80},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
       {k:'marketValue',l:'Market',w:80,r:1,render:v=>num(v)?fmt(num(v)):'—'},
       {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);if(!mv||row.status==='Sold')return'—';const r2=(mv-c)/c;return`<span class="${r2>=0?'pos':'neg'}">${pct(r2)}</span>`;}}
     ],
     fields:[
-      {k:'cardName',l:'Card Name',required:true},{k:'setSeries',l:'Set / Series'},
-      {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG']},
+      {k:'cardName',l:'Card Name',required:true},
+      {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG','Bulk Lot']},
       {k:'status',l:'Status',type:'select',opts:['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked']},
-      {k:'grade',l:'Condition / Grade'},{k:'gradingCompany',l:'Grading Co.',type:'select',opts:['','PSA','CGC']},
+      {k:'grade',l:'Condition / Grade'},{k:'gradingCompany',l:'Grading Co.',type:'select',opts:['','PSA','CGC','Other']},
       {k:'costBasis',l:'Cost Basis ($)',type:'number'},{k:'gradingCost',l:'Grading Cost ($)',type:'number'},
       {k:'marketValue',l:'Market Value ($)',type:'number'},{k:'dateAdded',l:'Date Added',type:'date'},
       {k:'platform',l:'Platform Listed'},{k:'listPrice',l:'List Price ($)',type:'number'},
@@ -338,7 +338,7 @@ const SCHEMAS = {
       {k:'salePrice',l:'Sale Price ($)',type:'number'},{k:'platformFee',l:'Platform Fee ($)',type:'number'},
       {k:'consignFee',l:'Consignment Fee ($)',type:'number'},{k:'shipCost',l:'Shipping Cost ($)',type:'number'},
       {k:'costBasis',l:'Cost Basis ($)',type:'number'},
-      {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG']},
+      {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG','Bulk Lot']},
       {k:'buyer',l:'Buyer Info'},{k:'notes',l:'Notes',type:'textarea',full:true}
     ],
     idPrefix:'S'
@@ -375,7 +375,7 @@ const SCHEMAS = {
     ],
     fields:[
       {k:'cardName',l:'Card Name',required:true},{k:'cardId',l:'Card ID (from Inventory)'},
-      {k:'company',l:'Grading Company',type:'select',opts:['PSA','CGC']},
+      {k:'company',l:'Grading Company',type:'select',opts:['PSA','CGC','Other']},
       {k:'serviceLevel',l:'Service Level'},{k:'dateSubmitted',l:'Date Submitted',type:'date'},
       {k:'dateReturned',l:'Date Returned',type:'date'},{k:'gradingFee',l:'Grading Fee ($)',type:'number'},
       {k:'shipTo',l:'Shipping to Grader ($)',type:'number'},{k:'shipBack',l:'Return Shipping ($)',type:'number'},
