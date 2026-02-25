@@ -340,7 +340,7 @@ const SCHEMAS = {
   sales: {
     title:'Sales Log',addLabel:'+ Log Sale',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'cardName',l:'Card',w:150},
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'cardName',l:'Card',w:180,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';const gradeStr=(co||gr)?` <span style="color:var(--yellow);font-weight:600">${co}${co&&gr?' ':''}${gr}</span>`:'';return(row.cardName||'')+gradeStr;}},
       {k:'platform',l:'Platform',w:90},{k:'salePrice',l:'Sale$',w:80,r:1,render:v=>fmt(num(v))},
       {k:'platformFee',l:'Fees',w:70,r:1,render:(_,row)=>fmt(num(row.platformFee)+num(row.consignFee))},
       {k:'shipCost',l:'Ship$',w:70,r:1,render:v=>fmt(num(v))},
@@ -572,6 +572,9 @@ window.saveModal = function() {
     }
   });
   if(s.onSave)s.onSave(row);
+  // Preserve linked data not in form fields
+  if(window.modal.data.gradingCompany) row.gradingCompany = window.modal.data.gradingCompany;
+  if(window.modal.data.grade) row.grade = window.modal.data.grade;
   if(window.modal.mode==='add'){
     row.id=nextId(s.idPrefix);D[window.modal.type].push(row);
     // Auto-update inventory card status when linked
@@ -643,11 +646,13 @@ window.selectCard = function(idx) {
     const preVal = document.getElementById('f_preValue');
     if (preVal && !preVal.value) preVal.value = num(card.costBasis) || '';
   } else if (window.modal.type === 'sales') {
-    // Auto-fill cost basis and card type from inventory
+    // Auto-fill cost basis, card type, and grade from inventory
     const costEl = document.getElementById('f_costBasis');
     if (costEl && !costEl.value) costEl.value = (num(card.costBasis) + num(card.gradingCost)) || '';
     const typeEl = document.getElementById('f_cardType');
     if (typeEl && card.cardType) typeEl.value = card.cardType;
+    window.modal.data.gradingCompany = card.gradingCompany || '';
+    window.modal.data.grade = card.grade || '';
   }
 };
 
