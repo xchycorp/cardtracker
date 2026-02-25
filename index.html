@@ -196,7 +196,9 @@ function M() {
   const startingCash=num(sett.startingCash);
   const otherAssets=num(sett.suppliesInventory)+num(sett.equipment)+num(sett.otherAssets);
   const totalLiabilities=num(sett.accountsPayable)+num(sett.unpaidGrading)+num(sett.salesTaxOwed)+num(sett.creditCardBal);
-  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett};
+  const totalInvested = startingCash + totalContributions + D.purchases.reduce((s,r)=>s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax)),0);
+  const bizROI = totalInvested ? net / totalInvested : 0;
+  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI};
 }
 
 // ============================================================
@@ -256,6 +258,8 @@ function rOverview(m) {
       <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Avg Profit/Card</div><div class="val">${fmtD(m.avgP)}</div></div>
       <div class="mc" style="border-left-color:var(--purple)"><div class="lbl">Inventory (Cost)</div><div class="val">${fmt(m.invCost)}</div><div class="sub" style="color:var(--text-dim)">${m.ac} cards</div></div>
       <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Inventory (Market)</div><div class="val">${fmt(m.invMkt)}</div><div class="sub" style="color:${m.invMkt>m.invCost?'var(--green)':'var(--red)'}">${m.invMkt>m.invCost?'+':''}${fmt(m.invMkt-m.invCost)} unrealized</div></div>
+      <div class="mc" style="border-left-color:var(--accent)"><div class="lbl">Total Invested</div><div class="val">${fmt(m.totalInvested)}</div><div class="sub" style="color:var(--text-dim)">All capital + purchases</div></div>
+      <div class="mc" style="border-left-color:${m.bizROI>=0?'var(--green)':'var(--red)'}"><div class="lbl">Business ROI</div><div class="val ${m.bizROI>=0?'pos':'neg'}">${m.totalInvested?pct(m.bizROI):'—'}</div><div class="sub" style="color:var(--text-dim)">Net income ÷ total invested</div></div>
     </div>
     <div class="charts-grid">
       <div class="panel chart-card"><h3>Revenue & Profit by Platform</h3><div class="chart-wrap"><canvas id="ch1"></canvas></div></div>
@@ -325,7 +329,8 @@ const SCHEMAS = {
       {k:'shipCost',l:'Ship$',w:70,r:1,render:v=>fmt(num(v))},
       {k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'_profit',l:'Profit',w:80,r:1,render:(_,row)=>{const p2=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return`<strong class="${p2>=0?'pos':'neg'}">${fmt(p2)}</strong>`;}},
-      {k:'_margin',l:'Margin',w:70,r:1,render:(_,row)=>{const sp=num(row.salePrice);const p2=sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return sp?`<span class="${p2>=0?'pos':'neg'}">${pct(p2/sp)}</span>`:'—';}}
+      {k:'_margin',l:'Margin',w:70,r:1,render:(_,row)=>{const sp=num(row.salePrice);const p2=sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return sp?`<span class="${p2>=0?'pos':'neg'}">${pct(p2/sp)}</span>`:'—';}},
+      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const cost=num(row.costBasis);const profit=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cost;return cost?`<span class="${profit>=0?'pos':'neg'}">${pct(profit/cost)}</span>`:'—';}}
     ],
     fields:[
       {k:'cardName',l:'Card Name',required:true},{k:'date',l:'Sale Date',type:'date'},
@@ -583,6 +588,9 @@ function rFinancials(m) {
       <div class="ratio-row"><span class="lbl">Cards Sold</span><span class="val">${m.sc}</span></div>
       <div class="ratio-row"><span class="lbl">Avg Sale Price</span><span class="val">${m.sc?fmtD(m.tSale/m.sc):'—'}</span></div>
       <div class="ratio-row"><span class="lbl">Avg Profit/Card</span><span class="val ${m.avgP>=0?'pos':'neg'}">${fmtD(m.avgP)}</span></div>
+      <div class="ratio-row"><span class="lbl">Avg ROI/Card Sold</span><span class="val ${m.gross>=0?'pos':'neg'}">${m.tCOGS?pct(m.gross/m.tCOGS):'—'}</span></div>
+      <div class="ratio-row"><span class="lbl">Overall Business ROI</span><span class="val ${m.bizROI>=0?'pos':'neg'}">${m.totalInvested?pct(m.bizROI):'—'}</span></div>
+      <div class="ratio-row"><span class="lbl">Total Invested</span><span class="val">${fmt(m.totalInvested)}</span></div>
     </div>
   </div>
   <div class="panel" style="margin-top:14px">
