@@ -384,7 +384,7 @@ const SCHEMAS = {
       {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const f=num(row.totalCost);const a=num(row.postValue)-num(row.preValue)-f;return f&&num(row.postValue)?`<span class="${a>=0?'pos':'neg'}">${pct(a/f)}</span>`:'—';}}
     ],
     fields:[
-      {k:'cardName',l:'Card Name',required:true},{k:'cardId',l:'Card ID (from Inventory)'},
+      {k:'cardName',l:'Link Inventory Card',type:'cardpicker',required:true},{k:'cardId',l:'Card ID',type:'hidden'},
       {k:'company',l:'Grading Company',type:'select',opts:['PSA','CGC','Other']},
       {k:'serviceLevel',l:'Service Level'},{k:'dateSubmitted',l:'Date Submitted',type:'date'},
       {k:'dateReturned',l:'Date Returned',type:'date'},{k:'gradingFee',l:'Grading Fee ($)',type:'number'},
@@ -526,12 +526,21 @@ function rModal() {
     <div class="modal">
       <h2>${title}<button class="close" onclick="window.modal=null;render()">&times;</button></h2>
       <div class="form-grid">
-        ${s.fields.map(f=>`<div class="form-group${f.full?' full':''}">
+        ${s.fields.map(f=>{
+          if(f.type==='hidden') return `<input type="hidden" id="f_${f.k}" value="${window.modal.data[f.k]||''}">`;
+          if(f.type==='cardpicker') return `<div class="form-group">
+            <label>${f.l}${f.required?' *':''}</label>
+            <div class="card-picker">
+              <input type="text" id="f_cardpicker" class="search-input" placeholder="Type card name or ID..." value="${window.modal.data.cardName||''}" oninput="filterCardPicker(this.value)" onfocus="filterCardPicker(this.value)" autocomplete="off">
+              <div id="card-picker-results" class="picker-results"></div>
+            </div>
+          </div>`;
+          return `<div class="form-group${f.full?' full':''}">
           <label>${f.l}${f.required?' *':''}</label>
           ${f.type==='select'?`<select id="f_${f.k}">${f.opts.map(o=>`<option${(window.modal.data[f.k]||'')===o?' selected':''}>${o}</option>`).join('')}</select>`:
           f.type==='textarea'?`<textarea id="f_${f.k}">${window.modal.data[f.k]||''}</textarea>`:
           `<input type="${f.type||'text'}" id="f_${f.k}" value="${window.modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}>`}
-        </div>`).join('')}
+        </div>`;}).join('')}
       </div>
       <div class="form-actions">
         <button class="btn" onclick="window.modal=null;render()">Cancel</button>
@@ -544,14 +553,73 @@ function rModal() {
 window.saveModal = function() {
   const s=SCHEMAS[window.modal.type];
   const row=window.modal.mode==='edit'?{...window.modal.data}:{};
-  s.fields.forEach(f=>{const el=document.getElementById('f_'+f.k);if(el)row[f.k]=f.type==='number'?parseFloat(el.value)||0:el.value;});
+  s.fields.forEach(f=>{
+    if(f.type==='cardpicker'){
+      // Card name comes from the picker input
+      const el=document.getElementById('f_cardpicker');
+      if(el) row.cardName=el.value;
+    } else {
+      const el=document.getElementById('f_'+f.k);
+      if(el)row[f.k]=f.type==='number'?parseFloat(el.value)||0:el.value;
+    }
+  });
   if(s.onSave)s.onSave(row);
-  if(window.modal.mode==='add'){row.id=nextId(s.idPrefix);D[window.modal.type].push(row);showToast(`Record added & synced`);}
+  if(window.modal.mode==='add'){
+    row.id=nextId(s.idPrefix);D[window.modal.type].push(row);
+    // Auto-update inventory card status to Submitted if grading entry
+    if(window.modal.type==='grading' && window.modal.data._linkedInvIdx !== undefined){
+      const card = D.inventory[window.modal.data._linkedInvIdx];
+      if(card && card.status !== 'Sold'){
+        const oldStatus = card.status;
+        card.status = 'Submitted';
+        showToast(`${card.cardName}: ${oldStatus} → Submitted`);
+      }
+    }
+    showToast(`Record added & synced`);
+  }
   else{D[window.modal.type][window.editIdx]=row;showToast('Record updated & synced');}
   saveData();window.modal=null;render();
 };
 
 window.delRow = function(type,idx) { D[type].splice(idx,1); saveData(); showToast('Record deleted & synced'); render(); };
+
+// Card picker for grading submissions
+window.filterCardPicker = function(val) {
+  const resultsEl = document.getElementById('card-picker-results');
+  if (!resultsEl) return;
+  if (!val || val.length < 1) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+  const term = val.toLowerCase();
+  const matches = D.inventory.filter(c => c.status !== 'Sold' && (
+    (c.cardName||'').toLowerCase().includes(term) || (c.id||'').toLowerCase().includes(term)
+  )).slice(0, 8);
+  if (!matches.length) { resultsEl.innerHTML = '<div class="picker-item" style="color:var(--text-dim)">No matching cards</div>'; resultsEl.style.display = 'block'; return; }
+  resultsEl.innerHTML = matches.map((c,i) => `<div class="picker-item" onclick="selectCard(${D.inventory.indexOf(c)})"><strong>${c.id||''}</strong> — ${c.cardName||''} <span style="color:var(--text-dim);font-size:11px">${c.cardType||''} · ${c.status||''}</span></div>`).join('');
+  resultsEl.style.display = 'block';
+};
+
+window.selectCard = function(idx) {
+  const card = D.inventory[idx];
+  const pickerInput = document.getElementById('f_cardpicker');
+  const cardIdInput = document.getElementById('f_cardId');
+  if (pickerInput) pickerInput.value = card.cardName || '';
+  if (cardIdInput) cardIdInput.value = card.id || '';
+  window.modal.data.cardName = card.cardName || '';
+  window.modal.data.cardId = card.id || '';
+  window.modal.data._linkedInvIdx = idx;
+  const resultsEl = document.getElementById('card-picker-results');
+  if (resultsEl) { resultsEl.style.display = 'none'; }
+  // Auto-fill pre-grade value from inventory cost basis if empty
+  const preVal = document.getElementById('f_preValue');
+  if (preVal && !preVal.value) preVal.value = num(card.costBasis) || '';
+};
+
+// Close picker when clicking outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.card-picker')) {
+    const r = document.getElementById('card-picker-results');
+    if (r) r.style.display = 'none';
+  }
+});
 window.quickStatus = function(idx, newStatus) {
   if (!newStatus) return;
   const card = D.inventory[idx];
@@ -983,6 +1051,11 @@ tbody td.mono{font-family:'JetBrains Mono',monospace;font-size:11px;}
 th.sortable{cursor:pointer;user-select:none;transition:color .2s;}
 th.sortable:hover{color:var(--accent);}
 th.sorted{color:var(--accent);}
+.card-picker{position:relative;}
+.picker-results{position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border-light);border-radius:var(--radius-sm);max-height:220px;overflow-y:auto;z-index:1000;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+.picker-item{padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);transition:background .15s;}
+.picker-item:hover{background:var(--accent);color:#fff;}
+.picker-item:last-child{border-bottom:none;}
 @media(max-width:900px){.charts-grid,.fin-grid{grid-template-columns:1fr;}.metrics{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}.app{padding:14px;}.form-grid{grid-template-columns:1fr;}}
 </style>
 <script>
