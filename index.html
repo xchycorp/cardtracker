@@ -687,12 +687,6 @@ function rAnalytics(m) {
         </tbody></table>`:'<div class="empty">Add market values to inventory to see opportunities</div>'}
       </div>
     </div>
-    ${namePerf.length?`<div class="panel">
-      <h3 style="color:var(--blue)">📋 Performance by Card Name</h3>
-      <table><thead><tr><th>Card Name</th><th class="r">Times Sold</th><th class="r">Total Revenue</th><th class="r">Total Cost</th><th class="r">Total Profit</th><th class="r">Avg ROI</th></tr></thead><tbody>
-        ${namePerf.map(r=>`<tr><td><strong>${r.name}</strong></td><td class="r mono">${r.count}</td><td class="r mono">${fmt(r.totalRevenue)}</td><td class="r mono">${fmt(r.totalCost)}</td><td class="r mono ${r.totalProfit>=0?'pos':'neg'}"><strong>${fmt(r.totalProfit)}</strong></td><td class="r mono ${r.totalCost?(r.totalProfit/r.totalCost>=0?'pos':'neg'):''}">${r.totalCost?pct(r.totalProfit/r.totalCost):'—'}</td></tr>`).join('')}
-      </tbody></table>
-    </div>`:''}
     <div class="charts-grid">
       ${typePerf.length?`<div class="panel">
         <h3 style="color:var(--purple)">🃏 Performance by Card Type</h3>
