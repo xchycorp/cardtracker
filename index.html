@@ -450,7 +450,7 @@ function rTable(type,m) {
   if(!data.length) return `<div class="panel"><h3>${s.title} ${addBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
   return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}</span></h3>
     <table><thead><tr>${s.cols.map(c=>`<th${c.r?' class="r"':''}>${c.l}</th>`).join('')}<th style="width:70px"></th></tr></thead>
-    <tbody>${data.map((row,i)=>`<tr>${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r"><button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`).join('')}
+    <tbody>${data.map((row,i)=>`<tr>${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r">${type==='inventory'?`<select class="quick-status" onchange="quickStatus(${i},this.value)" title="Quick status change"><option value="">⚡</option>${['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].map(st=>`<option value="${st}"${row.status===st?' disabled':''}>${st}</option>`).join('')}</select> `:''}<button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`).join('')}
     </tbody></table></div>`;
 }
 
@@ -532,6 +532,15 @@ window.saveModal = function() {
 };
 
 window.delRow = function(type,idx) { D[type].splice(idx,1); saveData(); showToast('Record deleted & synced'); render(); };
+window.quickStatus = function(idx, newStatus) {
+  if (!newStatus) return;
+  const card = D.inventory[idx];
+  const oldStatus = card.status;
+  card.status = newStatus;
+  saveData();
+  showToast(`${card.cardName}: ${oldStatus} → ${newStatus}`);
+  render();
+};
 window.resetAll = function() { D=emptyData(); saveData(); render(); };
 
 // ============================================================
@@ -797,6 +806,9 @@ tbody td.mono{font-family:'JetBrains Mono',monospace;font-size:11px;}
 .toast{position:fixed;bottom:24px;right:24px;background:var(--green);color:#fff;padding:12px 20px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;z-index:200;animation:fadeUp .3s ease;box-shadow:0 4px 20px #00000066;}
 .footer{text-align:center;margin-top:36px;padding:14px 0;border-top:1px solid var(--border);color:var(--text-faint);font-size:11px;}
 .empty{text-align:center;padding:50px 20px;color:var(--text-dim);}.empty .icon{font-size:40px;margin-bottom:10px;}
+.quick-status{background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:3px 4px;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;width:42px;text-align:center;transition:all .2s;}
+.quick-status:hover{border-color:var(--accent);color:var(--text);}
+.quick-status:focus{outline:none;border-color:var(--accent);}
 @media(max-width:900px){.charts-grid,.fin-grid{grid-template-columns:1fr;}.metrics{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}.app{padding:14px;}.form-grid{grid-template-columns:1fr;}}
 </style>
 <script>
