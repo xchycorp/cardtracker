@@ -844,14 +844,21 @@ function showLoginScreen() {
 }
 
 function loadApp() {
-  // Reload page so the module script picks up the auth flag
+  // Set a flag so we only reload once after login
+  sessionStorage.setItem('ct_just_logged_in', 'true');
   window.location.reload();
 }
 
 // On page load, check auth
 document.addEventListener('DOMContentLoaded', function() {
   if (isAuthenticated()) {
-    loadApp();
+    // If we just logged in, clear the flag and let the module script run
+    if (sessionStorage.getItem('ct_just_logged_in') === 'true') {
+      sessionStorage.removeItem('ct_just_logged_in');
+      // Module script will handle it — show loading state
+      document.getElementById('app').innerHTML = '<div style="text-align:center;padding:100px 20px;color:#7878A0;"><div style="font-size:32px;margin-bottom:12px;">📊</div><div style="font-size:16px;font-weight:600;">Loading CardTracker...</div><div style="font-size:12px;margin-top:8px;">Connecting to cloud database</div></div>';
+    }
+    // Otherwise module script is already running, do nothing
   } else {
     showLoginScreen();
   }
