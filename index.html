@@ -123,6 +123,9 @@ window.sortCol = null;
 window.sortDir = 'asc';
 window.quickEntryMode = false;
 window.quickEntryRows = [];
+window.quickSalesMode = false;
+window.quickSalesRows = [];
+window.activePickerRow = null;
 let toast = null;
 let charts = {};
 
@@ -467,7 +470,8 @@ const SCHEMAS = {
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
-  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button>`:'';
+  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button>`
+    :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button>`:'';
   // Apply search and sort
   const filtered = filterData(data, type);
   const sorted = sortData(filtered, s.cols);
@@ -478,6 +482,7 @@ function rTable(type,m) {
 
   // Show quick entry mode if active
   if(type==='inventory' && window.quickEntryMode) return rQuickEntry(data, addBtn, quickAddBtn);
+  if(type==='sales' && window.quickSalesMode) return rQuickSales(data, addBtn, quickAddBtn);
 
   if(!data.length) return `<div class="panel"><h3>${s.title} ${addBtn}${quickAddBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
 
@@ -755,6 +760,168 @@ function rQuickEntry(data, addBtn, quickAddBtn) {
   </div>`;
 }
 
+// ============================================================
+// QUICK SALES MODE
+// ============================================================
+window.openQuickSales = function() {
+  window.quickSalesMode = true;
+  window.quickSalesRows = [makeQuickSaleRow()];
+  render();
+  setTimeout(()=>{const el=document.getElementById('qs_0_cardName');if(el)el.focus();},50);
+};
+
+function makeQuickSaleRow() {
+  return {cardName:'',cardId:'',_linkedInvIdx:undefined,gradingCompany:'',grade:'',date:new Date().toISOString().slice(0,10),platform:'eBay',salePrice:'',platformFee:'',consignFee:'',shipCost:'',costBasis:'',cardType:'Pokemon',notes:''};
+}
+
+window.qsAddRow = function() {
+  qsReadAll();
+  window.quickSalesRows.push(makeQuickSaleRow());
+  render();
+  const idx=window.quickSalesRows.length-1;
+  setTimeout(()=>{const el=document.getElementById('qs_'+idx+'_cardName');if(el)el.focus();},50);
+};
+
+window.qsRemoveRow = function(idx) {
+  qsReadAll();
+  window.quickSalesRows.splice(idx,1);
+  if(!window.quickSalesRows.length) window.quickSalesRows.push(makeQuickSaleRow());
+  render();
+};
+
+function qsReadAll() {
+  window.quickSalesRows.forEach((row,i)=>{
+    ['cardName','date','platform','salePrice','platformFee','consignFee','shipCost','costBasis','cardType','notes'].forEach(k=>{
+      const el=document.getElementById('qs_'+i+'_'+k);
+      if(el) row[k]=el.value;
+    });
+  });
+}
+
+window.qsFilterPicker = function(rowIdx, val) {
+  const resultsEl = document.getElementById('qs-picker-'+rowIdx);
+  if (!resultsEl) return;
+  window.activePickerRow = rowIdx;
+  if (!val || val.length < 1) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+  const term = val.toLowerCase();
+  const matches = D.inventory.filter(c => c.status !== 'Sold' && (
+    (c.cardName||'').toLowerCase().includes(term) || (c.id||'').toLowerCase().includes(term) ||
+    (c.grade||'').toLowerCase().includes(term) || (c.gradingCompany||'').toLowerCase().includes(term)
+  )).slice(0, 6);
+  if (!matches.length) { resultsEl.innerHTML = '<div class="picker-item" style="color:var(--text-dim)">No match — type manually</div>'; resultsEl.style.display = 'block'; return; }
+  resultsEl.innerHTML = matches.map(c => `<div class="picker-item" onclick="qsSelectCard(${rowIdx},${D.inventory.indexOf(c)})"><strong>${c.id||''}</strong> — ${c.cardName||''} ${c.gradingCompany||c.grade?'<span style="color:var(--yellow);font-weight:600">'+(c.gradingCompany?c.gradingCompany+' ':'')+(c.grade||'')+'</span>':''} <span style="color:var(--text-dim);font-size:11px">${c.cardType||''} · ${c.status||''}</span></div>`).join('');
+  resultsEl.style.display = 'block';
+};
+
+window.qsSelectCard = function(rowIdx, invIdx) {
+  qsReadAll();
+  const card = D.inventory[invIdx];
+  const row = window.quickSalesRows[rowIdx];
+  row.cardName = card.cardName || '';
+  row.cardId = card.id || '';
+  row._linkedInvIdx = invIdx;
+  row.gradingCompany = card.gradingCompany || '';
+  row.grade = card.grade || '';
+  row.costBasis = String((num(card.costBasis) + num(card.gradingCost)) || '');
+  row.cardType = card.cardType || 'Pokemon';
+  const resultsEl = document.getElementById('qs-picker-'+rowIdx);
+  if (resultsEl) resultsEl.style.display = 'none';
+  render();
+  // Focus sale price since card info is filled
+  setTimeout(()=>{const el=document.getElementById('qs_'+rowIdx+'_salePrice');if(el)el.focus();},50);
+};
+
+window.qsSaveAll = function() {
+  qsReadAll();
+  const valid = window.quickSalesRows.filter(r=>r.cardName.trim());
+  if(!valid.length){showToast('No sales to save — enter at least one card name');return;}
+  valid.forEach(row=>{
+    const sale = {
+      id: nextId('S'),
+      cardName: row.cardName.trim(),
+      cardId: row.cardId||'',
+      gradingCompany: row.gradingCompany||'',
+      grade: row.grade||'',
+      date: row.date,
+      platform: row.platform,
+      salePrice: parseFloat(row.salePrice)||0,
+      platformFee: parseFloat(row.platformFee)||0,
+      consignFee: parseFloat(row.consignFee)||0,
+      shipCost: parseFloat(row.shipCost)||0,
+      costBasis: parseFloat(row.costBasis)||0,
+      cardType: row.cardType,
+      notes: row.notes
+    };
+    D.sales.push(sale);
+    // Auto-mark inventory as sold if linked
+    if(row._linkedInvIdx !== undefined){
+      const card = D.inventory[row._linkedInvIdx];
+      if(card && card.status !== 'Sold') card.status = 'Sold';
+    }
+  });
+  saveData();
+  showToast(`${valid.length} sale${valid.length>1?'s':''} logged & synced!`);
+  window.quickSalesMode = false;
+  window.quickSalesRows = [];
+  render();
+};
+
+window.qsSalesCancel = function() {
+  const rows = window.quickSalesRows.filter(r=>r.cardName&&r.cardName.trim());
+  if(rows.length && !confirm('Discard all unsaved sales?')) return;
+  window.quickSalesMode = false;
+  window.quickSalesRows = [];
+  render();
+};
+
+function rQuickSales(data, addBtn, quickAddBtn) {
+  const rows = window.quickSalesRows;
+  return `<div class="panel">
+    <h3><span>Quick Log Sales</span><span class="right">
+      <button class="btn btn-sm" onclick="qsSalesCancel()">✕ Cancel</button>
+      <button class="btn btn-accent btn-sm" onclick="qsSaveAll()">💾 Save All (${rows.length})</button>
+    </span></h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Type a card name to search inventory or enter manually. Tab through fields.</div>
+    <div class="qe-table-wrap"><table class="qe-table">
+      <thead><tr>
+        <th style="width:30px">#</th>
+        <th>Card Name *</th>
+        <th style="width:90px">Date</th>
+        <th style="width:95px">Platform</th>
+        <th style="width:80px">Sale $</th>
+        <th style="width:80px">Fees $</th>
+        <th style="width:80px">Ship $</th>
+        <th style="width:80px">Cost $</th>
+        <th style="width:70px"></th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((r,i)=>`<tr>
+          <td class="mono" style="color:var(--text-dim)">${i+1}</td>
+          <td><div class="card-picker" style="position:relative">
+            <input type="text" id="qs_${i}_cardName" class="qe-input qe-wide" value="${r.cardName||''}" placeholder="Search inventory or type name..." oninput="qsFilterPicker(${i},this.value)" onfocus="qsFilterPicker(${i},this.value)" autocomplete="off">
+            ${r._linkedInvIdx!==undefined?`<span style="font-size:10px;color:var(--green)">✓ ${r.cardId}${r.gradingCompany||r.grade?' · '+(r.gradingCompany?r.gradingCompany+' ':'')+(r.grade||''):''}</span>`:''}
+            <div id="qs-picker-${i}" class="picker-results"></div>
+          </div></td>
+          <td><input type="date" id="qs_${i}_date" class="qe-input" value="${r.date||''}"></td>
+          <td><select id="qs_${i}_platform" class="qe-input">${['eBay','Card Show','Consignment'].map(o=>`<option${r.platform===o?' selected':''}>${o}</option>`).join('')}</select></td>
+          <td><input type="number" id="qs_${i}_salePrice" class="qe-input" step="0.01" value="${r.salePrice||''}" placeholder="0.00"></td>
+          <td><input type="number" id="qs_${i}_platformFee" class="qe-input" step="0.01" value="${r.platformFee||''}" placeholder="0.00"></td>
+          <td><input type="number" id="qs_${i}_shipCost" class="qe-input" step="0.01" value="${r.shipCost||''}" placeholder="0.00"></td>
+          <td><input type="number" id="qs_${i}_costBasis" class="qe-input" step="0.01" value="${r.costBasis||''}" placeholder="0.00"></td>
+          <td><button class="btn btn-sm btn-danger" onclick="qsRemoveRow(${i})" title="Remove">🗑</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+      <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="qsAddRow()">＋ Add Row</button>
+      <span style="font-size:12px;color:var(--text-dim)">${rows.length} row${rows.length>1?'s':''}</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm" onclick="qsSalesCancel()">Cancel</button>
+      <button class="btn btn-accent btn-sm" onclick="qsSaveAll()">💾 Save All</button>
+    </div>
+  </div>`;
+}
+
 // Card picker for grading submissions
 window.filterCardPicker = function(val) {
   const resultsEl = document.getElementById('card-picker-results');
@@ -802,6 +969,8 @@ document.addEventListener('click', function(e) {
   if (!e.target.closest('.card-picker')) {
     const r = document.getElementById('card-picker-results');
     if (r) r.style.display = 'none';
+    // Also close quick sales pickers
+    document.querySelectorAll('.picker-results').forEach(el => el.style.display = 'none');
   }
 });
 window.quickStatus = function(idx, newStatus) {
