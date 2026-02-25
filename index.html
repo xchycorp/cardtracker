@@ -590,7 +590,22 @@ window.saveModal = function() {
     }
     showToast(`Record added & synced`);
   }
-  else{D[window.modal.type][window.editIdx]=row;showToast('Record updated & synced');}
+  else{
+    D[window.modal.type][window.editIdx]=row;
+    // Auto-update inventory when grading entry is edited with return date and grade
+    if(window.modal.type==='grading' && row.cardId && row.dateReturned && row.gradeReceived){
+      const card = D.inventory.find(c => c.id === row.cardId);
+      if(card && (card.status === 'Submitted' || card.status === 'Raw')){
+        card.status = 'Graded';
+        card.grade = (row.company||'') + ' ' + row.gradeReceived;
+        card.gradingCost = num(row.totalCost);
+        card.gradingCompany = row.company || '';
+        if(num(row.postValue)) card.marketValue = num(row.postValue);
+        showToast(`${card.cardName}: → Graded (${card.grade})`);
+      }
+    }
+    showToast('Record updated & synced');
+  }
   saveData();window.modal=null;render();
 };
 
