@@ -115,9 +115,9 @@ function ensureFields() {
 }
 
 let D = emptyData();
-let tab = 'overview';
-let modal = null;
-let editIdx = null;
+window.tab = 'overview';
+window.modal = null;
+window.editIdx = null;
 let toast = null;
 let charts = {};
 
@@ -222,26 +222,26 @@ window.render = function render() {
       ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','financials'].map(t2=>{
         const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
-        return `<button class="tab ${tab===t2?'active':''}" onclick="tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
+        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
     </div>
     <div id="content">${
-      tab==='overview'?rOverview(m):
-      tab==='inventory'?rTable('inventory',m):
-      tab==='sales'?rTable('sales',m):
-      tab==='purchases'?rTable('purchases',m):
-      tab==='grading'?rTable('grading',m):
-      tab==='sealed'?rTable('sealed',m):
-      tab==='expenses'?rTable('expenses',m):
-      tab==='capital'?rCapital(m):
+      window.tab==='overview'?rOverview(m):
+      window.tab==='inventory'?rTable('inventory',m):
+      window.tab==='sales'?rTable('sales',m):
+      window.tab==='purchases'?rTable('purchases',m):
+      window.tab==='grading'?rTable('grading',m):
+      window.tab==='sealed'?rTable('sealed',m):
+      window.tab==='expenses'?rTable('expenses',m):
+      window.tab==='capital'?rCapital(m):
       rFinancials(m)
     }</div>
-    ${modal?rModal():''}
+    ${window.modal?rModal():''}
     <div class="toast" id="toast" style="display:${toast?'block':'none'}">${toast||''}</div>
     <div class="footer">CardTracker · Real-time cloud sync · Data shared between all users</div>
     <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none" onchange="handleImport(event)">
   `;
-  if(tab==='overview') renderCharts(m);
+  if(window.tab==='overview') renderCharts(m);
 };
 
 // ============================================================
@@ -490,26 +490,26 @@ window.saveSetting = function(key, value) {
 // ============================================================
 // MODAL
 // ============================================================
-window.openAdd = function(type) { modal={type,mode:'add',data:{date:new Date().toISOString().slice(0,10),dateAdded:new Date().toISOString().slice(0,10),dateAcquired:new Date().toISOString().slice(0,10),dateSubmitted:new Date().toISOString().slice(0,10)}};editIdx=null;render(); };
-window.openEdit = function(type,idx) { modal={type,mode:'edit',data:{...D[type][idx]}};editIdx=idx;render(); };
+window.openAdd = function(type) { window.modal={type,mode:'add',data:{date:new Date().toISOString().slice(0,10),dateAdded:new Date().toISOString().slice(0,10),dateAcquired:new Date().toISOString().slice(0,10),dateSubmitted:new Date().toISOString().slice(0,10)}};window.editIdx=null;render(); };
+window.openEdit = function(type,idx) { window.modal={type,mode:'edit',data:{...D[type][idx]}};window.editIdx=idx;render(); };
 
 function rModal() {
-  if(!modal) return '';
-  const s=SCHEMAS[modal.type];
-  const title=modal.mode==='add'?s.addLabel:`Edit ${s.title.replace(/s$/,'')}`;
-  return `<div class="modal-bg" onclick="if(event.target===this){modal=null;render();}">
+  if(!window.modal) return '';
+  const s=SCHEMAS[window.modal.type];
+  const title=window.modal.mode==='add'?s.addLabel:`Edit ${s.title.replace(/s$/,'')}`;
+  return `<div class="modal-bg" onclick="if(event.target===this){window.modal=null;render();}">
     <div class="modal">
-      <h2>${title}<button class="close" onclick="modal=null;render()">&times;</button></h2>
+      <h2>${title}<button class="close" onclick="window.modal=null;render()">&times;</button></h2>
       <div class="form-grid">
         ${s.fields.map(f=>`<div class="form-group${f.full?' full':''}">
           <label>${f.l}${f.required?' *':''}</label>
-          ${f.type==='select'?`<select id="f_${f.k}">${f.opts.map(o=>`<option${(modal.data[f.k]||'')===o?' selected':''}>${o}</option>`).join('')}</select>`:
-          f.type==='textarea'?`<textarea id="f_${f.k}">${modal.data[f.k]||''}</textarea>`:
-          `<input type="${f.type||'text'}" id="f_${f.k}" value="${modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}>`}
+          ${f.type==='select'?`<select id="f_${f.k}">${f.opts.map(o=>`<option${(window.modal.data[f.k]||'')===o?' selected':''}>${o}</option>`).join('')}</select>`:
+          f.type==='textarea'?`<textarea id="f_${f.k}">${window.modal.data[f.k]||''}</textarea>`:
+          `<input type="${f.type||'text'}" id="f_${f.k}" value="${window.modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}>`}
         </div>`).join('')}
       </div>
       <div class="form-actions">
-        <button class="btn" onclick="modal=null;render()">Cancel</button>
+        <button class="btn" onclick="window.modal=null;render()">Cancel</button>
         <button class="btn btn-accent" onclick="saveModal()">💾 Save</button>
       </div>
     </div>
@@ -517,13 +517,13 @@ function rModal() {
 }
 
 window.saveModal = function() {
-  const s=SCHEMAS[modal.type];
-  const row=modal.mode==='edit'?{...modal.data}:{};
+  const s=SCHEMAS[window.modal.type];
+  const row=window.modal.mode==='edit'?{...window.modal.data}:{};
   s.fields.forEach(f=>{const el=document.getElementById('f_'+f.k);if(el)row[f.k]=f.type==='number'?parseFloat(el.value)||0:el.value;});
   if(s.onSave)s.onSave(row);
-  if(modal.mode==='add'){row.id=nextId(s.idPrefix);D[modal.type].push(row);showToast(`Record added & synced`);}
-  else{D[modal.type][editIdx]=row;showToast('Record updated & synced');}
-  saveData();modal=null;render();
+  if(window.modal.mode==='add'){row.id=nextId(s.idPrefix);D[window.modal.type].push(row);showToast(`Record added & synced`);}
+  else{D[window.modal.type][window.editIdx]=row;showToast('Record updated & synced');}
+  saveData();window.modal=null;render();
 };
 
 window.delRow = function(type,idx) { D[type].splice(idx,1); saveData(); showToast('Record deleted & synced'); render(); };
