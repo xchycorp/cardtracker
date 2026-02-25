@@ -118,6 +118,9 @@ let D = emptyData();
 window.tab = 'overview';
 window.modal = null;
 window.editIdx = null;
+window.searchTerm = '';
+window.sortCol = null;
+window.sortDir = 'asc';
 let toast = null;
 let charts = {};
 
@@ -221,10 +224,10 @@ window.render = function render() {
       </div>
     </div>
     <div class="tabs">
-      ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','financials'].map(t2=>{
-        const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',financials:'Financials'};
+      ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','analytics','financials'].map(t2=>{
+        const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',analytics:'Analytics',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
-        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
+        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
     </div>
     <div id="content">${
@@ -236,6 +239,7 @@ window.render = function render() {
       window.tab==='sealed'?rTable('sealed',m):
       window.tab==='expenses'?rTable('expenses',m):
       window.tab==='capital'?rCapital(m):
+      window.tab==='analytics'?rAnalytics(m):
       rFinancials(m)
     }</div>
     ${window.modal?rModal():''}
@@ -306,7 +310,7 @@ const SCHEMAS = {
       {k:'grade',l:'Grade',w:80},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
       {k:'marketValue',l:'Market',w:80,r:1,render:v=>num(v)?fmt(num(v)):'—'},
-      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);if(!mv||row.status==='Sold')return'—';const r2=(mv-c)/c;return`<span class="${r2>=0?'pos':'neg'}">${pct(r2)}</span>`;}}
+      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);if(!mv||row.status==='Sold')return'—';const r2=(mv-c)/c;return`<span class="${r2>=0?'pos':'neg'}">${pct(r2)}</span>`;},sortVal:row=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);return(!mv||row.status==='Sold')?-999:(mv-c)/c;}}
     ],
     fields:[
       {k:'cardName',l:'Card Name',required:true},
@@ -328,9 +332,9 @@ const SCHEMAS = {
       {k:'platformFee',l:'Fees',w:70,r:1,render:(_,row)=>fmt(num(row.platformFee)+num(row.consignFee))},
       {k:'shipCost',l:'Ship$',w:70,r:1,render:v=>fmt(num(v))},
       {k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
-      {k:'_profit',l:'Profit',w:80,r:1,render:(_,row)=>{const p2=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return`<strong class="${p2>=0?'pos':'neg'}">${fmt(p2)}</strong>`;}},
-      {k:'_margin',l:'Margin',w:70,r:1,render:(_,row)=>{const sp=num(row.salePrice);const p2=sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return sp?`<span class="${p2>=0?'pos':'neg'}">${pct(p2/sp)}</span>`:'—';}},
-      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const cost=num(row.costBasis);const profit=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cost;return cost?`<span class="${profit>=0?'pos':'neg'}">${pct(profit/cost)}</span>`:'—';}}
+      {k:'_profit',l:'Profit',w:80,r:1,render:(_,row)=>{const p2=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return`<strong class="${p2>=0?'pos':'neg'}">${fmt(p2)}</strong>`;},sortVal:row=>num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis)},
+      {k:'_margin',l:'Margin',w:70,r:1,render:(_,row)=>{const sp=num(row.salePrice);const p2=sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return sp?`<span class="${p2>=0?'pos':'neg'}">${pct(p2/sp)}</span>`:'—';},sortVal:row=>{const sp=num(row.salePrice);return sp?(sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis))/sp:-999;}},
+      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const cost=num(row.costBasis);const profit=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cost;return cost?`<span class="${profit>=0?'pos':'neg'}">${pct(profit/cost)}</span>`:'—';},sortVal:row=>{const cost=num(row.costBasis);return cost?(num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cost)/cost:-999;}}
     ],
     fields:[
       {k:'cardName',l:'Card Name',required:true},{k:'date',l:'Sale Date',type:'date'},
@@ -445,12 +449,22 @@ const SCHEMAS = {
 // TABLE RENDERER
 // ============================================================
 function rTable(type,m) {
-  const s=SCHEMAS[type];const data=D[type];
+  const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
+  // Apply search and sort
+  const filtered = filterData(data, type);
+  const sorted = sortData(filtered, s.cols);
+  // Build original index map so edit/delete still work on the right record
+  const idxMap = sorted.map(row => data.indexOf(row));
+
+  const searchBar = `<div class="search-bar"><input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input">${window.searchTerm?'<button class="btn btn-sm" onclick="clearSearch()" style="margin-left:6px">✕ Clear</button>':''}<span class="search-count">${window.searchTerm?`${sorted.length} of ${data.length}`:''}</span></div>`;
+
   if(!data.length) return `<div class="panel"><h3>${s.title} ${addBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
+
   return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}</span></h3>
-    <table><thead><tr>${s.cols.map(c=>`<th${c.r?' class="r"':''}>${c.l}</th>`).join('')}<th style="width:70px"></th></tr></thead>
-    <tbody>${data.map((row,i)=>`<tr>${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r">${type==='inventory'?`<select class="quick-status" onchange="quickStatus(${i},this.value)" title="Quick status change"><option value="">⚡</option>${['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].map(st=>`<option value="${st}"${row.status===st?' disabled':''}>${st}</option>`).join('')}</select> `:''}<button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`).join('')}
+    ${searchBar}
+    <table><thead><tr>${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
+    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return`<tr>${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r">${type==='inventory'?`<select class="quick-status" onchange="quickStatus(${i},this.value)" title="Quick status change"><option value="">⚡</option>${['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].map(st=>`<option value="${st}"${row.status===st?' disabled':''}>${st}</option>`).join('')}</select> `:''}<button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`;}).join(''):`<tr><td colspan="${s.cols.length+1}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
     </tbody></table></div>`;
 }
 
@@ -541,7 +555,159 @@ window.quickStatus = function(idx, newStatus) {
   showToast(`${card.cardName}: ${oldStatus} → ${newStatus}`);
   render();
 };
+
+window.setSearch = function(val) { window.searchTerm = val; render(); };
+window.toggleSort = function(col) {
+  if (window.sortCol === col) {
+    window.sortDir = window.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    window.sortCol = col;
+    window.sortDir = 'asc';
+  }
+  render();
+};
+window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; render(); };
+
+function filterData(data, type) {
+  if (!window.searchTerm) return data;
+  const term = window.searchTerm.toLowerCase();
+  return data.filter(row => {
+    return Object.values(row).some(v => String(v).toLowerCase().includes(term));
+  });
+}
+
+function sortData(data, cols) {
+  if (!window.sortCol) return data;
+  const col = cols.find(c => c.k === window.sortCol);
+  if (!col) return data;
+  return [...data].sort((a, b) => {
+    let va = a[col.k], vb = b[col.k];
+    // For computed columns, compute the value
+    if (col.sortVal) { va = col.sortVal(a); vb = col.sortVal(b); }
+    else { va = num(va) || va; vb = num(vb) || vb; }
+    if (typeof va === 'number' && typeof vb === 'number') {
+      return window.sortDir === 'asc' ? va - vb : vb - va;
+    }
+    return window.sortDir === 'asc' ? String(va||'').localeCompare(String(vb||'')) : String(vb||'').localeCompare(String(va||''));
+  });
+}
 window.resetAll = function() { D=emptyData(); saveData(); render(); };
+
+// ============================================================
+// ANALYTICS TAB
+// ============================================================
+function rAnalytics(m) {
+  const sales = D.sales;
+  const inv = D.inventory;
+
+  // Top cards by profit
+  const salesWithProfit = sales.map(r => {
+    const profit = num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis);
+    const cost = num(r.costBasis);
+    const roi = cost ? profit/cost : 0;
+    return {...r, _profit: profit, _roi: roi};
+  });
+  const topProfit = [...salesWithProfit].sort((a,b) => b._profit - a._profit).slice(0,10);
+  const topROI = [...salesWithProfit].filter(r => num(r.costBasis) > 0).sort((a,b) => b._roi - a._roi).slice(0,10);
+  const worstROI = [...salesWithProfit].filter(r => num(r.costBasis) > 0).sort((a,b) => a._roi - b._roi).slice(0,10);
+
+  // Performance by card name (group duplicates)
+  const byName = {};
+  salesWithProfit.forEach(r => {
+    const name = (r.cardName||'').toLowerCase().trim();
+    if (!name) return;
+    if (!byName[name]) byName[name] = { name: r.cardName, count: 0, totalProfit: 0, totalRevenue: 0, totalCost: 0 };
+    byName[name].count++;
+    byName[name].totalProfit += r._profit;
+    byName[name].totalRevenue += num(r.salePrice);
+    byName[name].totalCost += num(r.costBasis);
+  });
+  const namePerf = Object.values(byName).sort((a,b) => b.totalProfit - a.totalProfit);
+
+  // Performance by card type
+  const byType = {};
+  salesWithProfit.forEach(r => {
+    const t = r.cardType || 'Unknown';
+    if (!byType[t]) byType[t] = { type: t, count: 0, totalProfit: 0, totalRevenue: 0, totalCost: 0 };
+    byType[t].count++;
+    byType[t].totalProfit += r._profit;
+    byType[t].totalRevenue += num(r.salePrice);
+    byType[t].totalCost += num(r.costBasis);
+  });
+  const typePerf = Object.values(byType).sort((a,b) => b.totalProfit - a.totalProfit);
+
+  // Performance by platform
+  const byPlatPerf = {};
+  salesWithProfit.forEach(r => {
+    const p = r.platform || 'Unknown';
+    if (!byPlatPerf[p]) byPlatPerf[p] = { platform: p, count: 0, totalProfit: 0, totalRevenue: 0, totalCost: 0, totalFees: 0 };
+    byPlatPerf[p].count++;
+    byPlatPerf[p].totalProfit += r._profit;
+    byPlatPerf[p].totalRevenue += num(r.salePrice);
+    byPlatPerf[p].totalCost += num(r.costBasis);
+    byPlatPerf[p].totalFees += num(r.platformFee) + num(r.consignFee);
+  });
+  const platPerf = Object.values(byPlatPerf).sort((a,b) => b.totalProfit - a.totalProfit);
+
+  // Unsold inventory by value (biggest opportunities)
+  const unsold = inv.filter(c => c.status !== 'Sold' && num(c.marketValue) > 0).map(c => {
+    const cost = num(c.costBasis) + num(c.gradingCost);
+    const mv = num(c.marketValue);
+    return {...c, _upside: mv - cost, _roi: cost ? (mv-cost)/cost : 0};
+  }).sort((a,b) => b._upside - a._upside).slice(0,10);
+
+  if (!sales.length && !inv.length) return '<div class="panel"><div class="empty"><div class="icon">📊</div>Add some inventory and sales data to unlock analytics.</div></div>';
+
+  return `
+    <div class="charts-grid">
+      <div class="panel">
+        <h3 style="color:var(--green)">🏆 Top 10 Most Profitable Sales</h3>
+        ${topProfit.length?`<table><thead><tr><th>Card</th><th>Platform</th><th class="r">Sale</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
+          ${topProfit.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${r.platform||''}</td><td class="r mono">${fmt(num(r.salePrice))}</td><td class="r mono">${fmt(num(r.costBasis))}</td><td class="r mono pos"><strong>${fmt(r._profit)}</strong></td><td class="r mono pos">${pct(r._roi)}</td></tr>`).join('')}
+        </tbody></table>`:'<div class="empty">No sales data yet</div>'}
+      </div>
+      <div class="panel">
+        <h3 style="color:var(--accent)">🎯 Top 10 Best ROI Sales</h3>
+        ${topROI.length?`<table><thead><tr><th>Card</th><th>Platform</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
+          ${topROI.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${r.platform||''}</td><td class="r mono">${fmt(num(r.costBasis))}</td><td class="r mono ${r._profit>=0?'pos':'neg'}">${fmt(r._profit)}</td><td class="r mono ${r._roi>=0?'pos':'neg'}"><strong>${pct(r._roi)}</strong></td></tr>`).join('')}
+        </tbody></table>`:'<div class="empty">No sales data yet</div>'}
+      </div>
+    </div>
+    <div class="charts-grid">
+      <div class="panel">
+        <h3 style="color:var(--red)">📉 Worst ROI Sales (Learn From These)</h3>
+        ${worstROI.length?`<table><thead><tr><th>Card</th><th>Platform</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
+          ${worstROI.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${r.platform||''}</td><td class="r mono">${fmt(num(r.costBasis))}</td><td class="r mono ${r._profit>=0?'pos':'neg'}">${fmt(r._profit)}</td><td class="r mono ${r._roi>=0?'pos':'neg'}"><strong>${pct(r._roi)}</strong></td></tr>`).join('')}
+        </tbody></table>`:'<div class="empty">No sales data yet</div>'}
+      </div>
+      <div class="panel">
+        <h3 style="color:var(--cyan)">💎 Biggest Unrealized Upside (Inventory)</h3>
+        ${unsold.length?`<table><thead><tr><th>Card</th><th>Status</th><th class="r">Cost</th><th class="r">Market</th><th class="r">Upside</th><th class="r">ROI</th></tr></thead><tbody>
+          ${unsold.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${badge(r.status)}</td><td class="r mono">${fmt(num(r.costBasis)+num(r.gradingCost))}</td><td class="r mono">${fmt(num(r.marketValue))}</td><td class="r mono ${r._upside>=0?'pos':'neg'}"><strong>${fmt(r._upside)}</strong></td><td class="r mono ${r._roi>=0?'pos':'neg'}">${pct(r._roi)}</td></tr>`).join('')}
+        </tbody></table>`:'<div class="empty">Add market values to inventory to see opportunities</div>'}
+      </div>
+    </div>
+    ${namePerf.length?`<div class="panel">
+      <h3 style="color:var(--blue)">📋 Performance by Card Name</h3>
+      <table><thead><tr><th>Card Name</th><th class="r">Times Sold</th><th class="r">Total Revenue</th><th class="r">Total Cost</th><th class="r">Total Profit</th><th class="r">Avg ROI</th></tr></thead><tbody>
+        ${namePerf.map(r=>`<tr><td><strong>${r.name}</strong></td><td class="r mono">${r.count}</td><td class="r mono">${fmt(r.totalRevenue)}</td><td class="r mono">${fmt(r.totalCost)}</td><td class="r mono ${r.totalProfit>=0?'pos':'neg'}"><strong>${fmt(r.totalProfit)}</strong></td><td class="r mono ${r.totalCost?(r.totalProfit/r.totalCost>=0?'pos':'neg'):''}">${r.totalCost?pct(r.totalProfit/r.totalCost):'—'}</td></tr>`).join('')}
+      </tbody></table>
+    </div>`:''}
+    <div class="charts-grid">
+      ${typePerf.length?`<div class="panel">
+        <h3 style="color:var(--purple)">🃏 Performance by Card Type</h3>
+        <table><thead><tr><th>Type</th><th class="r">Sold</th><th class="r">Revenue</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
+          ${typePerf.map(r=>`<tr><td><strong>${r.type}</strong></td><td class="r mono">${r.count}</td><td class="r mono">${fmt(r.totalRevenue)}</td><td class="r mono ${r.totalProfit>=0?'pos':'neg'}"><strong>${fmt(r.totalProfit)}</strong></td><td class="r mono ${r.totalCost?(r.totalProfit/r.totalCost>=0?'pos':'neg'):''}">${r.totalCost?pct(r.totalProfit/r.totalCost):'—'}</td></tr>`).join('')}
+        </tbody></table>
+      </div>`:''}
+      ${platPerf.length?`<div class="panel">
+        <h3 style="color:var(--yellow)">🏪 Performance by Platform</h3>
+        <table><thead><tr><th>Platform</th><th class="r">Sold</th><th class="r">Revenue</th><th class="r">Fees</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
+          ${platPerf.map(r=>`<tr><td><strong>${r.platform}</strong></td><td class="r mono">${r.count}</td><td class="r mono">${fmt(r.totalRevenue)}</td><td class="r mono neg">${fmt(r.totalFees)}</td><td class="r mono ${r.totalProfit>=0?'pos':'neg'}"><strong>${fmt(r.totalProfit)}</strong></td><td class="r mono ${r.totalCost?(r.totalProfit/r.totalCost>=0?'pos':'neg'):''}">${r.totalCost?pct(r.totalProfit/r.totalCost):'—'}</td></tr>`).join('')}
+        </tbody></table>
+      </div>`:''}
+    </div>`;
+}
 
 // ============================================================
 // FINANCIALS
@@ -809,6 +975,14 @@ tbody td.mono{font-family:'JetBrains Mono',monospace;font-size:11px;}
 .quick-status{background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:3px 4px;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;width:42px;text-align:center;transition:all .2s;}
 .quick-status:hover{border-color:var(--accent);color:var(--text);}
 .quick-status:focus{outline:none;border-color:var(--accent);}
+.search-bar{display:flex;align-items:center;margin-bottom:14px;gap:8px;}
+.search-input{flex:1;max-width:360px;padding:9px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;transition:border-color .2s;}
+.search-input:focus{outline:none;border-color:var(--accent);}
+.search-input::placeholder{color:var(--text-faint);}
+.search-count{font-size:11px;color:var(--text-dim);}
+th.sortable{cursor:pointer;user-select:none;transition:color .2s;}
+th.sortable:hover{color:var(--accent);}
+th.sorted{color:var(--accent);}
 @media(max-width:900px){.charts-grid,.fin-grid{grid-template-columns:1fr;}.metrics{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}.app{padding:14px;}.form-grid{grid-template-columns:1fr;}}
 </style>
 <script>
