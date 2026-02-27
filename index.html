@@ -206,13 +206,20 @@ function M() {
   // Auto-calculate unpaid grading fees (submissions not yet returned)
   const unpaidGrading=gr.filter(r=>!r.dateReturned).reduce((s,r)=>s+num(r.totalCost),0);
   const totalLiabilities=num(sett.accountsPayable)+unpaidGrading+num(sett.salesTaxOwed)+num(sett.creditCardBal);
-  // Auto-calculate cash: starting cash + contributions - draws + net sales revenue - purchases - expenses - paid grading fees
   const tPurchases=D.purchases.reduce((s,r)=>s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax)),0);
   const paidGrading=gr.filter(r=>r.dateReturned).reduce((s,r)=>s+num(r.totalCost),0);
+  // Cash = Starting Cash + Contributions - Draws + Sales Revenue - All Fees - Purchases - Expenses - All Grading Fees
   const cashBalance=startingCash+totalContributions-totalDraws+tSale-tPlatFee-tConFee-tShip-tPurchases-tExp-paidGrading-unpaidGrading;
+  // For the balance sheet, Total Equity = Contributions + Retained Earnings - Draws
+  // Total Assets should = Total Liabilities + Total Equity
+  // We show cash, inventory, and other assets separately, but note the balance sheet
+  // may not perfectly balance if purchase totals don't match inventory cost basis assignments
+  const totalAssets=cashBalance+invCost+otherAssets;
+  const totalEquity=startingCash+totalContributions-totalDraws+net;
+  const balanceCheck=totalAssets-totalLiabilities-totalEquity;
   const totalInvested = startingCash + totalContributions + tPurchases;
   const bizROI = totalInvested ? net / totalInvested : 0;
-  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI,cashBalance,unpaidGrading,tPurchases,paidGrading};
+  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI,cashBalance,unpaidGrading,tPurchases,paidGrading,totalAssets,totalEquity,balanceCheck};
 }
 
 // ============================================================
@@ -1162,7 +1169,7 @@ function rFinancials(m) {
       <div class="fin-row indent"><span class="lbl">Card Inventory (at cost)</span><span class="amt">${fmtD(m.invCost)}</span></div>
       <div class="fin-row indent"><span class="lbl">Card Inventory (market)*</span><span class="amt" style="font-style:italic;color:var(--text-dim)">${fmtD(m.invMkt)}</span></div>
       <div class="fin-row indent"><span class="lbl">Supplies & Equipment</span><span class="amt">${fmtD(m.otherAssets)}</span></div>
-      <div class="fin-row bold bt"><span class="lbl">Total Assets</span><span class="amt">${fmtD(m.cashBalance+m.invCost+m.otherAssets)}</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Total Assets</span><span class="amt">${fmtD(m.totalAssets)}</span></div>
       <div style="height:10px"></div>
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">LIABILITIES</span></div>
       ${num(m.sett.accountsPayable)?`<div class="fin-row indent"><span class="lbl">Accounts Payable</span><span class="amt">${fmtD(num(m.sett.accountsPayable))}</span></div>`:''}
@@ -1175,7 +1182,8 @@ function rFinancials(m) {
       <div class="fin-row indent"><span class="lbl">Owner's Contributions</span><span class="amt">${fmtD(m.startingCash+m.totalContributions)}</span></div>
       <div class="fin-row indent"><span class="lbl">Retained Earnings</span><span class="amt">${fmtD(m.net)}</span></div>
       <div class="fin-row indent"><span class="lbl">Less: Owner's Draws</span><span class="amt neg">(${fmtD(m.totalDraws)})</span></div>
-      <div class="fin-row bold bd"><span class="lbl">Total Equity</span><span class="amt">${fmtD(m.startingCash+m.totalContributions-m.totalDraws+m.net)}</span></div>
+      <div class="fin-row bold bd"><span class="lbl">Total Equity</span><span class="amt">${fmtD(m.totalEquity)}</span></div>
+      ${Math.abs(m.balanceCheck)>0.01?`<div style="margin-top:8px;padding:8px 12px;background:var(--red);background:rgba(255,71,87,.12);border:1px solid var(--red);border-radius:var(--radius-sm);font-size:11px;color:var(--red)">⚠️ Balance sheet is off by <strong>${fmtD(Math.abs(m.balanceCheck))}</strong>. This is normal — it means your Purchase totals don't perfectly match the cost basis assigned across Inventory and Sales entries. The difference is: Purchases cash out (${fmtD(m.tPurchases)}) vs. Inventory cost + COGS (${fmtD(m.invCost+m.tCOGS)}). Tip: make sure the cost basis you assign to cards adds up to what you paid in Purchases.</div>`:'<div style="font-size:11px;color:var(--green);margin-top:8px">✓ Balance sheet balances</div>'}
       <div style="font-size:10px;color:var(--text-faint);margin-top:8px;font-style:italic">* Market value for reference; assets at cost · Edit in Capital tab</div>
       <h3 style="color:var(--yellow);margin-top:24px">📈 Key Ratios <button class="btn btn-sm" onclick="exportPDF('ratios')">📄 PDF</button></h3>
       <div class="ratio-row"><span class="lbl">Gross Margin</span><span class="val ${m.gm>=.3?'pos':'neg'}">${pct(m.gm)}</span></div>
@@ -1237,7 +1245,7 @@ window.exportPDF = function(type) {
     doc.autoTable({startY:36,head:[['Item','Amount']],body:[
       [{content:'ASSETS',styles:{fontStyle:'bold',fontSize:11}},''],
       ['  Cash (Auto-calculated)',fmtD(m.cashBalance)],['  Card Inventory (at cost)',fmtD(m.invCost)],['  Supplies & Equipment',fmtD(m.otherAssets)],
-      [{content:'Total Assets',styles:{fontStyle:'bold'}},{content:fmtD(m.cashBalance+m.invCost+m.otherAssets),styles:{fontStyle:'bold'}}],['',''],
+      [{content:'Total Assets',styles:{fontStyle:'bold'}},{content:fmtD(m.totalAssets),styles:{fontStyle:'bold'}}],['',''],
       [{content:'LIABILITIES',styles:{fontStyle:'bold',fontSize:11}},''],
       ...(num(m.sett.accountsPayable)?[['  Accounts Payable',fmtD(num(m.sett.accountsPayable))]]:[]),
       ...(m.unpaidGrading?[['  Unpaid Grading Fees (auto)',fmtD(m.unpaidGrading)]]:[]),
@@ -1246,7 +1254,7 @@ window.exportPDF = function(type) {
       [{content:'Total Liabilities',styles:{fontStyle:'bold'}},{content:fmtD(m.totalLiabilities),styles:{fontStyle:'bold'}}],['',''],
       [{content:"OWNER'S EQUITY",styles:{fontStyle:'bold',fontSize:11}},''],
       ["  Owner's Contributions",fmtD(m.startingCash+m.totalContributions)],['  Retained Earnings',fmtD(m.net)],["  Less: Owner's Draws",`(${fmtD(m.totalDraws)})`],
-      [{content:'Total Equity',styles:{fontStyle:'bold'}},{content:fmtD(m.startingCash+m.totalContributions-m.totalDraws+m.net),styles:{fontStyle:'bold'}}]
+      [{content:'Total Equity',styles:{fontStyle:'bold'}},{content:fmtD(m.totalEquity),styles:{fontStyle:'bold'}}]
     ],theme:'plain',styles:{fontSize:10,cellPadding:3},columnStyles:{1:{halign:'right'}}});
     doc.save('Balance_Sheet.pdf');showToast('Balance Sheet PDF exported!');
   } else if(type==='cashflow'){
