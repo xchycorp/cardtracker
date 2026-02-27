@@ -1192,15 +1192,24 @@ function rFinancials(m) {
   <div class="panel" style="margin-top:14px">
     <h3 style="color:var(--purple)">💰 Cash Flow <button class="btn btn-sm" onclick="exportPDF('cashflow')">📄 PDF</button></h3>
     <div class="fin-grid"><div>
-      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">OPERATING</span></div>
-      <div class="fin-row indent"><span class="lbl">Net Income</span><span class="amt">${fmtD(m.net)}</span></div>
-      <div class="fin-row bold bt"><span class="lbl">Net Cash from Operations</span><span class="amt">${fmtD(m.net)}</span></div>
-    </div><div>
-      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">FINANCING</span></div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">CASH IN</span></div>
+      <div class="fin-row indent"><span class="lbl">Card Sales (Gross)</span><span class="amt pos">${fmtD(m.tSale)}</span></div>
       <div class="fin-row indent"><span class="lbl">Owner Contributions</span><span class="amt pos">${fmtD(m.totalContributions)}</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Total Cash In</span><span class="amt">${fmtD(m.tSale+m.totalContributions)}</span></div>
+    </div><div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">CASH OUT</span></div>
+      <div class="fin-row indent"><span class="lbl">Card Purchases</span><span class="amt neg">(${fmtD(m.tPurchases)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Platform & Consign Fees</span><span class="amt neg">(${fmtD(m.tPlatFee+m.tConFee)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Shipping Costs</span><span class="amt neg">(${fmtD(m.tShip)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Grading Fees</span><span class="amt neg">(${fmtD(m.paidGrading+m.unpaidGrading)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Business Expenses</span><span class="amt neg">(${fmtD(m.tExp)})</span></div>
       <div class="fin-row indent"><span class="lbl">Owner Draws</span><span class="amt neg">(${fmtD(m.totalDraws)})</span></div>
-      <div class="fin-row bold bd"><span class="lbl">Ending Cash</span><span class="amt">${fmtD(m.cashBalance)}</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Total Cash Out</span><span class="amt">(${fmtD(m.tPurchases+m.tPlatFee+m.tConFee+m.tShip+m.paidGrading+m.unpaidGrading+m.tExp+m.totalDraws)})</span></div>
     </div></div>
+    <div style="height:8px"></div>
+    <div class="fin-row bold bd"><span class="lbl">Starting Cash</span><span class="amt">${fmtD(m.startingCash)}</span></div>
+    <div class="fin-row bold bd"><span class="lbl">Net Cash Change</span><span class="amt ${m.cashBalance-m.startingCash>=0?'pos':'neg'}">${fmtD(m.cashBalance-m.startingCash)}</span></div>
+    <div class="fin-row bold bd" style="font-size:15px"><span class="lbl">Ending Cash</span><span class="amt">${fmtD(m.cashBalance)}</span></div>
   </div>`;
 }
 
@@ -1243,10 +1252,16 @@ window.exportPDF = function(type) {
   } else if(type==='cashflow'){
     doc.text('Cash Flow Statement',14,22);doc.setFontSize(10);doc.setFont('helvetica','normal');doc.text(`Period ending: ${today}`,14,30);
     doc.autoTable({startY:36,head:[['Item','Amount']],body:[
-      [{content:'OPERATING',styles:{fontStyle:'bold'}},''],['  Net Income',fmtD(m.net)],
-      [{content:'Net Cash from Operations',styles:{fontStyle:'bold'}},{content:fmtD(m.net),styles:{fontStyle:'bold'}}],['',''],
-      [{content:'FINANCING',styles:{fontStyle:'bold'}},''],['  Owner Contributions',fmtD(m.totalContributions)],["  Owner's Draws",`(${fmtD(m.totalDraws)})`],['',''],
-      [{content:'Ending Cash Position',styles:{fontStyle:'bold'}},{content:fmtD(m.cashBalance),styles:{fontStyle:'bold'}}]
+      [{content:'CASH IN',styles:{fontStyle:'bold'}},''],
+      ['  Card Sales (Gross)',fmtD(m.tSale)],['  Owner Contributions',fmtD(m.totalContributions)],
+      [{content:'Total Cash In',styles:{fontStyle:'bold'}},{content:fmtD(m.tSale+m.totalContributions),styles:{fontStyle:'bold'}}],['',''],
+      [{content:'CASH OUT',styles:{fontStyle:'bold'}},''],
+      ['  Card Purchases',`(${fmtD(m.tPurchases)})`],['  Platform & Consign Fees',`(${fmtD(m.tPlatFee+m.tConFee)})`],
+      ['  Shipping Costs',`(${fmtD(m.tShip)})`],['  Grading Fees',`(${fmtD(m.paidGrading+m.unpaidGrading)})`],
+      ['  Business Expenses',`(${fmtD(m.tExp)})`],["  Owner's Draws",`(${fmtD(m.totalDraws)})`],
+      [{content:'Total Cash Out',styles:{fontStyle:'bold'}},{content:`(${fmtD(m.tPurchases+m.tPlatFee+m.tConFee+m.tShip+m.paidGrading+m.unpaidGrading+m.tExp+m.totalDraws)})`,styles:{fontStyle:'bold'}}],['',''],
+      ['Starting Cash',fmtD(m.startingCash)],['Net Cash Change',fmtD(m.cashBalance-m.startingCash)],
+      [{content:'Ending Cash Position',styles:{fontStyle:'bold',fontSize:12}},{content:fmtD(m.cashBalance),styles:{fontStyle:'bold',fontSize:12}}]
     ],theme:'plain',styles:{fontSize:10,cellPadding:3},columnStyles:{1:{halign:'right'}}});
     doc.save('Cash_Flow.pdf');showToast('Cash Flow PDF exported!');
   } else if(type==='ratios'){
