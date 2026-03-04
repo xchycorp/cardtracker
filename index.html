@@ -790,7 +790,11 @@ window.qePokemonSearch = function(rowIdx, val) {
         const number = c.localId || '';
         const formatted = `${setName} ${c.name||''} #${number}`.trim();
         const img = c.image ? c.image + '/low.webp' : '';
-        const tcgPrice = c.pricing?.tcgplayer?.normal?.marketPrice || c.pricing?.tcgplayer?.reverse?.marketPrice || c.pricing?.tcgplayer?.normal?.midPrice || '';
+        const tp = c.pricing?.tcgplayer || {};
+        const tcgPrice = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice ||
+                         tp.holofoil?.marketPrice || tp['1stEditionHolofoil']?.marketPrice ||
+                         tp.holo?.midPrice || tp.normal?.midPrice || tp.reverse?.midPrice ||
+                         c.pricing?.cardmarket?.avg || c.pricing?.cardmarket?.trend || '';
         const priceTag = tcgPrice ? ` · <span style="color:var(--green)">$${Number(tcgPrice).toFixed(2)}</span>` : '';
         window._qePokemonResults = window._qePokemonResults || {};
         window._qePokemonResults[rowIdx+'_'+idx] = {formatted, img, tcgPrice, tcgdexId: c.id||''};
@@ -1106,11 +1110,11 @@ async function pokemonSearch(query) {
       resultsEl.innerHTML = `<div class="pokemon-no-results">No cards found. Try a different name or set number.<br><span style="font-size:11px">You can also type the name manually and close this.</span></div>`;
       return;
     }
-    // Fetch full details for each card to get set info
+    // Fetch full details for each card to get set info and pricing
     const details = await Promise.all(cards.slice(0,8).map(async c => {
       try {
         const r = await fetch(`https://api.tcgdex.net/v2/en/cards/${c.id}`);
-        if (r.ok) return await r.json();
+        if (r.ok) { const d = await r.json(); console.log('Card detail:', c.id, 'pricing:', JSON.stringify(d.pricing)); return d; }
         return c;
       } catch(e) { return c; }
     }));
@@ -1120,8 +1124,13 @@ async function pokemonSearch(query) {
       const formatted = `${setName} ${c.name||''} #${number}`.trim();
       const img = c.image ? c.image + '/low.webp' : '';
       const rarity = c.rarity || '';
-      // Extract TCGPlayer market price if available
-      const tcgPrice = c.pricing?.tcgplayer?.normal?.marketPrice || c.pricing?.tcgplayer?.reverse?.marketPrice || c.pricing?.tcgplayer?.normal?.midPrice || '';
+      // Extract TCGPlayer market price - try multiple variant keys
+      const tp = c.pricing?.tcgplayer || {};
+      const tcgPrice = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || 
+                       tp.holofoil?.marketPrice || tp['1stEditionHolofoil']?.marketPrice ||
+                       tp.holo?.midPrice || tp.normal?.midPrice || tp.reverse?.midPrice ||
+                       // Also try cardmarket as fallback
+                       c.pricing?.cardmarket?.avg || c.pricing?.cardmarket?.trend || '';
       const priceDisplay = tcgPrice ? `<span style="color:var(--green);font-weight:600">$${Number(tcgPrice).toFixed(2)}</span>` : '<span style="color:var(--text-faint)">No price</span>';
       // Store card data for selection
       window._pokemonResults = window._pokemonResults || [];
