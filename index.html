@@ -752,7 +752,15 @@ window.qePokemonSearch = function(rowIdx, val) {
   if (!val || val.length < 2) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
   qePokemonTimers[rowIdx] = setTimeout(async () => {
     try {
-      const url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(val)}&pagination:itemsPerPage=6`;
+      let url;
+      const numMatch = val.match(/^(.+?)\s+#?(\d+)$/);
+      if (numMatch) {
+        const namePart = numMatch[1].trim();
+        const numPart = numMatch[2];
+        url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(namePart)}&localId=${encodeURIComponent(numPart)}&pagination:itemsPerPage=6`;
+      } else {
+        url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(val)}&pagination:itemsPerPage=6`;
+      }
       const resp = await fetch(url);
       if (!resp.ok) return;
       const cards = await resp.json();
@@ -1032,8 +1040,16 @@ async function pokemonSearch(query) {
   const statusEl = document.getElementById('pokemon-search-status');
   if (!resultsEl) return;
   try {
-    // Use TCGdex API - free, open source, CORS-friendly
-    const url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(query)}&sort:field=name&pagination:itemsPerPage=8`;
+    // Smart search: if query ends with a number, split into name + number filter
+    let url;
+    const numMatch = query.match(/^(.+?)\s+#?(\d+)$/);
+    if (numMatch) {
+      const namePart = numMatch[1].trim();
+      const numPart = numMatch[2];
+      url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(namePart)}&localId=${encodeURIComponent(numPart)}&pagination:itemsPerPage=8`;
+    } else {
+      url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(query)}&pagination:itemsPerPage=8`;
+    }
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('API status: ' + resp.status);
     const cards = await resp.json();
