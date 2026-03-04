@@ -760,12 +760,8 @@ window.qePokemonSearch = function(rowIdx, val) {
         apiQuery = `name:${val}*`;
       }
       const baseUrl = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=6&select=id,name,set,number,images,rarity`;
-      let resp;
-      try {
-        resp = await fetch(baseUrl);
-      } catch(e) {
-        resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(baseUrl)}`);
-      }
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
+      const resp = await fetch(proxyUrl);
       if (!resp.ok) return;
       const data = await resp.json();
       const cards = data.data || [];
@@ -1045,13 +1041,9 @@ async function pokemonSearch(query) {
       apiQuery = `name:${query}*`;
     }
     const baseUrl = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=8&select=id,name,set,number,images,rarity`;
-    // Try direct first, fall back to CORS proxy
-    let resp;
-    try {
-      resp = await fetch(baseUrl);
-    } catch(e) {
-      resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(baseUrl)}`);
-    }
+    // Use allorigins proxy to avoid CORS issues on GitHub Pages
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
+    const resp = await fetch(proxyUrl);
     if (!resp.ok) throw new Error('API status: ' + resp.status);
     const data = await resp.json();
     const cards = data.data || [];
