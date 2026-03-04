@@ -242,8 +242,8 @@ window.render = function render() {
       </div>
     </div>
     <div class="tabs">
-      ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','analytics','financials'].map(t2=>{
-        const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',analytics:'Analytics',financials:'Financials'};
+      ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','analytics','research','financials'].map(t2=>{
+        const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',analytics:'Analytics',research:'Research',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
         return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
@@ -258,6 +258,7 @@ window.render = function render() {
       window.tab==='expenses'?rTable('expenses',m):
       window.tab==='capital'?rCapital(m):
       window.tab==='analytics'?rAnalytics(m):
+      window.tab==='research'?rResearch(m):
       rFinancials(m)
     }</div>
     ${window.modal?rModal():''}
@@ -1114,7 +1115,7 @@ async function pokemonSearch(query) {
     const details = await Promise.all(cards.slice(0,8).map(async c => {
       try {
         const r = await fetch(`https://api.tcgdex.net/v2/en/cards/${c.id}`);
-        if (r.ok) { const d = await r.json(); console.log('Card detail:', c.id, 'pricing:', JSON.stringify(d.pricing)); return d; }
+        if (r.ok) return await r.json();
         return c;
       } catch(e) { return c; }
     }));
@@ -1407,6 +1408,281 @@ function rAnalytics(m) {
 // ============================================================
 // FINANCIALS
 // ============================================================
+// ============================================================
+// RESEARCH TAB
+// ============================================================
+window.researchState = {cardName:'', results:[], selectedCard:null, prices:{}, loading:false, gradingFee:20, currentGrade:'', currentCompany:'PSA', targetGrade:'', targetCompany:'CGC', buyPrice:''};
+
+function rResearch(m) {
+  const rs = window.researchState;
+  return `
+  <div class="panel">
+    <h3 style="color:var(--purple)">🔬 Card Research & Price Matrix</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Search a card to see market prices. When eBay API is connected, graded prices will auto-populate.</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+      <div class="pokemon-search" style="flex:1;position:relative">
+        <input type="text" id="research_search" class="search-input" placeholder="Search by card name or set (e.g. Base Set Charizard)..." oninput="researchSearchDebounce(this.value)" autocomplete="off" value="${rs.cardName||''}">
+        <div id="research-search-results" class="pokemon-results" style="position:absolute;top:100%;left:0;right:0;z-index:2000;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);max-height:300px;overflow-y:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>
+      </div>
+      ${rs.loading?'<span style="color:var(--text-dim);font-size:12px">Fetching prices...</span>':''}
+    </div>
+    ${rs.selectedCard?rResearchCard(rs):'<div class="empty"><div class="icon">🔍</div>Search for a card above to see pricing data and grading analysis.</div>'}
+  </div>
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--yellow)">💎 Crack & Regrade Calculator</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Evaluate whether cracking a graded card and regrading is profitable.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="font-size:11px;color:var(--text-faint);margin-bottom:8px;font-weight:600">CURRENT CARD</div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px">Buy Price ($)</label>
+          <input type="number" id="rg_buyPrice" class="search-input" step="0.01" placeholder="What you'd pay..." value="${rs.buyPrice}" oninput="window.researchState.buyPrice=this.value;render()">
+        </div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px">Current Grade</label>
+          <div style="display:flex;gap:6px">
+            <select id="rg_currentCompany" class="search-input" style="width:80px" onchange="window.researchState.currentCompany=this.value;render()">
+              ${['PSA','CGC','BGS','SGC','Other'].map(o=>`<option${rs.currentCompany===o?' selected':''}>${o}</option>`).join('')}
+            </select>
+            <input type="text" id="rg_currentGrade" class="search-input" placeholder="e.g. 8" value="${rs.currentGrade}" oninput="window.researchState.currentGrade=this.value;render()">
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-faint);margin-bottom:8px;font-weight:600">TARGET REGRADE</div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px">Grading Fee ($)</label>
+          <input type="number" id="rg_gradingFee" class="search-input" step="0.01" value="${rs.gradingFee}" oninput="window.researchState.gradingFee=this.value;render()">
+        </div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px">Target Grade</label>
+          <div style="display:flex;gap:6px">
+            <select id="rg_targetCompany" class="search-input" style="width:80px" onchange="window.researchState.targetCompany=this.value;render()">
+              ${['PSA','CGC','BGS','SGC','Other'].map(o=>`<option${rs.targetCompany===o?' selected':''}>${o}</option>`).join('')}
+            </select>
+            <input type="text" id="rg_targetGrade" class="search-input" placeholder="e.g. 10" value="${rs.targetGrade}" oninput="window.researchState.targetGrade=this.value;render()">
+          </div>
+        </div>
+      </div>
+    </div>
+    ${rRegradeResult(rs)}
+  </div>
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--cyan)">📋 Quick Lookup from Inventory</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Click a card from your inventory to research it.</div>
+    <div style="max-height:300px;overflow-y:auto">
+      ${D.inventory.filter(c=>c.status!=='Sold').slice(0,20).map((c,i)=>{
+        const co=c.gradingCompany||'';const gr=c.grade||'';
+        const gradeStr=(co||gr)?`<span style="color:var(--yellow);font-weight:600">${co}${co&&gr?' ':''}${gr}</span>`:'<span style="color:var(--text-dim)">Raw</span>';
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer" onclick="researchFromInventory(${D.inventory.indexOf(c)})">
+          <div><strong style="font-size:13px">${c.cardName||''}</strong> ${gradeStr}</div>
+          <div style="font-size:12px;color:var(--text-dim)">${c.marketValue?'$'+num(c.marketValue).toFixed(2):'No price'}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function rResearchCard(rs) {
+  const c = rs.selectedCard;
+  const img = c.image ? c.image + '/low.webp' : '';
+  const setName = c.set ? c.set.name : '';
+  const tp = c.pricing?.tcgplayer || {};
+  
+  // Collect all available TCGPlayer variant prices
+  const variants = [];
+  for (const [key, val] of Object.entries(tp)) {
+    if (typeof val === 'object' && val !== null && key !== 'updated' && key !== 'unit') {
+      variants.push({variant: key, ...val});
+    }
+  }
+  
+  return `
+    <div style="display:flex;gap:20px;margin-bottom:20px">
+      ${img?`<img src="${img}" style="width:120px;height:168px;object-fit:contain;border-radius:8px;flex-shrink:0">`:''}
+      <div style="flex:1">
+        <div style="font-size:18px;font-weight:700">${c.name||''}</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-top:4px">${setName} · #${c.localId||''} · ${c.rarity||'Unknown'}</div>
+        ${c.hp?`<div style="font-size:12px;color:var(--text-dim);margin-top:2px">HP: ${c.hp} · ${(c.types||[]).join(', ')}</div>`:''}
+        <div style="margin-top:12px">
+          <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:6px">TCGPlayer PRICING (Raw/Ungraded)</div>
+          ${variants.length?variants.map(v=>`
+            <div style="display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)">
+              <span style="font-size:12px;font-weight:600;width:100px;text-transform:capitalize">${v.variant}</span>
+              ${v.marketPrice?`<span style="color:var(--green);font-weight:600">Market: $${Number(v.marketPrice).toFixed(2)}</span>`:''}
+              ${v.lowPrice?`<span style="color:var(--text-dim);font-size:11px">Low: $${Number(v.lowPrice).toFixed(2)}</span>`:''}
+              ${v.midPrice?`<span style="color:var(--text-dim);font-size:11px">Mid: $${Number(v.midPrice).toFixed(2)}</span>`:''}
+              ${v.highPrice?`<span style="color:var(--text-dim);font-size:11px">High: $${Number(v.highPrice).toFixed(2)}</span>`:''}
+            </div>
+          `).join(''):'<div style="color:var(--text-dim);font-size:12px">No TCGPlayer pricing available</div>'}
+        </div>
+    </div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-top:12px">
+      <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:10px">GRADED PRICE MATRIX</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Estimated graded values will auto-populate when eBay API is connected. For now, you can reference these manually.</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Grade</th>
+          <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">PSA</th>
+          <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">CGC</th>
+          <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">BGS</th>
+        </tr></thead>
+        <tbody>
+          ${['10','9.5','9','8.5','8','7','6','5'].map(grade=>{
+            const psa = rs.prices['PSA_'+grade] || '';
+            const cgc = rs.prices['CGC_'+grade] || '';
+            const bgs = rs.prices['BGS_'+grade] || '';
+            return `<tr>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:600">${grade}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right">${psa?`<span style="color:var(--green)">$${Number(psa).toFixed(2)}</span>`:`<input type="number" class="qe-input" style="width:80px;text-align:right;display:inline-block" placeholder="—" step="0.01" oninput="window.researchState.prices['PSA_${grade}']=this.value;render()">`}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right">${cgc?`<span style="color:var(--green)">$${Number(cgc).toFixed(2)}</span>`:`<input type="number" class="qe-input" style="width:80px;text-align:right;display:inline-block" placeholder="—" step="0.01" oninput="window.researchState.prices['CGC_${grade}']=this.value;render()">`}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right">${bgs?`<span style="color:var(--green)">$${Number(bgs).toFixed(2)}</span>`:`<input type="number" class="qe-input" style="width:80px;text-align:right;display:inline-block" placeholder="—" step="0.01" oninput="window.researchState.prices['BGS_${grade}']=this.value;render()">`}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:8px;font-style:italic">Enter prices manually or wait for eBay API integration for auto-populated graded values</div>
+    </div>
+  `;
+}
+
+function rRegradeResult(rs) {
+  const buy = num(rs.buyPrice);
+  const fee = num(rs.gradingFee);
+  if (!buy || !rs.targetGrade) return '<div style="margin-top:16px;padding:16px;background:var(--bg);border-radius:var(--radius-sm);text-align:center;color:var(--text-dim);font-size:12px">Enter a buy price and target grade to see the analysis.</div>';
+  
+  const totalCost = buy + fee;
+  const targetKey = rs.targetCompany + '_' + rs.targetGrade;
+  const targetPrice = num(rs.prices[targetKey]);
+  
+  // Also check one grade below target for risk analysis
+  const gradeNum = parseFloat(rs.targetGrade);
+  const belowGrade = gradeNum >= 10 ? '9.5' : gradeNum >= 9.5 ? '9' : gradeNum >= 9 ? '8.5' : gradeNum >= 8.5 ? '8' : String(gradeNum - 1);
+  const belowKey = rs.targetCompany + '_' + belowGrade;
+  const belowPrice = num(rs.prices[belowKey]);
+  
+  return `
+    <div style="margin-top:16px;padding:16px;background:var(--bg);border-radius:var(--radius-sm)">
+      <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:10px">ANALYSIS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+        <div style="text-align:center">
+          <div style="font-size:11px;color:var(--text-dim)">Buy + Grade Cost</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text)">$${totalCost.toFixed(2)}</div>
+          <div style="font-size:10px;color:var(--text-faint)">$${buy.toFixed(2)} card + $${fee.toFixed(2)} grading</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:11px;color:var(--text-dim)">${rs.targetCompany} ${rs.targetGrade} Value</div>
+          <div style="font-size:18px;font-weight:700;${targetPrice?'color:var(--green)':'color:var(--text-faint)'}">${targetPrice?'$'+targetPrice.toFixed(2):'Enter price →'}</div>
+          ${targetPrice?`<div style="font-size:10px;color:${targetPrice-totalCost>=0?'var(--green)':'var(--red)'}">Profit: $${(targetPrice-totalCost).toFixed(2)} (${totalCost?(((targetPrice-totalCost)/totalCost)*100).toFixed(0):'0'}% ROI)</div>`:''}
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:11px;color:var(--text-dim)">${rs.targetCompany} ${belowGrade} Value</div>
+          <div style="font-size:18px;font-weight:700;${belowPrice?'color:var(--yellow)':'color:var(--text-faint)'}">${belowPrice?'$'+belowPrice.toFixed(2):'Enter price →'}</div>
+          ${belowPrice?`<div style="font-size:10px;color:${belowPrice-totalCost>=0?'var(--green)':'var(--red)'}">If downgraded: $${(belowPrice-totalCost).toFixed(2)}</div>`:''}
+        </div>
+      </div>
+      ${targetPrice?`
+      <div style="padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;text-align:center;${targetPrice-totalCost>=0?'background:rgba(46,213,115,.12);color:var(--green);border:1px solid var(--green)':'background:rgba(255,71,87,.12);color:var(--red);border:1px solid var(--red)'}">
+        ${targetPrice-totalCost>=0?
+          `✅ PROFITABLE if you hit ${rs.targetCompany} ${rs.targetGrade} — $${(targetPrice-totalCost).toFixed(2)} profit (${(((targetPrice-totalCost)/totalCost)*100).toFixed(0)}% ROI)`:
+          `❌ NOT PROFITABLE even at ${rs.targetCompany} ${rs.targetGrade} — loss of $${Math.abs(targetPrice-totalCost).toFixed(2)}`}
+      </div>
+      ${belowPrice&&targetPrice-totalCost>=0?`
+      <div style="margin-top:8px;padding:10px 14px;border-radius:var(--radius-sm);font-size:12px;text-align:center;background:var(--bg);border:1px solid var(--border)">
+        ⚠️ Risk: If it grades ${belowGrade} instead, ${belowPrice-totalCost>=0?`you still profit $${(belowPrice-totalCost).toFixed(2)}`:`you lose $${Math.abs(belowPrice-totalCost).toFixed(2)}`}
+      </div>`:''}`
+      :'<div style="font-size:12px;color:var(--text-dim);text-align:center">Fill in the graded price matrix above to see profit/loss analysis</div>'}
+    </div>
+  `;
+}
+
+// Research tab search functions
+let researchSearchTimer = null;
+window.researchSearchDebounce = function(val) {
+  clearTimeout(researchSearchTimer);
+  window.researchState.cardName = val;
+  const resultsEl = document.getElementById('research-search-results');
+  if (!resultsEl) return;
+  if (!val || val.length < 3) { resultsEl.style.display = 'none'; return; }
+  researchSearchTimer = setTimeout(() => researchSearch(val), 600);
+};
+
+async function researchSearch(query) {
+  const resultsEl = document.getElementById('research-search-results');
+  if (!resultsEl) return;
+  try {
+    const query_lower = query.toLowerCase().trim();
+    const setKeywords = ['base set','jungle','fossil','team rocket','gym heroes','gym challenge','neo genesis','neo discovery','neo revelation','neo destiny','legendary collection','expedition','aquapolis','skyridge','ruby','sapphire','sandstorm','dragon','magma','hidden legends','firered','leafgreen','deoxys','emerald','unseen forces','delta species','legend maker','holon phantoms','crystal guardians','dragon frontiers','power keepers','diamond','pearl','mysterious treasures','secret wonders','great encounters','majestic dawn','legends awakened','stormfront','platinum','rising rivals','supreme victors','arceus','heartgold','soulsilver','unleashed','undaunted','triumphant','black','white','emerging powers','noble victories','next destinies','dark explorers','dragons exalted','boundaries crossed','plasma storm','plasma freeze','plasma blast','legendary treasures','kalos','flashfire','furious fists','phantom forces','primal clash','roaring skies','ancient origins','breakthrough','breakpoint','fates collide','steam siege','evolutions','sun','moon','guardians rising','burning shadows','crimson invasion','ultra prism','forbidden light','celestial storm','lost thunder','team up','unbroken bonds','unified minds','cosmic eclipse','sword','shield','rebel clash','darkness ablaze','vivid voltage','battle styles','chilling reign','evolving skies','fusion strike','brilliant stars','astral radiance','lost origin','silver tempest','crown zenith','scarlet','violet','paldea evolved','obsidian flames','paradox rift','paldean fates','temporal forces','twilight masquerade','shrouded fable','stellar crown','surging sparks','prismatic evolutions','journey together','destined rivals','phantasmal','base','classic'];
+    let setFilter = '', nameFilter = query;
+    for (const setKw of setKeywords) {
+      if (query_lower.startsWith(setKw + ' ') || query_lower === setKw) { setFilter = setKw; nameFilter = query.slice(setKw.length).trim(); break; }
+    }
+    let params = [];
+    if (setFilter) params.push(`set.name=like:${encodeURIComponent(setFilter)}`);
+    const remainingNumMatch = nameFilter.match(/^(.+?)\s+#?(\d+)$/);
+    if (remainingNumMatch) {
+      if (remainingNumMatch[1].trim()) params.push(`name=like:${encodeURIComponent(remainingNumMatch[1].trim())}`);
+      params.push(`localId=${encodeURIComponent(remainingNumMatch[2])}`);
+    } else if (nameFilter) {
+      params.push(`name=like:${encodeURIComponent(nameFilter)}`);
+    }
+    params.push('pagination:itemsPerPage=6');
+    const url = `https://api.tcgdex.net/v2/en/cards?${params.join('&')}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const cards = await resp.json();
+    if (!cards.length) { resultsEl.innerHTML = '<div style="padding:12px;color:var(--text-dim);font-size:12px;text-align:center">No cards found</div>'; resultsEl.style.display = 'block'; return; }
+    const details = await Promise.all(cards.slice(0,6).map(async c => {
+      try { const r = await fetch(`https://api.tcgdex.net/v2/en/cards/${c.id}`); if (r.ok) return await r.json(); return c; } catch(e) { return c; }
+    }));
+    window._researchResults = details;
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = details.map((c, idx) => {
+      const setName = c.set ? c.set.name : '';
+      const number = c.localId || '';
+      const img = c.image ? c.image + '/low.webp' : '';
+      const tp = c.pricing?.tcgplayer || {};
+      const price = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
+      return `<div class="pokemon-result" onclick="selectResearchCard(${idx})">
+        ${img?`<img src="${img}" class="pokemon-result-img" loading="lazy">`:''}
+        <div class="pokemon-result-info">
+          <div class="pokemon-result-name">${setName} ${c.name||''} #${number}</div>
+          <div class="pokemon-result-meta">${c.rarity||''} ${price?`· <span style="color:var(--green)">$${Number(price).toFixed(2)}</span>`:''}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { /* fail silently */ }
+}
+
+window.selectResearchCard = function(idx) {
+  if (!window._researchResults || !window._researchResults[idx]) return;
+  const card = window._researchResults[idx];
+  window.researchState.selectedCard = card;
+  window.researchState.cardName = `${card.set?card.set.name:''} ${card.name||''} #${card.localId||''}`.trim();
+  window.researchState.prices = {};
+  const resultsEl = document.getElementById('research-search-results');
+  if (resultsEl) resultsEl.style.display = 'none';
+  render();
+};
+
+window.researchFromInventory = function(invIdx) {
+  const card = D.inventory[invIdx];
+  if (!card) return;
+  window.researchState.cardName = card.cardName || '';
+  window.researchState.selectedCard = null;
+  window.researchState.prices = {};
+  // If card has grade info, pre-fill the calculator
+  if (card.grade) window.researchState.currentGrade = card.grade;
+  if (card.gradingCompany) window.researchState.currentCompany = card.gradingCompany;
+  if (card.costBasis) window.researchState.buyPrice = String(num(card.costBasis) + num(card.gradingCost));
+  // Trigger search
+  render();
+  setTimeout(() => {
+    const el = document.getElementById('research_search');
+    if (el) { el.value = card.cardName || ''; researchSearch(card.cardName || ''); }
+  }, 100);
+};
+
 function rFinancials(m) {
   const expEntries=Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1]);
   return `<div class="fin-grid">
