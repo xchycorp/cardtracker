@@ -794,8 +794,7 @@ window.qePokemonSearch = function(rowIdx, val) {
         const tp = c.pricing?.tcgplayer || {};
         const tcgPrice = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice ||
                          tp.holofoil?.marketPrice || tp['1stEditionHolofoil']?.marketPrice ||
-                         tp.holo?.midPrice || tp.normal?.midPrice || tp.reverse?.midPrice ||
-                         c.pricing?.cardmarket?.avg || c.pricing?.cardmarket?.trend || '';
+                         tp.holo?.midPrice || tp.normal?.midPrice || tp.reverse?.midPrice || '';
         const priceTag = tcgPrice ? ` · <span style="color:var(--green)">$${Number(tcgPrice).toFixed(2)}</span>` : '';
         window._qePokemonResults = window._qePokemonResults || {};
         window._qePokemonResults[rowIdx+'_'+idx] = {formatted, img, tcgPrice, tcgdexId: c.id||''};
@@ -1129,9 +1128,7 @@ async function pokemonSearch(query) {
       const tp = c.pricing?.tcgplayer || {};
       const tcgPrice = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || 
                        tp.holofoil?.marketPrice || tp['1stEditionHolofoil']?.marketPrice ||
-                       tp.holo?.midPrice || tp.normal?.midPrice || tp.reverse?.midPrice ||
-                       // Also try cardmarket as fallback
-                       c.pricing?.cardmarket?.avg || c.pricing?.cardmarket?.trend || '';
+                       tp.holo?.midPrice || tp.normal?.midPrice || tp.reverse?.midPrice || '';
       const priceDisplay = tcgPrice ? `<span style="color:var(--green);font-weight:600">$${Number(tcgPrice).toFixed(2)}</span>` : '<span style="color:var(--text-faint)">No price</span>';
       // Store card data for selection
       window._pokemonResults = window._pokemonResults || [];
