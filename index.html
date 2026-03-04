@@ -757,10 +757,15 @@ window.qePokemonSearch = function(rowIdx, val) {
       if (setNumMatch) {
         apiQuery = `set.id:${setNumMatch[1].toLowerCase()} number:${setNumMatch[2]}`;
       } else {
-        apiQuery = `name:"${val}*"`;
+        apiQuery = `name:${val}*`;
       }
-      const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=6&select=id,name,set,number,images,rarity`;
-      const resp = await fetch(url);
+      const baseUrl = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=6&select=id,name,set,number,images,rarity`;
+      let resp;
+      try {
+        resp = await fetch(baseUrl);
+      } catch(e) {
+        resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(baseUrl)}`);
+      }
       if (!resp.ok) return;
       const data = await resp.json();
       const cards = data.data || [];
@@ -1016,14 +1021,14 @@ let pokemonSearchTimer = null;
 window.pokemonSearchDebounce = function(val) {
   clearTimeout(pokemonSearchTimer);
   const statusEl = document.getElementById('pokemon-search-status');
-  if (!val || val.length < 2) {
+  if (!val || val.length < 3) {
     const resultsEl = document.getElementById('pokemon-search-results');
     if (resultsEl) resultsEl.innerHTML = '';
-    if (statusEl) statusEl.textContent = '';
+    if (statusEl) statusEl.textContent = val && val.length < 3 ? 'Type 3+ characters...' : '';
     return;
   }
   if (statusEl) statusEl.textContent = 'Searching...';
-  pokemonSearchTimer = setTimeout(() => pokemonSearch(val), 400);
+  pokemonSearchTimer = setTimeout(() => pokemonSearch(val), 600);
 };
 
 async function pokemonSearch(query) {
@@ -1037,11 +1042,17 @@ async function pokemonSearch(query) {
     if (setNumMatch) {
       apiQuery = `set.id:${setNumMatch[1].toLowerCase()} number:${setNumMatch[2]}`;
     } else {
-      apiQuery = `name:"${query}*"`;
+      apiQuery = `name:${query}*`;
     }
-    const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=8&select=id,name,set,number,images,rarity`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('API error');
+    const baseUrl = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=8&select=id,name,set,number,images,rarity`;
+    // Try direct first, fall back to CORS proxy
+    let resp;
+    try {
+      resp = await fetch(baseUrl);
+    } catch(e) {
+      resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(baseUrl)}`);
+    }
+    if (!resp.ok) throw new Error('API status: ' + resp.status);
     const data = await resp.json();
     const cards = data.data || [];
     if (statusEl) statusEl.textContent = cards.length ? `${cards.length} found` : 'No results';
@@ -1062,8 +1073,9 @@ async function pokemonSearch(query) {
       </div>`;
     }).join('');
   } catch (err) {
+    console.error('Pokemon search error:', err);
     if (statusEl) statusEl.textContent = 'Search failed';
-    resultsEl.innerHTML = `<div class="pokemon-no-results">API error — check your connection or type the name manually.</div>`;
+    resultsEl.innerHTML = `<div class="pokemon-no-results">Search error: ${err.message}. Try again or type the name manually.</div>`;
   }
 }
 
