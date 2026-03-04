@@ -753,14 +753,23 @@ window.qePokemonSearch = function(rowIdx, val) {
   qePokemonTimers[rowIdx] = setTimeout(async () => {
     try {
       let url;
-      const numMatch = val.match(/^(.+?)\s+#?(\d+)$/);
-      if (numMatch) {
-        const namePart = numMatch[1].trim();
-        const numPart = numMatch[2];
-        url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(namePart)}&localId=${encodeURIComponent(numPart)}&pagination:itemsPerPage=6`;
-      } else {
-        url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(val)}&pagination:itemsPerPage=6`;
+      const val_lower = val.toLowerCase().trim();
+      const setKeywords = ['base set','jungle','fossil','team rocket','gym heroes','gym challenge','neo genesis','neo discovery','neo revelation','neo destiny','legendary collection','expedition','aquapolis','skyridge','ruby','sapphire','sandstorm','dragon','magma','hidden legends','firered','leafgreen','deoxys','emerald','unseen forces','delta species','legend maker','holon phantoms','crystal guardians','dragon frontiers','power keepers','diamond','pearl','mysterious treasures','secret wonders','great encounters','majestic dawn','legends awakened','stormfront','platinum','rising rivals','supreme victors','arceus','heartgold','soulsilver','unleashed','undaunted','triumphant','black','white','emerging powers','noble victories','next destinies','dark explorers','dragons exalted','boundaries crossed','plasma storm','plasma freeze','plasma blast','legendary treasures','kalos','flashfire','furious fists','phantom forces','primal clash','roaring skies','ancient origins','breakthrough','breakpoint','fates collide','steam siege','evolutions','sun','moon','guardians rising','burning shadows','crimson invasion','ultra prism','forbidden light','celestial storm','lost thunder','team up','unbroken bonds','unified minds','cosmic eclipse','sword','shield','rebel clash','darkness ablaze','vivid voltage','battle styles','chilling reign','evolving skies','fusion strike','brilliant stars','astral radiance','lost origin','silver tempest','crown zenith','scarlet','violet','paldea evolved','obsidian flames','paradox rift','paldean fates','temporal forces','twilight masquerade','shrouded fable','stellar crown','surging sparks','prismatic evolutions','journey together','destined rivals','phantasmal','base','classic'];
+      let setFilter = '', nameFilter = val;
+      for (const setKw of setKeywords) {
+        if (val_lower.startsWith(setKw + ' ') || val_lower === setKw) { setFilter = setKw; nameFilter = val.slice(setKw.length).trim(); break; }
       }
+      let params = [];
+      if (setFilter) params.push(`set.name=like:${encodeURIComponent(setFilter)}`);
+      const remainingNumMatch = nameFilter.match(/^(.+?)\s+#?(\d+)$/);
+      if (remainingNumMatch) {
+        if (remainingNumMatch[1].trim()) params.push(`name=like:${encodeURIComponent(remainingNumMatch[1].trim())}`);
+        params.push(`localId=${encodeURIComponent(remainingNumMatch[2])}`);
+      } else if (nameFilter) {
+        params.push(`name=like:${encodeURIComponent(nameFilter)}`);
+      }
+      params.push('pagination:itemsPerPage=6');
+      url = `https://api.tcgdex.net/v2/en/cards?${params.join('&')}`;
       const resp = await fetch(url);
       if (!resp.ok) return;
       const cards = await resp.json();
@@ -827,7 +836,7 @@ function rQuickEntry(data, addBtn, quickAddBtn) {
             <div style="display:flex;gap:4px"><input type="text" id="qe_${i}_cardName" class="qe-input qe-wide" value="${r.cardName||''}" placeholder="Card name..." oninput="qePokemonSearch(${i},this.value)">
             <button class="btn btn-sm" onclick="document.getElementById('qe_${i}_cardName').focus();qePokemonSearch(${i},document.getElementById('qe_${i}_cardName').value)" title="Search Pokemon TCG" style="padding:4px 6px">🔍</button></div>
             ${r._pokemonImg?`<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><img src="${r._pokemonImg}" style="width:28px;height:39px;object-fit:contain;border-radius:3px"><span style="font-size:10px;color:var(--green)">✓</span></div>`:''}
-            <div id="qe-pokemon-${i}" class="picker-results" style="max-height:200px"></div>
+            <div id="qe-pokemon-${i}" class="picker-results" style="max-height:280px;min-width:320px;left:0;z-index:2000"></div>
           </div></td>
           <td><select id="qe_${i}_cardType" class="qe-input">${['Pokemon','Sports','Other TCG','Bulk Lot'].map(o=>`<option${r.cardType===o?' selected':''}>${o}</option>`).join('')}</select></td>
           <td><select id="qe_${i}_status" class="qe-input">${['Raw','Submitted','Graded','Listed','Hold','Cracked'].map(o=>`<option${r.status===o?' selected':''}>${o}</option>`).join('')}</select></td>
@@ -994,7 +1003,7 @@ function rQuickSales(data, addBtn, quickAddBtn) {
           <td><div class="card-picker" style="position:relative">
             <input type="text" id="qs_${i}_cardName" class="qe-input qe-wide" value="${r.cardName||''}" placeholder="Search inventory or type name..." oninput="qsFilterPicker(${i},this.value)" onfocus="qsFilterPicker(${i},this.value)" autocomplete="off">
             ${r._linkedInvIdx!==undefined?`<span style="font-size:10px;color:var(--green)">✓ ${r.cardId}${r.gradingCompany||r.grade?' · '+(r.gradingCompany?r.gradingCompany+' ':'')+(r.grade||''):''}</span>`:''}
-            <div id="qs-picker-${i}" class="picker-results"></div>
+            <div id="qs-picker-${i}" class="picker-results" style="min-width:320px;z-index:2000"></div>
           </div></td>
           <td><input type="date" id="qs_${i}_date" class="qe-input" value="${r.date||''}"></td>
           <td><select id="qs_${i}_platform" class="qe-input">${['eBay','Card Show','Consignment'].map(o=>`<option${r.platform===o?' selected':''}>${o}</option>`).join('')}</select></td>
@@ -1040,16 +1049,45 @@ async function pokemonSearch(query) {
   const statusEl = document.getElementById('pokemon-search-status');
   if (!resultsEl) return;
   try {
-    // Smart search: if query ends with a number, split into name + number filter
+    // Smart search: detect patterns like "base set charizard", "charizard 130", "base set charizard 4"
     let url;
-    const numMatch = query.match(/^(.+?)\s+#?(\d+)$/);
-    if (numMatch) {
-      const namePart = numMatch[1].trim();
-      const numPart = numMatch[2];
-      url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(namePart)}&localId=${encodeURIComponent(numPart)}&pagination:itemsPerPage=8`;
-    } else {
-      url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(query)}&pagination:itemsPerPage=8`;
+    const query_lower = query.toLowerCase().trim();
+    
+    // Pattern: "name number" (e.g. "charizard 130")
+    const nameNumMatch = query.match(/^(.+?)\s+#?(\d+)$/);
+    
+    // Known set keyword patterns to detect set names in queries
+    const setKeywords = ['base set','jungle','fossil','team rocket','gym heroes','gym challenge','neo genesis','neo discovery','neo revelation','neo destiny','legendary collection','expedition','aquapolis','skyridge','ruby','sapphire','sandstorm','dragon','magma','hidden legends','firered','leafgreen','deoxys','emerald','unseen forces','delta species','legend maker','holon phantoms','crystal guardians','dragon frontiers','power keepers','diamond','pearl','mysterious treasures','secret wonders','great encounters','majestic dawn','legends awakened','stormfront','platinum','rising rivals','supreme victors','arceus','heartgold','soulsilver','unleashed','undaunted','triumphant','black','white','emerging powers','noble victories','next destinies','dark explorers','dragons exalted','boundaries crossed','plasma storm','plasma freeze','plasma blast','legendary treasures','kalos','flashfire','furious fists','phantom forces','primal clash','roaring skies','ancient origins','breakthrough','breakpoint','fates collide','steam siege','evolutions','sun','moon','guardians rising','burning shadows','crimson invasion','ultra prism','forbidden light','celestial storm','lost thunder','team up','unbroken bonds','unified minds','cosmic eclipse','sword','shield','rebel clash','darkness ablaze','vivid voltage','battle styles','chilling reign','evolving skies','fusion strike','brilliant stars','astral radiance','lost origin','silver tempest','crown zenith','scarlet','violet','paldea evolved','obsidian flames','paradox rift','paldean fates','temporal forces','twilight masquerade','shrouded fable','stellar crown','surging sparks','prismatic evolutions','journey together','destined rivals','phantasmal','base','classic'];
+    
+    let setFilter = '';
+    let nameFilter = query;
+    
+    // Check if query starts with a known set name
+    for (const setKw of setKeywords) {
+      if (query_lower.startsWith(setKw + ' ') || query_lower === setKw) {
+        setFilter = setKw;
+        nameFilter = query.slice(setKw.length).trim();
+        break;
+      }
     }
+    
+    // Build URL with filters
+    let params = [];
+    if (setFilter) {
+      params.push(`set.name=like:${encodeURIComponent(setFilter)}`);
+    }
+    
+    // Check if remaining nameFilter ends with a number
+    const remainingNumMatch = nameFilter.match(/^(.+?)\s+#?(\d+)$/);
+    if (remainingNumMatch) {
+      if (remainingNumMatch[1].trim()) params.push(`name=like:${encodeURIComponent(remainingNumMatch[1].trim())}`);
+      params.push(`localId=${encodeURIComponent(remainingNumMatch[2])}`);
+    } else if (nameFilter) {
+      params.push(`name=like:${encodeURIComponent(nameFilter)}`);
+    }
+    
+    params.push('pagination:itemsPerPage=8');
+    url = `https://api.tcgdex.net/v2/en/cards?${params.join('&')}`;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('API status: ' + resp.status);
     const cards = await resp.json();
@@ -1628,10 +1666,10 @@ th.sorted{color:var(--accent);}
 .picker-item{padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);transition:background .15s;}
 .picker-item:hover{background:var(--accent);color:#fff;}
 .picker-item:last-child{border-bottom:none;}
-.qe-table-wrap{overflow-x:auto;}
-.qe-table{width:100%;border-collapse:collapse;}
+.qe-table-wrap{overflow:visible;}
+.qe-table{width:100%;border-collapse:collapse;min-width:900px;}
 .qe-table th{font-size:11px;color:var(--text-dim);text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);}
-.qe-table td{padding:4px 3px;vertical-align:middle;}
+.qe-table td{padding:4px 3px;vertical-align:top;}
 .qe-input{width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;}
 .qe-input:focus{outline:none;border-color:var(--accent);}
 .qe-input::placeholder{color:var(--text-faint);}
