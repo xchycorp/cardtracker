@@ -338,7 +338,7 @@ const SCHEMAS = {
       {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);if(!mv||row.status==='Sold')return'—';const r2=(mv-c)/c;return`<span class="${r2>=0?'pos':'neg'}">${pct(r2)}</span>`;},sortVal:row=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);return(!mv||row.status==='Sold')?-999:(mv-c)/c;}}
     ],
     fields:[
-      {k:'cardName',l:'Card Name',required:true},
+      {k:'cardName',l:'Card Name',type:'pokemonsearch',required:true},
       {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG','Bulk Lot']},
       {k:'status',l:'Status',type:'select',opts:['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked']},
       {k:'grade',l:'Grade (e.g. 10, 9.5, 10.1, Auth)',placeholder:'10, 9.5, 10.1, Auth, etc.'},{k:'gradingCompany',l:'Grading Co.',type:'select',opts:['','PSA','CGC','Other']},
@@ -554,6 +554,23 @@ function rModal() {
       <div class="form-grid">
         ${s.fields.map(f=>{
           if(f.type==='hidden') return `<input type="hidden" id="f_${f.k}" value="${window.modal.data[f.k]||''}">`;
+          if(f.type==='pokemonsearch') return `<div class="form-group full">
+            <label>${f.l}${f.required?' *':''}</label>
+            <div class="pokemon-search">
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" id="f_pokemon_search" class="search-input" style="flex:1" placeholder="Search by card name or set number (e.g. Charizard, sv4-6)..." oninput="pokemonSearchDebounce(this.value)" autocomplete="off">
+                <span style="font-size:11px;color:var(--text-dim)" id="pokemon-search-status"></span>
+              </div>
+              <div id="pokemon-search-results" class="pokemon-results"></div>
+              ${window.modal.data.cardName?`<div class="pokemon-selected">
+                ${window.modal.data._pokemonImg?`<img src="${window.modal.data._pokemonImg}" class="pokemon-thumb">`:''}
+                <div><strong>${window.modal.data.cardName}</strong>
+                ${window.modal.data._pokemonSet?`<div style="font-size:11px;color:var(--text-dim)">${window.modal.data._pokemonSet}</div>`:''}</div>
+                <button class="btn btn-sm" onclick="clearPokemonSelection()" style="margin-left:auto">✕</button>
+              </div>`:''}
+              <input type="hidden" id="f_cardName" value="${window.modal.data.cardName||''}">
+            </div>
+          </div>`;
           if(f.type==='cardpicker') return `<div class="form-group">
             <label>${f.l}${f.required?' *':''}</label>
             <div class="card-picker">
@@ -584,6 +601,16 @@ window.saveModal = function() {
       // Card name comes from the picker input
       const el=document.getElementById('f_cardpicker');
       if(el) row.cardName=el.value;
+    } else if(f.type==='pokemonsearch'){
+      // Card name comes from hidden input or the search input as fallback
+      const hidden=document.getElementById('f_cardName');
+      const search=document.getElementById('f_pokemon_search');
+      if(hidden && hidden.value) row.cardName=hidden.value;
+      else if(search && search.value) row.cardName=search.value;
+      // Preserve pokemon metadata
+      if(window.modal.data._pokemonImg) row._pokemonImg=window.modal.data._pokemonImg;
+      if(window.modal.data._pokemonSetId) row._pokemonSetId=window.modal.data._pokemonSetId;
+      if(window.modal.data._pokemonNumber) row._pokemonNumber=window.modal.data._pokemonNumber;
     } else {
       const el=document.getElementById('f_'+f.k);
       if(el)row[f.k]=f.type==='number'?parseFloat(el.value)||0:el.value;
@@ -716,6 +743,52 @@ window.qeCancel = function() {
   render();
 };
 
+// Pokemon search for Quick Add
+let qePokemonTimers = {};
+window.qePokemonSearch = function(rowIdx, val) {
+  clearTimeout(qePokemonTimers[rowIdx]);
+  const resultsEl = document.getElementById('qe-pokemon-'+rowIdx);
+  if (!resultsEl) return;
+  if (!val || val.length < 2) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+  qePokemonTimers[rowIdx] = setTimeout(async () => {
+    try {
+      let apiQuery = '';
+      const setNumMatch = val.match(/^([a-zA-Z0-9]+)[-\s](\d+)$/);
+      if (setNumMatch) {
+        apiQuery = `set.id:${setNumMatch[1].toLowerCase()} number:${setNumMatch[2]}`;
+      } else {
+        apiQuery = `name:"${val}*"`;
+      }
+      const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=6&select=id,name,set,number,images,rarity`;
+      const resp = await fetch(url);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const cards = data.data || [];
+      if (!cards.length) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+      resultsEl.style.display = 'block';
+      resultsEl.innerHTML = cards.map(c => {
+        const formatted = formatPokemonName(c);
+        const img = c.images ? (c.images.small || '') : '';
+        const setName = c.set ? c.set.name : '';
+        return `<div class="picker-item" style="display:flex;align-items:center;gap:8px;padding:6px 10px" onclick="qeSelectPokemon(${rowIdx},'${formatted.replace(/'/g,"\\'")}','${img}')">
+          ${img?`<img src="${img}" style="width:32px;height:45px;object-fit:contain;border-radius:3px" loading="lazy">`:''}
+          <div><div style="font-weight:600;font-size:12px">${formatted}</div><div style="font-size:10px;color:var(--text-dim)">${c.rarity||''}</div></div>
+        </div>`;
+      }).join('');
+    } catch(e) { /* silently fail */ }
+  }, 400);
+};
+
+window.qeSelectPokemon = function(rowIdx, name, img) {
+  qeReadAll();
+  window.quickEntryRows[rowIdx].cardName = name;
+  window.quickEntryRows[rowIdx]._pokemonImg = img;
+  window.quickEntryRows[rowIdx].cardType = 'Pokemon';
+  const resultsEl = document.getElementById('qe-pokemon-'+rowIdx);
+  if (resultsEl) resultsEl.style.display = 'none';
+  render();
+};
+
 function rQuickEntry(data, addBtn, quickAddBtn) {
   const rows = window.quickEntryRows;
   return `<div class="panel">
@@ -741,7 +814,12 @@ function rQuickEntry(data, addBtn, quickAddBtn) {
       <tbody>
         ${rows.map((r,i)=>`<tr>
           <td class="mono" style="color:var(--text-dim)">${i+1}</td>
-          <td><input type="text" id="qe_${i}_cardName" class="qe-input qe-wide" value="${r.cardName||''}" placeholder="Card name..."></td>
+          <td><div style="position:relative">
+            <div style="display:flex;gap:4px"><input type="text" id="qe_${i}_cardName" class="qe-input qe-wide" value="${r.cardName||''}" placeholder="Card name..." oninput="qePokemonSearch(${i},this.value)">
+            <button class="btn btn-sm" onclick="document.getElementById('qe_${i}_cardName').focus();qePokemonSearch(${i},document.getElementById('qe_${i}_cardName').value)" title="Search Pokemon TCG" style="padding:4px 6px">🔍</button></div>
+            ${r._pokemonImg?`<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><img src="${r._pokemonImg}" style="width:28px;height:39px;object-fit:contain;border-radius:3px"><span style="font-size:10px;color:var(--green)">✓</span></div>`:''}
+            <div id="qe-pokemon-${i}" class="picker-results" style="max-height:200px"></div>
+          </div></td>
           <td><select id="qe_${i}_cardType" class="qe-input">${['Pokemon','Sports','Other TCG','Bulk Lot'].map(o=>`<option${r.cardType===o?' selected':''}>${o}</option>`).join('')}</select></td>
           <td><select id="qe_${i}_status" class="qe-input">${['Raw','Submitted','Graded','Listed','Hold','Cracked'].map(o=>`<option${r.status===o?' selected':''}>${o}</option>`).join('')}</select></td>
           <td><input type="text" id="qe_${i}_grade" class="qe-input" value="${r.grade||''}" placeholder="10, 9.5"></td>
@@ -930,6 +1008,104 @@ function rQuickSales(data, addBtn, quickAddBtn) {
 }
 
 // Card picker for grading submissions
+
+// ============================================================
+// POKEMON TCG API SEARCH
+// ============================================================
+let pokemonSearchTimer = null;
+window.pokemonSearchDebounce = function(val) {
+  clearTimeout(pokemonSearchTimer);
+  const statusEl = document.getElementById('pokemon-search-status');
+  if (!val || val.length < 2) {
+    const resultsEl = document.getElementById('pokemon-search-results');
+    if (resultsEl) resultsEl.innerHTML = '';
+    if (statusEl) statusEl.textContent = '';
+    return;
+  }
+  if (statusEl) statusEl.textContent = 'Searching...';
+  pokemonSearchTimer = setTimeout(() => pokemonSearch(val), 400);
+};
+
+async function pokemonSearch(query) {
+  const resultsEl = document.getElementById('pokemon-search-results');
+  const statusEl = document.getElementById('pokemon-search-status');
+  if (!resultsEl) return;
+  try {
+    // Build search query - support set number format (e.g. sv4-6) or name
+    let apiQuery = '';
+    const setNumMatch = query.match(/^([a-zA-Z0-9]+)[-\s](\d+)$/);
+    if (setNumMatch) {
+      apiQuery = `set.id:${setNumMatch[1].toLowerCase()} number:${setNumMatch[2]}`;
+    } else {
+      apiQuery = `name:"${query}*"`;
+    }
+    const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=8&select=id,name,set,number,images,rarity`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('API error');
+    const data = await resp.json();
+    const cards = data.data || [];
+    if (statusEl) statusEl.textContent = cards.length ? `${cards.length} found` : 'No results';
+    if (!cards.length) {
+      resultsEl.innerHTML = `<div class="pokemon-no-results">No cards found. Try a different name or set number.<br><span style="font-size:11px">You can also type the name manually and close this.</span></div>`;
+      return;
+    }
+    resultsEl.innerHTML = cards.map(c => {
+      const setName = c.set ? c.set.name : '';
+      const formatted = formatPokemonName(c);
+      const img = c.images ? (c.images.small || '') : '';
+      return `<div class="pokemon-result" onclick="selectPokemonCard('${formatted.replace(/'/g,"\\'")}','${img}','${setName.replace(/'/g,"\\'")}','${(c.set?c.set.id:'')}','${c.number}','${(c.rarity||'').replace(/'/g,"\\'")}')">
+        ${img?`<img src="${img}" class="pokemon-result-img" loading="lazy">`:'<div class="pokemon-result-img" style="background:var(--bg)"></div>'}
+        <div class="pokemon-result-info">
+          <div class="pokemon-result-name">${formatted}</div>
+          <div class="pokemon-result-meta">${setName} · #${c.number} · ${c.rarity||'Unknown'}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Search failed';
+    resultsEl.innerHTML = `<div class="pokemon-no-results">API error — check your connection or type the name manually.</div>`;
+  }
+}
+
+function formatPokemonName(card) {
+  const setName = card.set ? card.set.name : '';
+  const cardName = card.name || '';
+  const number = card.number || '';
+  return `${setName} ${cardName} #${number}`;
+}
+
+window.selectPokemonCard = function(name, img, setName, setId, number, rarity) {
+  if (!window.modal) return;
+  window.modal.data.cardName = name;
+  window.modal.data._pokemonImg = img;
+  window.modal.data._pokemonSet = setName;
+  window.modal.data._pokemonSetId = setId;
+  window.modal.data._pokemonNumber = number;
+  window.modal.data._pokemonRarity = rarity;
+  // Auto-set card type to Pokemon
+  window.modal.data.cardType = 'Pokemon';
+  const nameEl = document.getElementById('f_cardName');
+  if (nameEl) nameEl.value = name;
+  const typeEl = document.getElementById('f_cardType');
+  if (typeEl) typeEl.value = 'Pokemon';
+  const resultsEl = document.getElementById('pokemon-search-results');
+  if (resultsEl) resultsEl.innerHTML = '';
+  render();
+};
+
+window.clearPokemonSelection = function() {
+  if (!window.modal) return;
+  window.modal.data.cardName = '';
+  window.modal.data._pokemonImg = '';
+  window.modal.data._pokemonSet = '';
+  window.modal.data._pokemonSetId = '';
+  window.modal.data._pokemonNumber = '';
+  window.modal.data._pokemonRarity = '';
+  const nameEl = document.getElementById('f_cardName');
+  if (nameEl) nameEl.value = '';
+  render();
+  setTimeout(()=>{const el=document.getElementById('f_pokemon_search');if(el)el.focus();},50);
+};
 window.filterCardPicker = function(val) {
   const resultsEl = document.getElementById('card-picker-results');
   if (!resultsEl) return;
@@ -1441,6 +1617,17 @@ th.sorted{color:var(--accent);}
 .qe-input::placeholder{color:var(--text-faint);}
 .qe-wide{min-width:140px;}
 select.qe-input{padding:6px 4px;font-size:11px;}
+.pokemon-search{position:relative;}
+.pokemon-results{max-height:350px;overflow-y:auto;margin-top:8px;}
+.pokemon-result{display:flex;align-items:center;gap:12px;padding:8px 10px;cursor:pointer;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;transition:all .15s;}
+.pokemon-result:hover{border-color:var(--accent);background:rgba(255,51,102,.08);}
+.pokemon-result-img{width:56px;height:78px;object-fit:contain;border-radius:4px;flex-shrink:0;}
+.pokemon-result-info{flex:1;min-width:0;}
+.pokemon-result-name{font-weight:600;font-size:13px;color:var(--text);}
+.pokemon-result-meta{font-size:11px;color:var(--text-dim);margin-top:2px;}
+.pokemon-no-results{padding:16px;text-align:center;color:var(--text-dim);font-size:12px;}
+.pokemon-selected{display:flex;align-items:center;gap:12px;padding:10px;background:var(--bg);border:1px solid var(--green);border-radius:var(--radius-sm);margin-top:8px;}
+.pokemon-thumb{width:48px;height:67px;object-fit:contain;border-radius:4px;}
 @media(max-width:900px){.charts-grid,.fin-grid{grid-template-columns:1fr;}.metrics{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}.app{padding:14px;}.form-grid{grid-template-columns:1fr;}}
 </style>
 <script>
