@@ -752,25 +752,25 @@ window.qePokemonSearch = function(rowIdx, val) {
   if (!val || val.length < 2) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
   qePokemonTimers[rowIdx] = setTimeout(async () => {
     try {
-      let apiQuery = '';
-      const setNumMatch = val.match(/^([a-zA-Z0-9]+)[-\s](\d+)$/);
-      if (setNumMatch) {
-        apiQuery = `set.id:${setNumMatch[1].toLowerCase()} number:${setNumMatch[2]}`;
-      } else {
-        apiQuery = `name:${val}*`;
-      }
-      const baseUrl = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=6&select=id,name,set,number,images,rarity`;
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
-      const resp = await fetch(proxyUrl);
+      const url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(val)}&pagination:itemsPerPage=6`;
+      const resp = await fetch(url);
       if (!resp.ok) return;
-      const data = await resp.json();
-      const cards = data.data || [];
+      const cards = await resp.json();
       if (!cards.length) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+      // Fetch details for set info
+      const details = await Promise.all(cards.slice(0,6).map(async c => {
+        try {
+          const r = await fetch(`https://api.tcgdex.net/v2/en/cards/${c.id}`);
+          if (r.ok) return await r.json();
+          return c;
+        } catch(e) { return c; }
+      }));
       resultsEl.style.display = 'block';
-      resultsEl.innerHTML = cards.map(c => {
-        const formatted = formatPokemonName(c);
-        const img = c.images ? (c.images.small || '') : '';
+      resultsEl.innerHTML = details.map(c => {
         const setName = c.set ? c.set.name : '';
+        const number = c.localId || '';
+        const formatted = `${setName} ${c.name||''} #${number}`.trim();
+        const img = c.image ? c.image + '/low.webp' : '';
         return `<div class="picker-item" style="display:flex;align-items:center;gap:8px;padding:6px 10px" onclick="qeSelectPokemon(${rowIdx},'${formatted.replace(/'/g,"\\'")}','${img}')">
           ${img?`<img src="${img}" style="width:32px;height:45px;object-fit:contain;border-radius:3px" loading="lazy">`:''}
           <div><div style="font-weight:600;font-size:12px">${formatted}</div><div style="font-size:10px;color:var(--text-dim)">${c.rarity||''}</div></div>
@@ -1032,35 +1032,35 @@ async function pokemonSearch(query) {
   const statusEl = document.getElementById('pokemon-search-status');
   if (!resultsEl) return;
   try {
-    // Build search query - support set number format (e.g. sv4-6) or name
-    let apiQuery = '';
-    const setNumMatch = query.match(/^([a-zA-Z0-9]+)[-\s](\d+)$/);
-    if (setNumMatch) {
-      apiQuery = `set.id:${setNumMatch[1].toLowerCase()} number:${setNumMatch[2]}`;
-    } else {
-      apiQuery = `name:${query}*`;
-    }
-    const baseUrl = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(apiQuery)}&pageSize=8&select=id,name,set,number,images,rarity`;
-    // Use allorigins proxy to avoid CORS issues on GitHub Pages
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}`;
-    const resp = await fetch(proxyUrl);
+    // Use TCGdex API - free, open source, CORS-friendly
+    const url = `https://api.tcgdex.net/v2/en/cards?name=like:${encodeURIComponent(query)}&sort:field=name&pagination:itemsPerPage=8`;
+    const resp = await fetch(url);
     if (!resp.ok) throw new Error('API status: ' + resp.status);
-    const data = await resp.json();
-    const cards = data.data || [];
+    const cards = await resp.json();
     if (statusEl) statusEl.textContent = cards.length ? `${cards.length} found` : 'No results';
     if (!cards.length) {
       resultsEl.innerHTML = `<div class="pokemon-no-results">No cards found. Try a different name or set number.<br><span style="font-size:11px">You can also type the name manually and close this.</span></div>`;
       return;
     }
-    resultsEl.innerHTML = cards.map(c => {
+    // Fetch full details for each card to get set info
+    const details = await Promise.all(cards.slice(0,8).map(async c => {
+      try {
+        const r = await fetch(`https://api.tcgdex.net/v2/en/cards/${c.id}`);
+        if (r.ok) return await r.json();
+        return c;
+      } catch(e) { return c; }
+    }));
+    resultsEl.innerHTML = details.map(c => {
       const setName = c.set ? c.set.name : '';
-      const formatted = formatPokemonName(c);
-      const img = c.images ? (c.images.small || '') : '';
-      return `<div class="pokemon-result" onclick="selectPokemonCard('${formatted.replace(/'/g,"\\'")}','${img}','${setName.replace(/'/g,"\\'")}','${(c.set?c.set.id:'')}','${c.number}','${(c.rarity||'').replace(/'/g,"\\'")}')">
+      const number = c.localId || '';
+      const formatted = `${setName} ${c.name||''} #${number}`.trim();
+      const img = c.image ? c.image + '/low.webp' : '';
+      const rarity = c.rarity || '';
+      return `<div class="pokemon-result" onclick="selectPokemonCard('${formatted.replace(/'/g,"\\'")}','${img}','${setName.replace(/'/g,"\\'")}','${(c.set?c.set.id:'')}','${number}','${rarity.replace(/'/g,"\\'")}')">
         ${img?`<img src="${img}" class="pokemon-result-img" loading="lazy">`:'<div class="pokemon-result-img" style="background:var(--bg)"></div>'}
         <div class="pokemon-result-info">
           <div class="pokemon-result-name">${formatted}</div>
-          <div class="pokemon-result-meta">${setName} · #${c.number} · ${c.rarity||'Unknown'}</div>
+          <div class="pokemon-result-meta">${setName} · #${number} · ${rarity||'Unknown'}</div>
         </div>
       </div>`;
     }).join('');
@@ -1074,8 +1074,8 @@ async function pokemonSearch(query) {
 function formatPokemonName(card) {
   const setName = card.set ? card.set.name : '';
   const cardName = card.name || '';
-  const number = card.number || '';
-  return `${setName} ${cardName} #${number}`;
+  const number = card.localId || card.number || '';
+  return `${setName} ${cardName} #${number}`.trim();
 }
 
 window.selectPokemonCard = function(name, img, setName, setId, number, rarity) {
