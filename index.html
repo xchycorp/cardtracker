@@ -565,7 +565,8 @@ function rModal() {
               ${window.modal.data.cardName?`<div class="pokemon-selected">
                 ${window.modal.data._pokemonImg?`<img src="${window.modal.data._pokemonImg}" class="pokemon-thumb">`:''}
                 <div><strong>${window.modal.data.cardName}</strong>
-                ${window.modal.data._pokemonSet?`<div style="font-size:11px;color:var(--text-dim)">${window.modal.data._pokemonSet}</div>`:''}</div>
+                ${window.modal.data._pokemonSet?`<div style="font-size:11px;color:var(--text-dim)">${window.modal.data._pokemonSet}</div>`:''}
+                ${window.modal.data.marketValue?`<div style="font-size:12px;color:var(--green);font-weight:600">TCGPlayer: $${Number(window.modal.data.marketValue).toFixed(2)}</div>`:''}</div>
                 <button class="btn btn-sm" onclick="clearPokemonSelection()" style="margin-left:auto">✕</button>
               </div>`:''}
               <input type="hidden" id="f_cardName" value="${window.modal.data.cardName||''}">
@@ -611,6 +612,7 @@ window.saveModal = function() {
       if(window.modal.data._pokemonImg) row._pokemonImg=window.modal.data._pokemonImg;
       if(window.modal.data._pokemonSetId) row._pokemonSetId=window.modal.data._pokemonSetId;
       if(window.modal.data._pokemonNumber) row._pokemonNumber=window.modal.data._pokemonNumber;
+      if(window.modal.data._tcgdexId) row._tcgdexId=window.modal.data._tcgdexId;
     } else {
       const el=document.getElementById('f_'+f.k);
       if(el)row[f.k]=f.type==='number'?parseFloat(el.value)||0:el.value;
@@ -783,25 +785,33 @@ window.qePokemonSearch = function(rowIdx, val) {
         } catch(e) { return c; }
       }));
       resultsEl.style.display = 'block';
-      resultsEl.innerHTML = details.map(c => {
+      resultsEl.innerHTML = details.map((c, idx) => {
         const setName = c.set ? c.set.name : '';
         const number = c.localId || '';
         const formatted = `${setName} ${c.name||''} #${number}`.trim();
         const img = c.image ? c.image + '/low.webp' : '';
-        return `<div class="picker-item" style="display:flex;align-items:center;gap:8px;padding:6px 10px" onclick="qeSelectPokemon(${rowIdx},'${formatted.replace(/'/g,"\\'")}','${img}')">
+        const tcgPrice = c.pricing?.tcgplayer?.normal?.marketPrice || c.pricing?.tcgplayer?.reverse?.marketPrice || c.pricing?.tcgplayer?.normal?.midPrice || '';
+        const priceTag = tcgPrice ? ` · <span style="color:var(--green)">$${Number(tcgPrice).toFixed(2)}</span>` : '';
+        window._qePokemonResults = window._qePokemonResults || {};
+        window._qePokemonResults[rowIdx+'_'+idx] = {formatted, img, tcgPrice, tcgdexId: c.id||''};
+        return `<div class="picker-item" style="display:flex;align-items:center;gap:8px;padding:6px 10px" onclick="qeSelectPokemon(${rowIdx},'${rowIdx}_${idx}')">
           ${img?`<img src="${img}" style="width:32px;height:45px;object-fit:contain;border-radius:3px" loading="lazy">`:''}
-          <div><div style="font-weight:600;font-size:12px">${formatted}</div><div style="font-size:10px;color:var(--text-dim)">${c.rarity||''}</div></div>
+          <div><div style="font-weight:600;font-size:12px">${formatted}</div><div style="font-size:10px;color:var(--text-dim)">${c.rarity||''}${priceTag}</div></div>
         </div>`;
       }).join('');
     } catch(e) { /* silently fail */ }
   }, 400);
 };
 
-window.qeSelectPokemon = function(rowIdx, name, img) {
+window.qeSelectPokemon = function(rowIdx, resultKey) {
   qeReadAll();
-  window.quickEntryRows[rowIdx].cardName = name;
-  window.quickEntryRows[rowIdx]._pokemonImg = img;
+  const card = window._qePokemonResults && window._qePokemonResults[resultKey];
+  if (!card) return;
+  window.quickEntryRows[rowIdx].cardName = card.formatted;
+  window.quickEntryRows[rowIdx]._pokemonImg = card.img;
   window.quickEntryRows[rowIdx].cardType = 'Pokemon';
+  window.quickEntryRows[rowIdx]._tcgdexId = card.tcgdexId;
+  if (card.tcgPrice) window.quickEntryRows[rowIdx].marketValue = Number(card.tcgPrice).toFixed(2);
   const resultsEl = document.getElementById('qe-pokemon-'+rowIdx);
   if (resultsEl) resultsEl.style.display = 'none';
   render();
@@ -1104,17 +1114,23 @@ async function pokemonSearch(query) {
         return c;
       } catch(e) { return c; }
     }));
-    resultsEl.innerHTML = details.map(c => {
+    resultsEl.innerHTML = details.map((c, idx) => {
       const setName = c.set ? c.set.name : '';
       const number = c.localId || '';
       const formatted = `${setName} ${c.name||''} #${number}`.trim();
       const img = c.image ? c.image + '/low.webp' : '';
       const rarity = c.rarity || '';
-      return `<div class="pokemon-result" onclick="selectPokemonCard('${formatted.replace(/'/g,"\\'")}','${img}','${setName.replace(/'/g,"\\'")}','${(c.set?c.set.id:'')}','${number}','${rarity.replace(/'/g,"\\'")}')">
+      // Extract TCGPlayer market price if available
+      const tcgPrice = c.pricing?.tcgplayer?.normal?.marketPrice || c.pricing?.tcgplayer?.reverse?.marketPrice || c.pricing?.tcgplayer?.normal?.midPrice || '';
+      const priceDisplay = tcgPrice ? `<span style="color:var(--green);font-weight:600">$${Number(tcgPrice).toFixed(2)}</span>` : '<span style="color:var(--text-faint)">No price</span>';
+      // Store card data for selection
+      window._pokemonResults = window._pokemonResults || [];
+      window._pokemonResults[idx] = {formatted, img, setName, setId: c.set?c.set.id:'', number, rarity, tcgPrice, tcgdexId: c.id||''};
+      return `<div class="pokemon-result" onclick="selectPokemonCard(${idx})">
         ${img?`<img src="${img}" class="pokemon-result-img" loading="lazy">`:'<div class="pokemon-result-img" style="background:var(--bg)"></div>'}
         <div class="pokemon-result-info">
           <div class="pokemon-result-name">${formatted}</div>
-          <div class="pokemon-result-meta">${setName} · #${number} · ${rarity||'Unknown'}</div>
+          <div class="pokemon-result-meta">${setName} · #${number} · ${rarity||'Unknown'} · ${priceDisplay}</div>
         </div>
       </div>`;
     }).join('');
@@ -1132,20 +1148,28 @@ function formatPokemonName(card) {
   return `${setName} ${cardName} #${number}`.trim();
 }
 
-window.selectPokemonCard = function(name, img, setName, setId, number, rarity) {
-  if (!window.modal) return;
-  window.modal.data.cardName = name;
-  window.modal.data._pokemonImg = img;
-  window.modal.data._pokemonSet = setName;
-  window.modal.data._pokemonSetId = setId;
-  window.modal.data._pokemonNumber = number;
-  window.modal.data._pokemonRarity = rarity;
+window.selectPokemonCard = function(idx) {
+  if (!window.modal || !window._pokemonResults || !window._pokemonResults[idx]) return;
+  const card = window._pokemonResults[idx];
+  window.modal.data.cardName = card.formatted;
+  window.modal.data._pokemonImg = card.img;
+  window.modal.data._pokemonSet = card.setName;
+  window.modal.data._pokemonSetId = card.setId;
+  window.modal.data._pokemonNumber = card.number;
+  window.modal.data._pokemonRarity = card.rarity;
+  window.modal.data._tcgdexId = card.tcgdexId;
   // Auto-set card type to Pokemon
   window.modal.data.cardType = 'Pokemon';
   const nameEl = document.getElementById('f_cardName');
-  if (nameEl) nameEl.value = name;
+  if (nameEl) nameEl.value = card.formatted;
   const typeEl = document.getElementById('f_cardType');
   if (typeEl) typeEl.value = 'Pokemon';
+  // Auto-fill market value from TCGPlayer price
+  if (card.tcgPrice) {
+    window.modal.data.marketValue = card.tcgPrice;
+    const mvEl = document.getElementById('f_marketValue');
+    if (mvEl) mvEl.value = Number(card.tcgPrice).toFixed(2);
+  }
   const resultsEl = document.getElementById('pokemon-search-results');
   if (resultsEl) resultsEl.innerHTML = '';
   render();
