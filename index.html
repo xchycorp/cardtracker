@@ -1511,7 +1511,7 @@ function rResearchCard(rs) {
       ${img?`<img src="${img}" style="width:120px;height:168px;object-fit:contain;border-radius:8px;flex-shrink:0">`:''}
       <div style="flex:1">
         <div style="font-size:18px;font-weight:700">${c.name||''}</div>
-        <div style="font-size:13px;color:var(--text-dim);margin-top:4px">${setName} · #${c.localId||''} · ${c.rarity||'Unknown'}</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-top:4px">${setName} · #${c.localId||''} · ${c.rarity||'Unknown'} · <span style="color:var(--text-faint)">${c.id||''}</span></div>
         ${c.hp?`<div style="font-size:12px;color:var(--text-dim);margin-top:2px">HP: ${c.hp} · ${(c.types||[]).join(', ')}</div>`:''}
         <div style="margin-top:12px">
           <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:6px">TCGPlayer PRICING (Raw/Ungraded)</div>
@@ -1665,7 +1665,7 @@ async function researchSearch(query) {
         ${img?`<img src="${img}" class="pokemon-result-img" loading="lazy">`:''}
         <div class="pokemon-result-info">
           <div class="pokemon-result-name">${setName} ${c.name||''} #${number}</div>
-          <div class="pokemon-result-meta">${c.rarity||''} ${price?`· <span style="color:var(--green)">$${Number(price).toFixed(2)}</span>`:''}</div>
+          <div class="pokemon-result-meta">${c.rarity||''} · <span style="color:var(--text-faint)">${c.id||''}</span> ${price?`· <span style="color:var(--green)">$${Number(price).toFixed(2)}</span>`:''}</div>
         </div>
       </div>`;
     }).join('');
