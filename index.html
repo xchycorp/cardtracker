@@ -1983,8 +1983,6 @@ function rScanner(m) {
           <thead><tr>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Image</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Card Name</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Edition</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Rarity</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Market $</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cost $</th>
             <th style="padding:8px;border-bottom:1px solid var(--border)"></th>
@@ -1996,12 +1994,6 @@ function rScanner(m) {
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
                 <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" onchange="window.scannerState.queue[${i}].cardName=this.value" style="min-width:200px">
-              </td>
-              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
-                <input type="text" class="qe-input" value="${(card.edition||'').replace(/"/g,'&quot;')}" onchange="window.scannerState.queue[${i}].edition=this.value" style="width:100px" placeholder="Unlimited">
-              </td>
-              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
-                <span style="color:var(--text-dim)">${card.rarity||'—'}</span>
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
                 <input type="number" class="qe-input" value="${card.marketValue||''}" onchange="window.scannerState.queue[${i}].marketValue=this.value" step="0.01" style="width:80px" placeholder="0.00">
@@ -2238,7 +2230,7 @@ window.scannerSaveAll = function() {
       gradingCompany: '',
       grade: '',
       gradingCost: 0,
-      notes: [card.edition, card.notes, card.language !== 'English' ? card.language : ''].filter(Boolean).join('; '),
+      notes: '',
       _pokemonRarity: card.rarity || '',
       _tcgdexId: card.tcgdexId || ''
     };
