@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
 <title>CardTracker — Business Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -242,8 +243,8 @@ window.render = function render() {
       </div>
     </div>
     <div class="tabs">
-      ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','analytics','research','financials'].map(t2=>{
-        const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',analytics:'Analytics',research:'Research',financials:'Financials'};
+      ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','analytics','research','scanner','financials'].map(t2=>{
+        const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',analytics:'Analytics',research:'Research',scanner:'Scanner',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
         return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
@@ -259,6 +260,7 @@ window.render = function render() {
       window.tab==='capital'?rCapital(m):
       window.tab==='analytics'?rAnalytics(m):
       window.tab==='research'?rResearch(m):
+      window.tab==='scanner'?rScanner(m):
       rFinancials(m)
     }</div>
     ${window.modal?rModal():''}
@@ -560,9 +562,15 @@ function rModal() {
             <div class="pokemon-search">
               <div style="display:flex;gap:8px;align-items:center">
                 <input type="text" id="f_pokemon_search" class="search-input" style="flex:1" placeholder="Search by card name or set number (e.g. Charizard, sv4-6)..." oninput="pokemonSearchDebounce(this.value)" autocomplete="off">
+                <button class="btn btn-sm" onclick="modalScanCard()" title="Scan card with camera" style="white-space:nowrap">📷 Scan</button>
                 <span style="font-size:11px;color:var(--text-dim)" id="pokemon-search-status"></span>
               </div>
+              <input type="file" id="modalScanInput" accept="image/*" capture="environment" style="display:none" onchange="modalScanHandle(event)">
               <div id="pokemon-search-results" class="pokemon-results"></div>
+              ${window.modal.data._scanImg?`<div style="margin-top:8px;display:flex;gap:12px;align-items:center;padding:8px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border)">
+                <img src="${window.modal.data._scanImg}" style="width:50px;height:70px;object-fit:contain;border-radius:4px">
+                <div style="font-size:11px;color:var(--text-dim)">Scanned photo</div>
+              </div>`:''}
               ${window.modal.data.cardName?`<div class="pokemon-selected">
                 ${window.modal.data._pokemonImg?`<img src="${window.modal.data._pokemonImg}" class="pokemon-thumb">`:''}
                 <div><strong>${window.modal.data.cardName}</strong>
@@ -1190,10 +1198,123 @@ window.clearPokemonSelection = function() {
   window.modal.data._pokemonSetId = '';
   window.modal.data._pokemonNumber = '';
   window.modal.data._pokemonRarity = '';
+  window.modal.data._scanImg = '';
   const nameEl = document.getElementById('f_cardName');
   if (nameEl) nameEl.value = '';
   render();
   setTimeout(()=>{const el=document.getElementById('f_pokemon_search');if(el)el.focus();},50);
+};
+
+// Modal scan functions
+window.modalScanCard = function() {
+  document.getElementById('modalScanInput').click();
+};
+
+window.modalScanHandle = async function(event) {
+  const file = event.target.files[0];
+  if (!file || !window.modal) return;
+  event.target.value = '';
+  
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    const base64DataUrl = e.target.result;
+    window.modal.data._scanImg = base64DataUrl;
+    
+    const statusEl = document.getElementById('pokemon-search-status');
+    if (statusEl) statusEl.textContent = '⏳ Identifying...';
+    render();
+    
+    try {
+      const match = base64DataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (!match) throw new Error('Invalid image');
+      
+      const ss = window.scannerState;
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ss.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 500,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+              { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
+{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Unlimited or Shadowless or empty string","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy"}
+If not a Pokemon card: {"error":"Not a Pokemon card"}` }
+            ]
+          }]
+        })
+      });
+      
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error?.message || 'API error');
+      }
+      
+      const data = await response.json();
+      const text = data.content?.[0]?.text || '';
+      const cleaned = text.replace(/```json\s*|```/g, '').trim();
+      const cardInfo = JSON.parse(cleaned);
+      
+      if (cardInfo.error) {
+        if (statusEl) statusEl.textContent = cardInfo.error;
+        return;
+      }
+      
+      const setName = cardInfo.set || '';
+      const cardName = cardInfo.name || '';
+      const number = cardInfo.number || '';
+      const edition = cardInfo.edition || '';
+      let formatted = `${setName} ${cardName}`.trim();
+      if (number) formatted += ` #${number.replace('#','')}`;
+      if (edition && edition !== 'Unlimited' && edition !== '') formatted += ` ${edition}`;
+      
+      window.modal.data.cardName = formatted;
+      window.modal.data.cardType = cardInfo.cardType || 'Pokemon';
+      window.modal.data._pokemonRarity = cardInfo.rarity || '';
+      
+      // TCGdex match for image + pricing
+      try {
+        let params = [];
+        if (setName) params.push(`set.name=like:${encodeURIComponent(setName)}`);
+        if (cardName) params.push(`name=like:${encodeURIComponent(cardName)}`);
+        const cleanNum = (number||'').replace(/[^\d]/g,'');
+        if (cleanNum) params.push(`localId=${encodeURIComponent(cleanNum)}`);
+        params.push('pagination:itemsPerPage=1');
+        const tcgResp = await fetch(`https://api.tcgdex.net/v2/en/cards?${params.join('&')}`);
+        if (tcgResp.ok) {
+          const tcgCards = await tcgResp.json();
+          if (tcgCards.length) {
+            const detailResp = await fetch(`https://api.tcgdex.net/v2/en/cards/${tcgCards[0].id}`);
+            if (detailResp.ok) {
+              const detail = await detailResp.json();
+              window.modal.data._pokemonImg = detail.image ? detail.image + '/low.webp' : '';
+              window.modal.data._pokemonSet = detail.set ? detail.set.name : setName;
+              window.modal.data._pokemonSetId = detail.set ? detail.set.id : '';
+              window.modal.data._pokemonNumber = detail.localId || number;
+              window.modal.data._tcgdexId = detail.id || '';
+              const tp = detail.pricing?.tcgplayer || {};
+              const price = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
+              if (price) window.modal.data.marketValue = price;
+            }
+          }
+        }
+      } catch(e) {}
+      
+      if (statusEl) statusEl.textContent = '✅ Identified!';
+      render();
+      showToast(`Identified: ${formatted}`);
+    } catch(err) {
+      if (statusEl) statusEl.textContent = '❌ ' + err.message;
+    }
+  };
+  reader.readAsDataURL(file);
 };
 window.filterCardPicker = function(val) {
   const resultsEl = document.getElementById('card-picker-results');
@@ -1696,6 +1817,295 @@ window.researchFromInventory = function(invIdx) {
     const el = document.getElementById('research_search');
     if (el) { el.value = card.cardName || ''; researchSearch(card.cardName || ''); }
   }, 100);
+};
+
+// ============================================================
+// SCANNER TAB
+// ============================================================
+window.scannerState = {
+  apiKey: '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',
+  queue: [], // {img, cardName, setName, number, edition, rarity, cardType, confirmed, tcgdexId, marketValue}
+  scanning: false,
+  lastImg: '',
+  error: ''
+};
+
+function rScanner(m) {
+  const ss = window.scannerState;
+  return `
+  <div class="panel">
+    <h3 style="color:var(--cyan)">📸 Card Scanner</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Take a photo of a card to auto-identify it using AI. Works best with the front of the card clearly visible.</div>
+    
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+      <div style="flex:1;min-width:280px">
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button class="btn btn-accent" onclick="scannerCapture()" ${ss.scanning?'disabled':''}>${ss.scanning?'⏳ Identifying...':'📷 Take Photo'}</button>
+          <button class="btn" onclick="scannerUpload()">📁 Upload Image</button>
+        </div>
+        <input type="file" id="scannerFileInput" accept="image/*" capture="environment" style="display:none" onchange="scannerHandleFile(event)">
+        <input type="file" id="scannerUploadInput" accept="image/*" style="display:none" onchange="scannerHandleFile(event)">
+        
+        ${ss.lastImg?`
+          <div style="position:relative;display:inline-block;margin-bottom:12px">
+            <img src="${ss.lastImg}" style="max-width:250px;max-height:350px;border-radius:8px;border:2px solid var(--border)">
+            ${ss.scanning?'<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.7);padding:12px 20px;border-radius:8px;color:white;font-size:13px">Identifying card...</div>':''}
+          </div>
+        `:'<div style="width:250px;height:350px;border:2px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:13px;text-align:center;padding:20px">Take a photo or upload<br>an image of a card</div>'}
+        
+        ${ss.error?`<div style="color:var(--red);font-size:12px;margin-top:8px">${ss.error}</div>`:''}
+      </div>
+    </div>
+  </div>
+  
+  <div class="panel" style="margin-top:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="color:var(--green)">📋 Scan Queue <span style="font-size:13px;color:var(--text-dim)">(${ss.queue.length} cards)</span></h3>
+      <div style="display:flex;gap:8px">
+        ${ss.queue.length?`
+          <button class="btn btn-accent" onclick="scannerSaveAll()">💾 Save All to Inventory</button>
+          <button class="btn" onclick="scannerClearQueue()">🗑 Clear</button>
+        `:''}
+      </div>
+    </div>
+    ${ss.queue.length?`
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Image</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Card Name</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Edition</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Rarity</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Market $</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cost $</th>
+            <th style="padding:8px;border-bottom:1px solid var(--border)"></th>
+          </tr></thead>
+          <tbody>
+            ${ss.queue.map((card, i) => `<tr>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
+                ${card.img?`<img src="${card.img}" style="width:40px;height:56px;object-fit:contain;border-radius:4px">`:''}
+              </td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
+                <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" onchange="window.scannerState.queue[${i}].cardName=this.value" style="min-width:200px">
+              </td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
+                <input type="text" class="qe-input" value="${(card.edition||'').replace(/"/g,'&quot;')}" onchange="window.scannerState.queue[${i}].edition=this.value" style="width:100px" placeholder="Unlimited">
+              </td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
+                <span style="color:var(--text-dim)">${card.rarity||'—'}</span>
+              </td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
+                <input type="number" class="qe-input" value="${card.marketValue||''}" onchange="window.scannerState.queue[${i}].marketValue=this.value" step="0.01" style="width:80px" placeholder="0.00">
+              </td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
+                <input type="number" class="qe-input" value="${card.costBasis||''}" onchange="window.scannerState.queue[${i}].costBasis=this.value" step="0.01" style="width:80px" placeholder="0.00">
+              </td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
+                <button class="btn btn-sm" onclick="scannerRemoveFromQueue(${i})" title="Remove">✕</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `:'<div class="empty"><div class="icon">📷</div>Scan cards to build your queue. Review and edit before saving to inventory.</div>'}
+  </div>`;
+}
+
+// Scanner functions
+window.scannerCapture = function() {
+  document.getElementById('scannerFileInput').click();
+};
+
+window.scannerUpload = function() {
+  document.getElementById('scannerUploadInput').click();
+};
+
+window.scannerHandleFile = function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const base64 = e.target.result;
+    window.scannerState.lastImg = base64;
+    window.scannerState.scanning = true;
+    window.scannerState.error = '';
+    render();
+    scannerIdentify(base64);
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+};
+
+async function scannerIdentify(base64DataUrl) {
+  const ss = window.scannerState;
+  try {
+    // Extract the base64 data and media type
+    const match = base64DataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!match) throw new Error('Invalid image format');
+    const mediaType = match[1];
+    const base64Data = match[2];
+    
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ss.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: mediaType, data: base64Data }
+            },
+            {
+              type: 'text',
+              text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
+{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Unlimited or Shadowless or empty string","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy","language":"English or Japanese etc","notes":"any other notable details"}
+If this is not a Pokemon card, respond with: {"error":"Not a Pokemon card","notes":"description of what you see"}`
+            }
+          ]
+        }]
+      })
+    });
+    
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '';
+    
+    // Parse the JSON response
+    let cardInfo;
+    try {
+      const cleaned = text.replace(/```json\s*|```/g, '').trim();
+      cardInfo = JSON.parse(cleaned);
+    } catch(e) {
+      throw new Error('Could not parse AI response: ' + text.substring(0, 100));
+    }
+    
+    if (cardInfo.error) {
+      ss.error = cardInfo.error + (cardInfo.notes ? ': ' + cardInfo.notes : '');
+      ss.scanning = false;
+      render();
+      return;
+    }
+    
+    // Build formatted card name
+    const setName = cardInfo.set || '';
+    const cardName = cardInfo.name || '';
+    const number = cardInfo.number || '';
+    const edition = cardInfo.edition || '';
+    let formatted = `${setName} ${cardName}`.trim();
+    if (number) formatted += ` #${number.replace('#','')}`;
+    if (edition && edition !== 'Unlimited' && edition !== '') formatted += ` ${edition}`;
+    
+    // Try to match against TCGdex for image and pricing
+    let tcgImg = '';
+    let marketValue = '';
+    let tcgdexId = '';
+    try {
+      let params = [];
+      if (setName) params.push(`set.name=like:${encodeURIComponent(setName)}`);
+      if (cardName) params.push(`name=like:${encodeURIComponent(cardName)}`);
+      if (number) {
+        const cleanNum = number.replace(/[^\d]/g, '');
+        if (cleanNum) params.push(`localId=${encodeURIComponent(cleanNum)}`);
+      }
+      params.push('pagination:itemsPerPage=1');
+      const url = `https://api.tcgdex.net/v2/en/cards?${params.join('&')}`;
+      const tcgResp = await fetch(url);
+      if (tcgResp.ok) {
+        const tcgCards = await tcgResp.json();
+        if (tcgCards.length) {
+          const detailResp = await fetch(`https://api.tcgdex.net/v2/en/cards/${tcgCards[0].id}`);
+          if (detailResp.ok) {
+            const detail = await detailResp.json();
+            tcgImg = detail.image ? detail.image + '/low.webp' : '';
+            tcgdexId = detail.id || '';
+            const tp = detail.pricing?.tcgplayer || {};
+            marketValue = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
+          }
+        }
+      }
+    } catch(e) { /* TCGdex lookup failed, continue without */ }
+    
+    // Add to queue
+    ss.queue.push({
+      img: tcgImg || base64DataUrl,
+      cardName: formatted,
+      setName: setName,
+      number: number,
+      edition: edition,
+      rarity: cardInfo.rarity || '',
+      cardType: cardInfo.cardType || 'Pokemon',
+      holo: cardInfo.holo || false,
+      language: cardInfo.language || 'English',
+      notes: cardInfo.notes || '',
+      tcgdexId: tcgdexId,
+      marketValue: marketValue ? Number(marketValue).toFixed(2) : '',
+      costBasis: '',
+      confirmed: false
+    });
+    
+    ss.scanning = false;
+    ss.error = '';
+    render();
+    showToast(`Identified: ${formatted}`);
+    
+  } catch(err) {
+    ss.scanning = false;
+    ss.error = err.message;
+    render();
+  }
+}
+
+window.scannerRemoveFromQueue = function(idx) {
+  window.scannerState.queue.splice(idx, 1);
+  render();
+};
+
+window.scannerClearQueue = function() {
+  if (confirm('Clear all scanned cards from queue?')) {
+    window.scannerState.queue = [];
+    render();
+  }
+};
+
+window.scannerSaveAll = async function() {
+  const ss = window.scannerState;
+  if (!ss.queue.length) return;
+  
+  for (const card of ss.queue) {
+    const row = {
+      cardName: card.cardName || '',
+      cardType: card.cardType || 'Pokemon',
+      status: 'In Stock',
+      datePurchased: new Date().toISOString().slice(0,10),
+      costBasis: card.costBasis || '',
+      marketValue: card.marketValue || '',
+      platform: '',
+      gradingCompany: '',
+      grade: '',
+      gradingCost: '',
+      notes: [card.edition, card.notes, card.language !== 'English' ? card.language : ''].filter(Boolean).join('; '),
+      _pokemonRarity: card.rarity || '',
+      _tcgdexId: card.tcgdexId || ''
+    };
+    if (card.img && !card.img.startsWith('data:')) row._pokemonImg = card.img;
+    await addRow('inventory', row);
+  }
+  
+  showToast(`${ss.queue.length} cards saved to inventory!`);
+  ss.queue = [];
+  render();
 };
 
 function rFinancials(m) {
