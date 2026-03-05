@@ -569,7 +569,7 @@ function rModal() {
               <div id="pokemon-search-results" class="pokemon-results"></div>
               ${window.modal.data._scanImg?`<div style="margin-top:8px;display:flex;gap:12px;align-items:center;padding:8px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border)">
                 <img src="${window.modal.data._scanImg}" style="width:50px;height:70px;object-fit:contain;border-radius:4px">
-                <div style="font-size:11px;color:var(--text-dim)">Scanned photo</div>
+                <div style="font-size:12px;color:${(window.modal.data._scanStatus||'').startsWith('❌')?'var(--red)':'var(--text-dim)'}">${window.modal.data._scanStatus||'Processing...'}</div>
               </div>`:''}
               ${window.modal.data.cardName?`<div class="pokemon-selected">
                 ${window.modal.data._pokemonImg?`<img src="${window.modal.data._pokemonImg}" class="pokemon-thumb">`:''}
@@ -1219,14 +1219,22 @@ window.modalScanHandle = async function(event) {
   reader.onload = async function(e) {
     const base64DataUrl = e.target.result;
     window.modal.data._scanImg = base64DataUrl;
-    
-    const statusEl = document.getElementById('pokemon-search-status');
-    if (statusEl) statusEl.textContent = '⏳ Identifying...';
+    window.modal.data._scanStatus = 'Identifying card...';
     render();
     
     try {
       const match = base64DataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
-      if (!match) throw new Error('Invalid image');
+      if (!match) throw new Error('Invalid image format');
+      
+      // Resize image if too large (mobile photos can be huge)
+      let imgData = match[2];
+      let mediaType = match[1];
+      if (imgData.length > 500000) {
+        // Compress by resizing via canvas
+        const compressed = await compressImage(base64DataUrl, 800);
+        const cMatch = compressed.match(/^data:(image\/\w+);base64,(.+)$/);
+        if (cMatch) { mediaType = cMatch[1]; imgData = cMatch[2]; }
+      }
       
       const ss = window.scannerState;
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1243,7 +1251,7 @@ window.modalScanHandle = async function(event) {
           messages: [{
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } },
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
               { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
 {"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Unlimited or Shadowless or empty string","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy"}
 If not a Pokemon card: {"error":"Not a Pokemon card"}` }
@@ -1254,7 +1262,7 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.error?.message || 'API error');
+        throw new Error(err.error?.message || `API error ${response.status}`);
       }
       
       const data = await response.json();
@@ -1263,7 +1271,8 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       const cardInfo = JSON.parse(cleaned);
       
       if (cardInfo.error) {
-        if (statusEl) statusEl.textContent = cardInfo.error;
+        window.modal.data._scanStatus = '❌ ' + cardInfo.error;
+        render();
         return;
       }
       
@@ -1278,6 +1287,7 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       window.modal.data.cardName = formatted;
       window.modal.data.cardType = cardInfo.cardType || 'Pokemon';
       window.modal.data._pokemonRarity = cardInfo.rarity || '';
+      window.modal.data._scanStatus = '✅ ' + formatted;
       
       // TCGdex match for image + pricing
       try {
@@ -1307,15 +1317,31 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
         }
       } catch(e) {}
       
-      if (statusEl) statusEl.textContent = '✅ Identified!';
       render();
       showToast(`Identified: ${formatted}`);
     } catch(err) {
-      if (statusEl) statusEl.textContent = '❌ ' + err.message;
+      window.modal.data._scanStatus = '❌ ' + err.message;
+      render();
     }
   };
   reader.readAsDataURL(file);
 };
+
+// Image compression helper for large mobile photos
+async function compressImage(dataUrl, maxWidth) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      let w = img.width, h = img.height;
+      if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.8));
+    };
+    img.src = dataUrl;
+  });
+}
 window.filterCardPicker = function(val) {
   const resultsEl = document.getElementById('card-picker-results');
   if (!resultsEl) return;
@@ -1942,8 +1968,15 @@ async function scannerIdentify(base64DataUrl) {
     // Extract the base64 data and media type
     const match = base64DataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
     if (!match) throw new Error('Invalid image format');
-    const mediaType = match[1];
-    const base64Data = match[2];
+    
+    // Resize image if too large
+    let imgData = match[2];
+    let mediaType = match[1];
+    if (imgData.length > 500000) {
+      const compressed = await compressImage(base64DataUrl, 800);
+      const cMatch = compressed.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (cMatch) { mediaType = cMatch[1]; imgData = cMatch[2]; }
+    }
     
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1961,7 +1994,7 @@ async function scannerIdentify(base64DataUrl) {
           content: [
             {
               type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: base64Data }
+              source: { type: 'base64', media_type: mediaType, data: imgData }
             },
             {
               type: 'text',
