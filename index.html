@@ -1588,6 +1588,7 @@ function rResearchBulk(rs) {
             <div style="flex:1;min-width:0">
               <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${card.cardName||'Identifying...'}</div>
               <div style="font-size:20px;font-weight:700;margin-top:4px;${card.marketPrice?'color:var(--green)':'color:var(--text-faint)'}">${card.marketPrice?'$'+Number(card.marketPrice).toFixed(2):'No price'}</div>
+              ${card.priceSource?`<div style="font-size:9px;color:var(--text-faint)">${card.priceSource}</div>`:''}
               ${card.setName?`<div style="font-size:10px;color:var(--text-dim);margin-top:2px">${card.setName}</div>`:''}
             </div>
           </div>
@@ -1737,8 +1738,15 @@ function rResearchCard(rs) {
         </div>
     </div>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text-faint);font-weight:600">EBAY ACTIVE LISTINGS</div>
+        ${window.ebayState.appId?`<button class="btn btn-sm" onclick="researchEbayLookup()" style="font-size:10px">🔄 Fetch eBay Prices</button>`:'<span style="font-size:10px;color:var(--text-faint)">Set eBay keys in Scanner tab</span>'}
+      </div>
+      <div id="research-ebay-results">${rs._ebayData?rEbayPricing(rs._ebayData):'<div style="color:var(--text-dim);font-size:12px">Click "Fetch eBay Prices" to search active eBay listings for this card.</div>'}</div>
+    </div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-top:12px">
       <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:10px">GRADED PRICE MATRIX</div>
-      <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Estimated graded values will auto-populate when eBay API is connected. For now, you can reference these manually.</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Graded values will show when eBay Marketplace Insights API access is approved. Enter manually for now.</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr>
           <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Grade</th>
@@ -1884,6 +1892,84 @@ window.selectResearchCard = function(idx) {
   render();
 };
 
+// eBay pricing display
+function rEbayPricing(data) {
+  if (!data || !data.count) return '<div style="color:var(--text-dim);font-size:12px">No eBay listings found for this card.</div>';
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:8px">
+      <div style="text-align:center">
+        <div style="font-size:10px;color:var(--text-faint)">Lowest</div>
+        <div style="font-size:16px;font-weight:700;color:var(--green)">$${data.low.toFixed(2)}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:10px;color:var(--text-faint)">Median</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text)">$${data.median.toFixed(2)}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:10px;color:var(--text-faint)">Average</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text)">$${data.avg.toFixed(2)}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:10px;color:var(--text-faint)">Highest</div>
+        <div style="font-size:16px;font-weight:700;color:var(--yellow)">$${data.high.toFixed(2)}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:10px;color:var(--text-faint)">Listings</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text-dim)">${data.totalResults}</div>
+      </div>
+    </div>
+    ${data.graded?`
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:10px;color:var(--text-faint);margin-bottom:6px">GRADED LISTINGS FOUND</div>
+      ${Object.entries(data.graded).map(([grade, info]) => `
+        <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px">
+          <span style="color:var(--text-dim)">${grade}</span>
+          <span style="color:var(--green);font-weight:600">$${info.avg.toFixed(2)} avg <span style="color:var(--text-faint);font-weight:400">(${info.count} listings)</span></span>
+        </div>
+      `).join('')}
+    </div>
+    `:''}
+    <div style="font-size:10px;color:var(--text-faint);margin-top:6px">Active listings only (not sold data). Prices may include shipping.</div>
+  `;
+}
+
+// Research eBay lookup
+window.researchEbayLookup = async function() {
+  const rs = window.researchState;
+  if (!rs.selectedCard || !window.ebayState.appId) return;
+  const c = rs.selectedCard;
+  const cardName = c.name || '';
+  const setName = c.set ? c.set.name : '';
+  
+  showToast('Searching eBay...');
+  
+  // Search raw card
+  const rawQuery = `${cardName} ${setName} pokemon card -PSA -CGC -BGS -SGC -graded -slab`;
+  const rawResults = await ebaySearch(rawQuery, 25);
+  const rawSummary = ebayPricingSummary(rawResults);
+  
+  // Search graded variants
+  const graded = {};
+  for (const company of ['PSA', 'CGC', 'BGS']) {
+    for (const grade of ['10', '9.5', '9', '8']) {
+      if (company === 'PSA' && grade === '9.5') continue; // PSA doesn't have 9.5
+      const gQuery = `${cardName} ${setName} ${company} ${grade} pokemon`;
+      const gResults = await ebaySearch(gQuery, 10);
+      const gSummary = ebayPricingSummary(gResults);
+      if (gSummary && gSummary.count >= 1) {
+        graded[`${company} ${grade}`] = gSummary;
+        // Also auto-fill the graded price matrix
+        rs.prices[`${company}_${grade}`] = gSummary.avg.toFixed(2);
+      }
+    }
+  }
+  
+  const ebayData = rawSummary ? {...rawSummary, graded: Object.keys(graded).length ? graded : null} : {count:0};
+  rs._ebayData = ebayData;
+  render();
+  showToast('eBay prices loaded!');
+};
+
 // Bulk research functions
 window.bulkResearchScan = function() {
   if (!window.scannerState.apiKey) { showToast('Set API key in Scanner tab first'); return; }
@@ -1993,11 +2079,23 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
         }
       } catch(e) {}
       
+      // Also try eBay if connected
+      let ebayPrice = '';
+      if (window.ebayState.appId && cardName) {
+        try {
+          const ebayQuery = `${cardName} ${setName} pokemon card`;
+          const ebayResults = await ebaySearch(ebayQuery, 10);
+          const ebaySummary = ebayPricingSummary(ebayResults);
+          if (ebaySummary) ebayPrice = ebaySummary.median;
+        } catch(e) {}
+      }
+      
       rs.bulkCards.push({
         img: tcgImg || base64DataUrl,
         cardName: formatted,
         setName: setName,
-        marketPrice: marketPrice,
+        marketPrice: ebayPrice || marketPrice,
+        priceSource: ebayPrice ? 'eBay' : (marketPrice ? 'TCGPlayer' : ''),
         decision: ''
       });
       
@@ -2113,6 +2211,83 @@ window.scannerState = {
 };
 try { window.scannerState.apiKey = window.localStorage?.getItem('_ctApiKey') || ''; } catch(e) {}
 
+// eBay API credentials
+window.ebayState = {
+  appId: '',
+  certId: '',
+  token: '',
+  tokenExpiry: 0
+};
+try {
+  window.ebayState.appId = window.localStorage?.getItem('_ctEbayAppId') || '';
+  window.ebayState.certId = window.localStorage?.getItem('_ctEbayCertId') || '';
+} catch(e) {}
+
+// eBay OAuth token management
+async function getEbayToken() {
+  const eb = window.ebayState;
+  if (!eb.appId || !eb.certId) return null;
+  // Return cached token if still valid (with 5 min buffer)
+  if (eb.token && Date.now() < eb.tokenExpiry - 300000) return eb.token;
+  try {
+    const creds = btoa(`${eb.appId}:${eb.certId}`);
+    const resp = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${creds}`
+      },
+      body: 'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope'
+    });
+    if (!resp.ok) throw new Error('eBay auth failed: ' + resp.status);
+    const data = await resp.json();
+    eb.token = data.access_token;
+    eb.tokenExpiry = Date.now() + (data.expires_in * 1000);
+    return eb.token;
+  } catch(e) {
+    console.error('eBay token error:', e);
+    return null;
+  }
+}
+
+// eBay Browse API search for active listings
+async function ebaySearch(query, limit = 20) {
+  const token = await getEbayToken();
+  if (!token) return null;
+  try {
+    const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&filter=buyingOptions:{FIXED_PRICE|AUCTION}`;
+    const resp = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+        'X-EBAY-C-ENDUSERCTX': 'contextualLocation=country=US,zip=19104'
+      }
+    });
+    if (!resp.ok) throw new Error('eBay search failed: ' + resp.status);
+    return await resp.json();
+  } catch(e) {
+    console.error('eBay search error:', e);
+    return null;
+  }
+}
+
+// Process eBay results into pricing summary
+function ebayPricingSummary(results) {
+  if (!results || !results.itemSummaries || !results.itemSummaries.length) return null;
+  const items = results.itemSummaries;
+  const prices = items.map(i => parseFloat(i.price?.value || 0)).filter(p => p > 0).sort((a,b) => a - b);
+  if (!prices.length) return null;
+  const sum = prices.reduce((a,b) => a + b, 0);
+  return {
+    count: prices.length,
+    low: prices[0],
+    high: prices[prices.length - 1],
+    avg: sum / prices.length,
+    median: prices[Math.floor(prices.length / 2)],
+    totalResults: results.total || prices.length
+  };
+}
+
 function rScanner(m) {
   const ss = window.scannerState;
   const hasKey = !!ss.apiKey;
@@ -2136,6 +2311,24 @@ function rScanner(m) {
       <button class="btn btn-sm" onclick="scannerClearKey()" style="font-size:10px">Change Key</button>
     </div>
     `}
+    
+    <div style="margin-bottom:16px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <div style="font-size:12px;font-weight:600;margin-bottom:8px">🛒 eBay API (for pricing data)</div>
+      ${!window.ebayState.appId?`
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Enter your eBay App ID and Cert ID from <a href="https://developer.ebay.com/my/keys" target="_blank" style="color:var(--accent)">developer.ebay.com</a></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <input type="text" id="ebay_app_id" class="search-input" style="flex:1;min-width:150px" placeholder="App ID / Client ID" autocomplete="off">
+        <input type="password" id="ebay_cert_id" class="search-input" style="flex:1;min-width:150px" placeholder="Cert ID / Client Secret" autocomplete="off">
+        <button class="btn btn-accent" onclick="saveEbayKeys()">Save</button>
+      </div>
+      `:`
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--green)">✓ eBay connected</span>
+        <span style="font-size:10px;color:var(--text-faint)">${window.ebayState.appId.substring(0,20)}...</span>
+        <button class="btn btn-sm" onclick="clearEbayKeys()" style="font-size:10px">Change</button>
+      </div>
+      `}
+    </div>
     
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
       <div style="flex:1;min-width:280px">
@@ -2216,6 +2409,31 @@ window.scannerSaveKey = function() {
 window.scannerClearKey = function() {
   window.scannerState.apiKey = '';
   try { window.localStorage?.removeItem('_ctApiKey'); } catch(e) {}
+  render();
+};
+
+window.saveEbayKeys = function() {
+  const appId = document.getElementById('ebay_app_id')?.value?.trim();
+  const certId = document.getElementById('ebay_cert_id')?.value?.trim();
+  if (!appId || !certId) { showToast('Enter both App ID and Cert ID'); return; }
+  window.ebayState.appId = appId;
+  window.ebayState.certId = certId;
+  window.ebayState.token = '';
+  window.ebayState.tokenExpiry = 0;
+  try {
+    window.localStorage?.setItem('_ctEbayAppId', appId);
+    window.localStorage?.setItem('_ctEbayCertId', certId);
+  } catch(e) {}
+  render();
+  showToast('eBay credentials saved!');
+};
+
+window.clearEbayKeys = function() {
+  window.ebayState = {appId:'', certId:'', token:'', tokenExpiry:0};
+  try {
+    window.localStorage?.removeItem('_ctEbayAppId');
+    window.localStorage?.removeItem('_ctEbayCertId');
+  } catch(e) {}
   render();
 };
 
