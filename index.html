@@ -1740,9 +1740,17 @@ function rResearchCard(rs) {
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-top:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="font-size:11px;color:var(--text-faint);font-weight:600">EBAY ACTIVE LISTINGS</div>
-        ${window.ebayState.appId?`<button class="btn btn-sm" onclick="researchEbayLookup()" style="font-size:10px">🔄 Fetch eBay Prices</button>`:'<span style="font-size:10px;color:var(--text-faint)">Set eBay keys in Scanner tab</span>'}
+        ${window.ebayState.appId?`<button class="btn btn-sm" onclick="researchEbayLookup()" style="font-size:10px">🔄 Auto Search</button>`:'<span style="font-size:10px;color:var(--text-faint)">Set eBay keys in Scanner tab</span>'}
       </div>
-      <div id="research-ebay-results">${rs._ebayData?rEbayPricing(rs._ebayData):'<div style="color:var(--text-dim);font-size:12px">Click "Fetch eBay Prices" to search active eBay listings for this card.</div>'}</div>
+      ${window.ebayState.appId?`
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <input type="text" id="ebay_custom_search" class="search-input" style="flex:1;font-size:12px" placeholder="Custom eBay search (e.g. base alakazam 1 1st edition, or jungle snorlax 11 psa 10)..." value="${rs._ebayCustomQuery||''}">
+        <button class="btn btn-sm" onclick="researchEbayCustom()" style="font-size:10px">🔍 Search</button>
+      </div>
+      `:''}
+      </div>
+      <div id="research-ebay-results">${rs._ebayData?rEbayPricing(rs._ebayData):`<div style="color:var(--text-dim);font-size:12px">Click "Fetch eBay Prices" to search active eBay listings for this card.</div>`}</div>
+      ${rs._ebayError?`<div style="color:var(--red);font-size:11px;margin-top:6px">${rs._ebayError}</div>`:''}
     </div>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-top:12px">
       <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:10px">GRADED PRICE MATRIX</div>
@@ -1942,44 +1950,71 @@ window.researchEbayLookup = async function() {
   const setName = c.set ? c.set.name : '';
   const number = c.localId || '';
   
-  // Build short search query like a human would: "base alakazam 1"
-  // Use first word of set name (or two for multi-word sets)
   const setShort = setName.split(' ').slice(0, 2).join(' ').replace(/[^a-zA-Z0-9\s]/g, '').trim();
   const numClean = number.replace(/[^\d]/g, '');
   
+  rs._ebayError = '';
   showToast('Searching eBay...');
   
-  // Search raw card - short query, exclude graded terms
-  const rawQuery = `${setShort} ${cardName} ${numClean} -PSA -CGC -BGS -SGC -graded -slab`;
-  const rawResults = await ebaySearch(rawQuery.trim(), 25);
-  let rawSummary = ebayPricingSummary(rawResults);
-  
-  // If no results, try even simpler query (just card name + number)
-  if (!rawSummary) {
-    const fallbackQuery = `${cardName} ${numClean} -PSA -CGC -BGS -SGC -graded -slab`;
-    const fallbackResults = await ebaySearch(fallbackQuery.trim(), 25);
-    rawSummary = ebayPricingSummary(fallbackResults);
-  }
-  
-  // Search graded variants - short queries like "base alakazam 1 psa 10"
-  const graded = {};
-  for (const company of ['PSA', 'CGC', 'BGS']) {
-    for (const grade of ['10', '9.5', '9', '8']) {
-      if (company === 'PSA' && grade === '9.5') continue;
-      const gQuery = `${setShort} ${cardName} ${numClean} ${company} ${grade}`;
-      const gResults = await ebaySearch(gQuery.trim(), 10);
-      const gSummary = ebayPricingSummary(gResults);
-      if (gSummary && gSummary.count >= 1) {
-        graded[`${company} ${grade}`] = gSummary;
-        rs.prices[`${company}_${grade}`] = gSummary.avg.toFixed(2);
+  try {
+    // Search raw card - short query like user would search
+    const rawQuery = `${setShort} ${cardName} ${numClean} -PSA -CGC -BGS -SGC -graded -slab`.trim();
+    const rawResults = await ebaySearch(rawQuery, 25);
+    let rawSummary = ebayPricingSummary(rawResults);
+    
+    // Fallback: just card name + number
+    if (!rawSummary) {
+      const fallbackQuery = `${cardName} ${numClean} -PSA -CGC -BGS -SGC -graded -slab`.trim();
+      const fallbackResults = await ebaySearch(fallbackQuery, 25);
+      rawSummary = ebayPricingSummary(fallbackResults);
+    }
+    
+    // Search graded variants
+    const graded = {};
+    for (const company of ['PSA', 'CGC', 'BGS']) {
+      for (const grade of ['10', '9.5', '9', '8']) {
+        if (company === 'PSA' && grade === '9.5') continue;
+        const gQuery = `${setShort} ${cardName} ${numClean} ${company} ${grade}`.trim();
+        const gResults = await ebaySearch(gQuery, 10);
+        const gSummary = ebayPricingSummary(gResults);
+        if (gSummary && gSummary.count >= 1) {
+          graded[`${company} ${grade}`] = gSummary;
+          rs.prices[`${company}_${grade}`] = gSummary.avg.toFixed(2);
+        }
       }
     }
+    
+    const ebayData = rawSummary ? {...rawSummary, graded: Object.keys(graded).length ? graded : null, query: rawQuery} : {count:0, query: rawQuery};
+    rs._ebayData = ebayData;
+    render();
+    showToast(rawSummary ? `Found ${rawSummary.count} eBay listings!` : 'No eBay listings found');
+  } catch(err) {
+    rs._ebayError = 'eBay error: ' + err.message;
+    render();
+    showToast('eBay search failed — check console (F12)');
   }
+};
+
+// Custom eBay search from research tab
+window.researchEbayCustom = async function() {
+  const rs = window.researchState;
+  const input = document.getElementById('ebay_custom_search');
+  if (!input || !input.value.trim() || !window.ebayState.appId) return;
+  const query = input.value.trim();
+  rs._ebayCustomQuery = query;
+  rs._ebayError = '';
+  showToast('Searching eBay: ' + query);
   
-  const ebayData = rawSummary ? {...rawSummary, graded: Object.keys(graded).length ? graded : null, query: rawQuery.trim()} : {count:0};
-  rs._ebayData = ebayData;
-  render();
-  showToast(rawSummary ? `Found ${rawSummary.count} eBay listings!` : 'No eBay listings found');
+  try {
+    const results = await ebaySearch(query, 25);
+    const summary = ebayPricingSummary(results);
+    rs._ebayData = summary ? {...summary, query: query} : {count:0, query: query};
+    render();
+    showToast(summary ? `Found ${summary.count} listings!` : 'No listings found');
+  } catch(err) {
+    rs._ebayError = 'eBay error: ' + err.message;
+    render();
+  }
 };
 
 // Bulk research functions
@@ -2266,9 +2301,10 @@ async function getEbayToken() {
 // eBay Browse API search for active listings
 async function ebaySearch(query, limit = 20) {
   const token = await getEbayToken();
-  if (!token) return null;
+  if (!token) { console.error('eBay: No token'); return null; }
   try {
     const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&category_ids=183454&filter=buyingOptions:{FIXED_PRICE|AUCTION}`;
+    console.log('eBay search:', query, url);
     const resp = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -2276,8 +2312,14 @@ async function ebaySearch(query, limit = 20) {
         'X-EBAY-C-ENDUSERCTX': 'contextualLocation=country=US,zip=19104'
       }
     });
-    if (!resp.ok) throw new Error('eBay search failed: ' + resp.status);
-    return await resp.json();
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(()=>'');
+      console.error('eBay search error:', resp.status, errBody);
+      return null;
+    }
+    const data = await resp.json();
+    console.log('eBay results:', data.total, 'items');
+    return data;
   } catch(e) {
     console.error('eBay search error:', e);
     return null;
