@@ -1168,7 +1168,7 @@ window.selectPokemonCard = function(idx) {
   if (!window.modal || !window._pokemonResults || !window._pokemonResults[idx]) return;
   const card = window._pokemonResults[idx];
   window.modal.data.cardName = card.formatted;
-  window.modal.data._pokemonImg = card.img;
+  window.modal.data._pokemonImg = card.img || window.modal.data._scanImg || '';
   window.modal.data._pokemonSet = card.setName;
   window.modal.data._pokemonSetId = card.setId;
   window.modal.data._pokemonNumber = card.number;
@@ -1295,46 +1295,21 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       window.modal.data._pokemonRarity = cardInfo.rarity || '';
       window.modal.data._scanStatus = '✅ ' + formatted;
       
-      // TCGdex match for image + pricing - try specific first, then broader
-      try {
-        let tcgCards = [];
-        // Try set + name + number
-        let params = [];
-        if (setName) params.push(`set.name=like:${encodeURIComponent(setName)}`);
-        if (cardName) params.push(`name=like:${encodeURIComponent(cardName)}`);
-        const cleanNum = (number||'').replace(/[^\d]/g,'');
-        if (cleanNum) params.push(`localId=${encodeURIComponent(cleanNum)}`);
-        params.push('pagination:itemsPerPage=1');
-        let tcgResp = await fetch(`https://api.tcgdex.net/v2/en/cards?${params.join('&')}`);
-        if (tcgResp.ok) tcgCards = await tcgResp.json();
-        
-        // If no results, try name + number only (set name might not match)
-        if (!tcgCards.length && cardName) {
-          let params2 = [`name=like:${encodeURIComponent(cardName)}`];
-          if (cleanNum) params2.push(`localId=${encodeURIComponent(cleanNum)}`);
-          params2.push('pagination:itemsPerPage=1');
-          tcgResp = await fetch(`https://api.tcgdex.net/v2/en/cards?${params2.join('&')}`);
-          if (tcgResp.ok) tcgCards = await tcgResp.json();
-        }
-        
-        if (tcgCards.length) {
-          const detailResp = await fetch(`https://api.tcgdex.net/v2/en/cards/${tcgCards[0].id}`);
-          if (detailResp.ok) {
-            const detail = await detailResp.json();
-            window.modal.data._pokemonImg = detail.image ? detail.image + '/low.webp' : '';
-            window.modal.data._pokemonSet = detail.set ? detail.set.name : setName;
-            window.modal.data._pokemonSetId = detail.set ? detail.set.id : '';
-            window.modal.data._pokemonNumber = detail.localId || number;
-            window.modal.data._tcgdexId = detail.id || '';
-            const tp = detail.pricing?.tcgplayer || {};
-            const price = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
-            if (price) window.modal.data.marketValue = price;
-          }
-        }
-      } catch(e) {}
-      
+      // Instead of auto-picking, trigger search dropdown so user can confirm correct card
       render();
       showToast(`Identified: ${formatted}`);
+      
+      // Trigger pokemon search with card name + number for user to pick correct match
+      setTimeout(() => {
+        const searchEl = document.getElementById('f_pokemon_search');
+        if (searchEl) {
+          const cleanNum = (number||'').replace(/[^\d]/g,'');
+          const searchQuery = cleanNum ? `${cardName} ${cleanNum}` : cardName;
+          searchEl.value = searchQuery;
+          pokemonSearch(searchQuery);
+        }
+      }, 200);
+      
     } catch(err) {
       window.modal.data._scanStatus = '❌ ' + err.message;
       render();
