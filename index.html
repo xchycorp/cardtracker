@@ -1940,34 +1940,46 @@ window.researchEbayLookup = async function() {
   const c = rs.selectedCard;
   const cardName = c.name || '';
   const setName = c.set ? c.set.name : '';
+  const number = c.localId || '';
+  
+  // Build short search query like a human would: "base alakazam 1"
+  // Use first word of set name (or two for multi-word sets)
+  const setShort = setName.split(' ').slice(0, 2).join(' ').replace(/[^a-zA-Z0-9\s]/g, '').trim();
+  const numClean = number.replace(/[^\d]/g, '');
   
   showToast('Searching eBay...');
   
-  // Search raw card
-  const rawQuery = `${cardName} ${setName} pokemon card -PSA -CGC -BGS -SGC -graded -slab`;
-  const rawResults = await ebaySearch(rawQuery, 25);
-  const rawSummary = ebayPricingSummary(rawResults);
+  // Search raw card - short query, exclude graded terms
+  const rawQuery = `${setShort} ${cardName} ${numClean} -PSA -CGC -BGS -SGC -graded -slab`;
+  const rawResults = await ebaySearch(rawQuery.trim(), 25);
+  let rawSummary = ebayPricingSummary(rawResults);
   
-  // Search graded variants
+  // If no results, try even simpler query (just card name + number)
+  if (!rawSummary) {
+    const fallbackQuery = `${cardName} ${numClean} -PSA -CGC -BGS -SGC -graded -slab`;
+    const fallbackResults = await ebaySearch(fallbackQuery.trim(), 25);
+    rawSummary = ebayPricingSummary(fallbackResults);
+  }
+  
+  // Search graded variants - short queries like "base alakazam 1 psa 10"
   const graded = {};
   for (const company of ['PSA', 'CGC', 'BGS']) {
     for (const grade of ['10', '9.5', '9', '8']) {
-      if (company === 'PSA' && grade === '9.5') continue; // PSA doesn't have 9.5
-      const gQuery = `${cardName} ${setName} ${company} ${grade} pokemon`;
-      const gResults = await ebaySearch(gQuery, 10);
+      if (company === 'PSA' && grade === '9.5') continue;
+      const gQuery = `${setShort} ${cardName} ${numClean} ${company} ${grade}`;
+      const gResults = await ebaySearch(gQuery.trim(), 10);
       const gSummary = ebayPricingSummary(gResults);
       if (gSummary && gSummary.count >= 1) {
         graded[`${company} ${grade}`] = gSummary;
-        // Also auto-fill the graded price matrix
         rs.prices[`${company}_${grade}`] = gSummary.avg.toFixed(2);
       }
     }
   }
   
-  const ebayData = rawSummary ? {...rawSummary, graded: Object.keys(graded).length ? graded : null} : {count:0};
+  const ebayData = rawSummary ? {...rawSummary, graded: Object.keys(graded).length ? graded : null, query: rawQuery.trim()} : {count:0};
   rs._ebayData = ebayData;
   render();
-  showToast('eBay prices loaded!');
+  showToast(rawSummary ? `Found ${rawSummary.count} eBay listings!` : 'No eBay listings found');
 };
 
 // Bulk research functions
@@ -2083,7 +2095,8 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       let ebayPrice = '';
       if (window.ebayState.appId && cardName) {
         try {
-          const ebayQuery = `${cardName} ${setName} pokemon card`;
+          const setShort = setName.split(' ').slice(0,2).join(' ').replace(/[^a-zA-Z0-9\s]/g,'').trim();
+          const ebayQuery = `${setShort} ${cardName} ${number}`.trim();
           const ebayResults = await ebaySearch(ebayQuery, 10);
           const ebaySummary = ebayPricingSummary(ebayResults);
           if (ebaySummary) ebayPrice = ebaySummary.median;
@@ -2255,7 +2268,7 @@ async function ebaySearch(query, limit = 20) {
   const token = await getEbayToken();
   if (!token) return null;
   try {
-    const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&filter=buyingOptions:{FIXED_PRICE|AUCTION}`;
+    const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&category_ids=183454&filter=buyingOptions:{FIXED_PRICE|AUCTION}`;
     const resp = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
