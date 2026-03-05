@@ -243,8 +243,8 @@ window.render = function render() {
       </div>
     </div>
     <div class="tabs">
-      ${['overview','inventory','sales','purchases','grading','sealed','expenses','capital','analytics','research','scanner','financials'].map(t2=>{
-        const labels={overview:'Overview',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',analytics:'Analytics',research:'Research',scanner:'Scanner',financials:'Financials'};
+      ${['overview','scanner','inventory','sales','purchases','grading','sealed','expenses','capital','analytics','research','financials'].map(t2=>{
+        const labels={overview:'Overview',scanner:'Scanner',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',analytics:'Analytics',research:'Research',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
         return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
@@ -1207,6 +1207,10 @@ window.clearPokemonSelection = function() {
 
 // Modal scan functions
 window.modalScanCard = function() {
+  if (!window.scannerState.apiKey) {
+    showToast('Set your API key in the Scanner tab first');
+    return;
+  }
   document.getElementById('modalScanInput').click();
 };
 
@@ -1849,25 +1853,43 @@ window.researchFromInventory = function(invIdx) {
 // SCANNER TAB
 // ============================================================
 window.scannerState = {
-  apiKey: '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',
-  queue: [], // {img, cardName, setName, number, edition, rarity, cardType, confirmed, tcgdexId, marketValue}
+  apiKey: '',
+  queue: [],
   scanning: false,
   lastImg: '',
   error: ''
 };
+try { window.scannerState.apiKey = window.localStorage?.getItem('_ctApiKey') || ''; } catch(e) {}
 
 function rScanner(m) {
   const ss = window.scannerState;
+  const hasKey = !!ss.apiKey;
   return `
   <div class="panel">
     <h3 style="color:var(--cyan)">📸 Card Scanner</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Take a photo of a card to auto-identify it using AI. Works best with the front of the card clearly visible.</div>
     
+    ${!hasKey?`
+    <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">🔑 Enter your Anthropic API Key</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Your key stays in your browser only — never saved to code or server. Get one at <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent)">console.anthropic.com</a></div>
+      <div style="display:flex;gap:8px">
+        <input type="password" id="scanner_api_key" class="search-input" style="flex:1" placeholder="sk-ant-api03-..." autocomplete="off">
+        <button class="btn btn-accent" onclick="scannerSaveKey()">Save Key</button>
+      </div>
+    </div>
+    `:`
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <span style="font-size:11px;color:var(--green)">🔑 API key set</span>
+      <button class="btn btn-sm" onclick="scannerClearKey()" style="font-size:10px">Change Key</button>
+    </div>
+    `}
+    
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
       <div style="flex:1;min-width:280px">
         <div style="display:flex;gap:8px;margin-bottom:12px">
-          <button class="btn btn-accent" onclick="scannerCapture()" ${ss.scanning?'disabled':''}>${ss.scanning?'⏳ Identifying...':'📷 Take Photo'}</button>
-          <button class="btn" onclick="scannerUpload()">📁 Upload Image</button>
+          <button class="btn btn-accent" onclick="scannerCapture()" ${ss.scanning||!hasKey?'disabled':''}>${ss.scanning?'⏳ Identifying...':'📷 Take Photo'}</button>
+          <button class="btn" onclick="scannerUpload()" ${!hasKey?'disabled':''}>📁 Upload Image</button>
         </div>
         <input type="file" id="scannerFileInput" accept="image/*" capture="environment" style="display:none" onchange="scannerHandleFile(event)">
         <input type="file" id="scannerUploadInput" accept="image/*" style="display:none" onchange="scannerHandleFile(event)">
@@ -1938,6 +1960,21 @@ function rScanner(m) {
 }
 
 // Scanner functions
+window.scannerSaveKey = function() {
+  const input = document.getElementById('scanner_api_key');
+  if (!input || !input.value.trim()) return;
+  window.scannerState.apiKey = input.value.trim();
+  try { window.localStorage?.setItem('_ctApiKey', input.value.trim()); } catch(e) {}
+  render();
+  showToast('API key saved for this session');
+};
+
+window.scannerClearKey = function() {
+  window.scannerState.apiKey = '';
+  try { window.localStorage?.removeItem('_ctApiKey'); } catch(e) {}
+  render();
+};
+
 window.scannerCapture = function() {
   document.getElementById('scannerFileInput').click();
 };
