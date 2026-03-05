@@ -2220,31 +2220,35 @@ window.scannerClearQueue = function() {
   }
 };
 
-window.scannerSaveAll = async function() {
+window.scannerSaveAll = function() {
   const ss = window.scannerState;
   if (!ss.queue.length) return;
   
+  let count = 0;
   for (const card of ss.queue) {
     const row = {
+      id: nextId('C'),
       cardName: card.cardName || '',
       cardType: card.cardType || 'Pokemon',
       status: 'In Stock',
       datePurchased: new Date().toISOString().slice(0,10),
-      costBasis: card.costBasis || '',
-      marketValue: card.marketValue || '',
+      costBasis: parseFloat(card.costBasis) || 0,
+      marketValue: parseFloat(card.marketValue) || 0,
       platform: '',
       gradingCompany: '',
       grade: '',
-      gradingCost: '',
+      gradingCost: 0,
       notes: [card.edition, card.notes, card.language !== 'English' ? card.language : ''].filter(Boolean).join('; '),
       _pokemonRarity: card.rarity || '',
       _tcgdexId: card.tcgdexId || ''
     };
     if (card.img && !card.img.startsWith('data:')) row._pokemonImg = card.img;
-    await addRow('inventory', row);
+    D.inventory.push(row);
+    count++;
   }
   
-  showToast(`${ss.queue.length} cards saved to inventory!`);
+  saveData();
+  showToast(`${count} card${count>1?'s':''} saved to inventory & synced!`);
   ss.queue = [];
   render();
 };
