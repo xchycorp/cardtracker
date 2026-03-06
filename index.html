@@ -131,6 +131,7 @@ window.activePickerRow = null;
 window.gradingSelectMode = false;
 window.gradingSelectedCards = new Set();
 window.gradingDeclaredValue = '';
+window.gradingCompanyChoice = 'PSA';
 let toast = null;
 let charts = {};
 
@@ -527,7 +528,7 @@ function renderTableRow(type, row, i, s) {
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
-  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button>${window.ebayState.appId?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''} <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="startGradingSelect()">📦 Select for Grading</button>`
+  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button>${window.ebayState.appId?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''} <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="startGradingSelect('PSA')">📦 PSA Submission</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="startGradingSelect('CGC')">📦 CGC Submission</button>`
     :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button>`:'';
   // Apply search and sort
   const filtered = filterData(data, type);
@@ -549,7 +550,7 @@ function rTable(type,m) {
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:20px">📦</span>
         <div>
-          <div style="font-weight:700;font-size:13px;color:var(--text)">PSA Grading Submission</div>
+          <div style="font-weight:700;font-size:13px;color:var(--text)">${window.gradingCompanyChoice} Grading Submission</div>
           <div style="font-size:11px;color:var(--text-dim)">${window.gradingSelectedCards.size} card${window.gradingSelectedCards.size!==1?'s':''} selected</div>
         </div>
       </div>
@@ -560,7 +561,7 @@ function rTable(type,m) {
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="gradingSelectAll()" style="font-size:11px">☑ Select All</button>
         <button class="btn btn-sm" onclick="gradingDeselectAll()" style="font-size:11px">☐ Deselect All</button>
-        <button class="btn btn-accent btn-sm" onclick="generatePSASubmission()" style="font-size:11px" ${window.gradingSelectedCards.size===0?'disabled':''}>📋 Generate PSA Submission</button>
+        <button class="btn btn-accent btn-sm" onclick="generateGradingSubmission()" style="font-size:11px" ${window.gradingSelectedCards.size===0?'disabled':''}>📋 Generate ${window.gradingCompanyChoice} Submission</button>
         <button class="btn btn-sm" onclick="cancelGradingSelect()" style="font-size:11px">✕ Cancel</button>
       </div>
     </div>` : '';
@@ -1542,12 +1543,13 @@ window.quickStatus = function(idx, newStatus) {
 // ============================================================
 // PSA GRADING SUBMISSION MODE
 // ============================================================
-window.startGradingSelect = function() {
+window.startGradingSelect = function(company) {
   window.gradingSelectMode = true;
   window.gradingSelectedCards = new Set();
   window.gradingDeclaredValue = '';
+  window.gradingCompanyChoice = company || 'PSA';
   render();
-  showToast('Select cards for PSA grading submission');
+  showToast('Select cards for ' + window.gradingCompanyChoice + ' grading submission');
 };
 
 window.cancelGradingSelect = function() {
@@ -1581,10 +1583,11 @@ window.gradingDeselectAll = function() {
   render();
 };
 
-window.generatePSASubmission = function() {
+window.generateGradingSubmission = function() {
   const selected = Array.from(window.gradingSelectedCards).sort((a,b) => a - b);
   if (!selected.length) { showToast('No cards selected'); return; }
   
+  const company = window.gradingCompanyChoice;
   const declaredVal = window.gradingDeclaredValue ? parseFloat(window.gradingDeclaredValue) : 0;
   const today = new Date().toISOString().slice(0, 10);
   
@@ -1592,7 +1595,7 @@ window.generatePSASubmission = function() {
   const lines = [];
   const cards = selected.map(idx => D.inventory[idx]).filter(Boolean);
   
-  lines.push('PSA GRADING SUBMISSION — ' + today);
+  lines.push(company + ' GRADING SUBMISSION — ' + today);
   lines.push('═'.repeat(60));
   lines.push('');
   lines.push(padRight('Card Name', 35) + ' | ' + padRight('Set', 25) + ' | ' + padRight('Number', 8) + ' | ' + 'Declared Value');
@@ -1654,7 +1657,7 @@ window.generatePSASubmission = function() {
       id: nextId('G'),
       cardName: card.cardName || '',
       cardId: card.id || '',
-      company: 'PSA',
+      company: company,
       serviceLevel: '',
       dateSubmitted: today,
       dateReturned: '',
@@ -1681,13 +1684,11 @@ window.generatePSASubmission = function() {
   window.gradingDeclaredValue = '';
   
   // Use a special modal to show the copyable text
-  window._psaSubmissionText = submissionText;
-  window._psaSubmissionCount = gradingCount;
   render();
   
   // Show submission result modal after render
   setTimeout(() => {
-    showPSASubmissionModal(submissionText, gradingCount);
+    showGradingSubmissionModal(submissionText, gradingCount, company);
   }, 100);
 };
 
@@ -1697,14 +1698,14 @@ function padRight(str, len) {
   return str + ' '.repeat(Math.max(0, len - str.length));
 }
 
-function showPSASubmissionModal(text, count) {
+function showGradingSubmissionModal(text, count, company) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-bg';
   overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
   overlay.innerHTML = `
     <div class="modal" style="max-width:750px">
       <h2 style="display:flex;justify-content:space-between;align-items:center">
-        <span>📦 PSA Submission Generated</span>
+        <span>📦 ${company} Submission Generated</span>
         <button class="close" onclick="this.closest('.modal-bg').remove()">&times;</button>
       </h2>
       <div style="margin-bottom:12px">
@@ -1715,23 +1716,23 @@ function showPSASubmissionModal(text, count) {
           </div>
           <div style="background:var(--purple);background:rgba(168,85,247,.12);border:1px solid var(--purple);border-radius:var(--radius-sm);padding:10px 14px;flex:1;text-align:center">
             <div style="font-size:20px;font-weight:700;color:var(--purple)">${count}</div>
-            <div style="font-size:10px;color:var(--text-dim)">Grading Entries Created</div>
+            <div style="font-size:10px;color:var(--text-dim)">Grading Entries Created (${company})</div>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">All selected cards have been marked as <strong style="color:var(--purple)">Submitted</strong> and grading entries have been auto-created in your Grading tab.</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">All selected cards have been marked as <strong style="color:var(--purple)">Submitted</strong> and ${company} grading entries have been auto-created in your Grading tab.</div>
       </div>
-      <textarea id="psaSubmissionText" readonly style="width:100%;height:300px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:14px;resize:vertical;white-space:pre;overflow-x:auto;line-height:1.5">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+      <textarea id="gradingSubmissionText" readonly style="width:100%;height:300px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:14px;resize:vertical;white-space:pre;overflow-x:auto;line-height:1.5">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
       <div class="form-actions" style="margin-top:12px">
         <button class="btn" onclick="this.closest('.modal-bg').remove()">Close</button>
-        <button class="btn btn-accent" onclick="copyPSASubmission()">📋 Copy to Clipboard</button>
+        <button class="btn btn-accent" onclick="copyGradingSubmission()">📋 Copy to Clipboard</button>
       </div>
     </div>
   `;
   document.getElementById('app').appendChild(overlay);
 }
 
-window.copyPSASubmission = function() {
-  const textarea = document.getElementById('psaSubmissionText');
+window.copyGradingSubmission = function() {
+  const textarea = document.getElementById('gradingSubmissionText');
   if (!textarea) return;
   textarea.select();
   try {
