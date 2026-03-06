@@ -1744,8 +1744,9 @@ function rResearchCard(rs) {
       </div>
       ${window.ebayState.appId?`
       <div style="display:flex;gap:6px;margin-bottom:10px">
-        <input type="text" id="ebay_custom_search" class="search-input" style="flex:1;font-size:12px" placeholder="Custom eBay search (e.g. base alakazam 1 1st edition, or jungle snorlax 11 psa 10)..." value="${rs._ebayCustomQuery||''}">
+        <input type="text" id="ebay_custom_search" class="search-input" style="flex:1;font-size:12px" placeholder="e.g. black star promo snorlax 051, or base charizard 4 psa 10..." value="${rs._ebayCustomQuery||''}">
         <button class="btn btn-sm" onclick="researchEbayCustom()" style="font-size:10px">🔍 Search</button>
+        <button class="btn btn-sm" onclick="researchEbayFillMatrix()" style="font-size:10px" title="Search raw + all grades using this query">📊 Fill Matrix</button>
       </div>
       `:''}
       </div>
@@ -1763,20 +1764,33 @@ function rResearchCard(rs) {
           <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">BGS</th>
         </tr></thead>
         <tbody>
-          ${['10','9.5','9','8.5','8','7','6','5'].map(grade=>{
-            const psa = rs.prices['PSA_'+grade] || '';
-            const cgc = rs.prices['CGC_'+grade] || '';
-            const bgs = rs.prices['BGS_'+grade] || '';
-            return `<tr>
-              <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:600">${grade}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right">${psa?`<span style="color:var(--green)">$${Number(psa).toFixed(2)}</span>`:`<input type="number" class="qe-input" style="width:80px;text-align:right;display:inline-block" placeholder="—" step="0.01" oninput="window.researchState.prices['PSA_${grade}']=this.value;render()">`}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right">${cgc?`<span style="color:var(--green)">$${Number(cgc).toFixed(2)}</span>`:`<input type="number" class="qe-input" style="width:80px;text-align:right;display:inline-block" placeholder="—" step="0.01" oninput="window.researchState.prices['CGC_${grade}']=this.value;render()">`}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right">${bgs?`<span style="color:var(--green)">$${Number(bgs).toFixed(2)}</span>`:`<input type="number" class="qe-input" style="width:80px;text-align:right;display:inline-block" placeholder="—" step="0.01" oninput="window.researchState.prices['BGS_${grade}']=this.value;render()">`}</td>
+          ${[
+            {label:'Pristine', psa:'', cgc:'10.1', bgs:''},
+            {label:'10', psa:'10', cgc:'10', bgs:'10'},
+            {label:'9.5', psa:'', cgc:'9.5', bgs:'9.5'},
+            {label:'9', psa:'9', cgc:'9', bgs:'9'},
+            {label:'8.5', psa:'', cgc:'8.5', bgs:'8.5'},
+            {label:'8', psa:'8', cgc:'8', bgs:'8'},
+            {label:'7', psa:'7', cgc:'7', bgs:'7'},
+            {label:'6', psa:'6', cgc:'6', bgs:'6'}
+          ].map(row=>{
+            const psaVal = row.psa ? (rs.prices['PSA_'+row.psa] || '') : '';
+            const cgcVal = row.cgc ? (rs.prices['CGC_'+row.cgc] || '') : '';
+            const bgsVal = row.bgs ? (rs.prices['BGS_'+row.bgs] || '') : '';
+            const renderCell = (val, key) => {
+              if (!key) return '<td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;color:var(--text-faint)">—</td>';
+              return `<td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right">${val?`<span style="color:var(--green)">$${Number(val).toFixed(2)}</span>`:`<input type="number" class="qe-input" style="width:80px;text-align:right;display:inline-block" placeholder="—" step="0.01" oninput="window.researchState.prices['${key}']=this.value">`}</td>`;
+            };
+            return `<tr${row.label==='Pristine'?' style="background:rgba(255,215,0,.06)"':''}>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:600">${row.label}</td>
+              ${renderCell(psaVal, row.psa?'PSA_'+row.psa:'')}
+              ${renderCell(cgcVal, row.cgc?'CGC_'+row.cgc:'')}
+              ${renderCell(bgsVal, row.bgs?'BGS_'+row.bgs:'')}
             </tr>`;
           }).join('')}
         </tbody>
       </table>
-      <div style="font-size:10px;color:var(--text-faint);margin-top:8px;font-style:italic">Enter prices manually or wait for eBay API integration for auto-populated graded values</div>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:8px;font-style:italic">Prices auto-populate from eBay when available. You can also enter manually.</div>
     </div>
   `;
 }
@@ -1984,18 +1998,29 @@ window.researchEbayLookup = async function() {
     
     // Search graded variants - use precise queries
     const graded = {};
-    for (const company of ['PSA', 'CGC', 'BGS']) {
-      for (const grade of ['10', '9.5', '9', '8']) {
-        if (company === 'PSA' && grade === '9.5') continue;
-        // Build query like a human: "umbreon 161 prismatic PSA 10"
-        const gQuery = `${cardName} ${numClean} ${setShort} ${company} ${grade} -lot -bundle -mystery -repack`.trim();
-        const gResults = await ebaySearch(gQuery, 15);
-        const gSummary = ebayPricingSummary(gResults);
-        if (gSummary && gSummary.count >= 1) {
-          graded[`${company} ${grade}`] = gSummary;
-          // Use median for the graded price matrix — more resistant to outliers
-          rs.prices[`${company}_${grade}`] = gSummary.median.toFixed(2);
-        }
+    const gradeSearches = [
+      {company:'PSA', grade:'10', key:'PSA_10'},
+      {company:'PSA', grade:'9', key:'PSA_9'},
+      {company:'PSA', grade:'8', key:'PSA_8'},
+      {company:'CGC', grade:'10 Pristine', query:'CGC Pristine 10', key:'CGC_10.1'},
+      {company:'CGC', grade:'10', query:'CGC 10 -Pristine', key:'CGC_10'},
+      {company:'CGC', grade:'9.5', key:'CGC_9.5'},
+      {company:'CGC', grade:'9', key:'CGC_9'},
+      {company:'CGC', grade:'8.5', key:'CGC_8.5'},
+      {company:'CGC', grade:'8', key:'CGC_8'},
+      {company:'BGS', grade:'10', key:'BGS_10'},
+      {company:'BGS', grade:'9.5', key:'BGS_9.5'},
+      {company:'BGS', grade:'9', key:'BGS_9'},
+      {company:'BGS', grade:'8', key:'BGS_8'}
+    ];
+    for (const gs of gradeSearches) {
+      const searchTerms = gs.query || `${gs.company} ${gs.grade}`;
+      const gQuery = `${cardName} ${numClean} ${setShort} ${searchTerms} -lot -bundle -mystery -repack`.trim();
+      const gResults = await ebaySearch(gQuery, 15);
+      const gSummary = ebayPricingSummary(gResults);
+      if (gSummary && gSummary.count >= 1) {
+        graded[`${gs.company} ${gs.grade}`] = gSummary;
+        rs.prices[gs.key] = gSummary.median.toFixed(2);
       }
     }
     
@@ -2007,6 +2032,63 @@ window.researchEbayLookup = async function() {
     rs._ebayError = 'eBay error: ' + err.message;
     render();
     showToast('eBay search failed — check console (F12)');
+  }
+};
+
+// Fill entire graded matrix from custom search query
+window.researchEbayFillMatrix = async function() {
+  const rs = window.researchState;
+  const input = document.getElementById('ebay_custom_search');
+  if (!input || !input.value.trim() || !window.ebayState.appId) { showToast('Enter a card name in the search box first'); return; }
+  const baseQuery = input.value.trim();
+  rs._ebayCustomQuery = baseQuery;
+  rs._ebayError = '';
+  showToast('Filling matrix for: ' + baseQuery);
+  
+  try {
+    // Search raw card first
+    const rawQuery = `${baseQuery} -PSA -CGC -BGS -SGC -graded -slab`;
+    const rawResults = await ebaySearch(rawQuery, 25);
+    const rawSummary = ebayPricingSummary(rawResults);
+    rs._ebayData = rawSummary ? {...rawSummary, query: rawQuery} : {count:0, query: rawQuery};
+    render();
+    
+    // Search all graded variants using base query
+    const gradeSearches = [
+      {query:'PSA 10', key:'PSA_10'},
+      {query:'PSA 9', key:'PSA_9'},
+      {query:'PSA 8', key:'PSA_8'},
+      {query:'PSA 7', key:'PSA_7'},
+      {query:'CGC Pristine 10', key:'CGC_10.1'},
+      {query:'CGC 10 -Pristine', key:'CGC_10'},
+      {query:'CGC 9.5', key:'CGC_9.5'},
+      {query:'CGC 9', key:'CGC_9'},
+      {query:'CGC 8.5', key:'CGC_8.5'},
+      {query:'CGC 8', key:'CGC_8'},
+      {query:'BGS 10', key:'BGS_10'},
+      {query:'BGS 9.5', key:'BGS_9.5'},
+      {query:'BGS 9', key:'BGS_9'},
+      {query:'BGS 8', key:'BGS_8'}
+    ];
+    
+    const graded = {};
+    for (const gs of gradeSearches) {
+      const gQuery = `${baseQuery} ${gs.query} -lot -bundle -mystery -repack`.trim();
+      const gResults = await ebaySearch(gQuery, 15);
+      const gSummary = ebayPricingSummary(gResults);
+      if (gSummary && gSummary.count >= 1) {
+        const label = gs.query.replace('-Pristine','').trim();
+        graded[label] = gSummary;
+        rs.prices[gs.key] = gSummary.median.toFixed(2);
+      }
+    }
+    
+    if (rawSummary) rs._ebayData.graded = Object.keys(graded).length ? graded : null;
+    render();
+    showToast(`Matrix filled! ${Object.keys(graded).length} grades found`);
+  } catch(err) {
+    rs._ebayError = 'eBay error: ' + err.message;
+    render();
   }
 };
 
@@ -2024,6 +2106,34 @@ window.researchEbayCustom = async function() {
     const results = await ebaySearch(query, 25);
     const summary = ebayPricingSummary(results);
     rs._ebayData = summary ? {...summary, query: query} : {count:0, query: query};
+    
+    // Detect grade from query and auto-fill matrix
+    const queryUpper = query.toUpperCase();
+    const gradePatterns = [
+      {re:/PSA\s*10/i, key:'PSA_10'},
+      {re:/PSA\s*9(?!\.\d)/i, key:'PSA_9'},
+      {re:/PSA\s*8(?!\.\d)/i, key:'PSA_8'},
+      {re:/PSA\s*7(?!\.\d)/i, key:'PSA_7'},
+      {re:/CGC\s*(PRISTINE|10\s*PRISTINE|PRISTINE\s*10)/i, key:'CGC_10.1'},
+      {re:/CGC\s*10(?!\.\d)(?!\s*PRISTINE)/i, key:'CGC_10'},
+      {re:/CGC\s*9\.5/i, key:'CGC_9.5'},
+      {re:/CGC\s*9(?!\.\d)/i, key:'CGC_9'},
+      {re:/CGC\s*8\.5/i, key:'CGC_8.5'},
+      {re:/CGC\s*8(?!\.\d)/i, key:'CGC_8'},
+      {re:/BGS\s*10/i, key:'BGS_10'},
+      {re:/BGS\s*9\.5/i, key:'BGS_9.5'},
+      {re:/BGS\s*9(?!\.\d)/i, key:'BGS_9'},
+      {re:/BGS\s*8(?!\.\d)/i, key:'BGS_8'}
+    ];
+    if (summary) {
+      for (const gp of gradePatterns) {
+        if (gp.re.test(query)) {
+          rs.prices[gp.key] = summary.median.toFixed(2);
+          break;
+        }
+      }
+    }
+    
     render();
     showToast(summary ? `Found ${summary.count} listings!` : 'No listings found');
   } catch(err) {
