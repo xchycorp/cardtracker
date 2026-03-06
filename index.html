@@ -479,6 +479,49 @@ const SCHEMAS = {
 };
 
 // ============================================================
+// TABLE ROW RENDERER (avoids deeply nested template literals)
+// ============================================================
+function renderTableRow(type, row, i, s) {
+  let html = '<tr';
+  // Highlight selected grading cards
+  if (type === 'inventory' && window.gradingSelectMode && window.gradingSelectedCards.has(i)) {
+    html += ' style="background:rgba(168,85,247,.08)"';
+  }
+  html += '>';
+  
+  // Grading checkbox column
+  if (type === 'inventory' && window.gradingSelectMode) {
+    const isEligible = row.status !== 'Sold' && row.status !== 'Submitted' && row.status !== 'Graded';
+    const isChecked = window.gradingSelectedCards.has(i);
+    if (isEligible) {
+      html += '<td style="text-align:center"><input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="toggleGradingCard(' + i + ')" style="width:18px;height:18px;cursor:pointer;accent-color:var(--purple)"></td>';
+    } else {
+      html += '<td style="text-align:center"><span style="color:var(--text-faint);font-size:10px" title="' + (row.status || '') + '">—</span></td>';
+    }
+  }
+  
+  // Data columns
+  s.cols.forEach(function(c) {
+    const val = c.render ? c.render(row[c.k], row) : (row[c.k] || '');
+    html += '<td' + (c.r ? ' class="r mono"' : '') + '>' + val + '</td>';
+  });
+  
+  // Action column
+  html += '<td class="r">';
+  if (type === 'inventory') {
+    html += '<select class="quick-status" onchange="quickStatus(' + i + ',this.value)" title="Quick status change"><option value="">⚡</option>';
+    ['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].forEach(function(st) {
+      html += '<option value="' + st + '"' + (row.status === st ? ' disabled' : '') + '>' + st + '</option>';
+    });
+    html += '</select> ';
+  }
+  html += '<button class="btn btn-sm" onclick="openEdit(\'' + type + '\',' + i + ')">✏️</button> ';
+  html += '<button class="btn btn-sm btn-danger" onclick="if(confirm(\'Delete?\'))delRow(\'' + type + '\',' + i + ')">🗑</button>';
+  html += '</td></tr>';
+  return html;
+}
+
+// ============================================================
 // TABLE RENDERER
 // ============================================================
 function rTable(type,m) {
@@ -526,7 +569,7 @@ function rTable(type,m) {
     ${gradingToolbar}
     ${searchBar}
     <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
-    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];const isEligible=type==='inventory'&&window.gradingSelectMode&&row.status!=='Sold'&&row.status!=='Submitted'&&row.status!=='Graded';const isChecked=window.gradingSelectedCards.has(i);return`<tr${isChecked?' style="background:rgba(168,85,247,.08)"':''}>${type==='inventory'&&window.gradingSelectMode?`<td style="text-align:center">${isEligible?`<input type="checkbox" ${isChecked?'checked':''} onchange="toggleGradingCard(${i})" style="width:18px;height:18px;cursor:pointer;accent-color:var(--purple)">`:'<span style="color:var(--text-faint);font-size:10px" title="Already ${row.status||''}">—</span>'}</td>`:''}${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r">${type==='inventory'?`<select class="quick-status" onchange="quickStatus(${i},this.value)" title="Quick status change"><option value="">⚡</option>${['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].map(st=>`<option value="${st}"${row.status===st?' disabled':''}>${st}</option>`).join('')}</select> `:''}<button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`;}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&window.gradingSelectMode?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
+    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&window.gradingSelectMode?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
     </tbody></table></div>`;
 }
 
