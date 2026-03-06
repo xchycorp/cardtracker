@@ -1937,7 +1937,20 @@ function rEbayPricing(data) {
       `).join('')}
     </div>
     `:''}
-    <div style="font-size:10px;color:var(--text-faint);margin-top:6px">Active listings only (not sold data). Prices may include shipping.</div>
+    <div style="font-size:10px;color:var(--text-faint);margin-top:6px">Active listings only (not sold data).${data.outliers?` ${data.outliers} outlier${data.outliers>1?'s':''} removed.`:''} ${data.query?`Query: "${data.query}"`:''}</div>
+    ${data.listings?`
+    <details style="margin-top:8px">
+      <summary style="font-size:10px;color:var(--text-faint);cursor:pointer">View individual listings</summary>
+      <div style="max-height:200px;overflow-y:auto;margin-top:6px">
+        ${data.listings.map(l => `
+          <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid var(--border)">
+            <span style="color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;margin-right:8px">${l.title}</span>
+            <span style="color:var(--green);font-weight:600;white-space:nowrap">$${Number(l.price).toFixed(2)}</span>
+          </div>
+        `).join('')}
+      </div>
+    </details>
+    `:''}
   `;
 }
 
@@ -1969,17 +1982,19 @@ window.researchEbayLookup = async function() {
       rawSummary = ebayPricingSummary(fallbackResults);
     }
     
-    // Search graded variants
+    // Search graded variants - use precise queries
     const graded = {};
     for (const company of ['PSA', 'CGC', 'BGS']) {
       for (const grade of ['10', '9.5', '9', '8']) {
         if (company === 'PSA' && grade === '9.5') continue;
-        const gQuery = `${setShort} ${cardName} ${numClean} ${company} ${grade}`.trim();
-        const gResults = await ebaySearch(gQuery, 10);
+        // Build query like a human: "umbreon 161 prismatic PSA 10"
+        const gQuery = `${cardName} ${numClean} ${setShort} ${company} ${grade} -lot -bundle -mystery -repack`.trim();
+        const gResults = await ebaySearch(gQuery, 15);
         const gSummary = ebayPricingSummary(gResults);
         if (gSummary && gSummary.count >= 1) {
           graded[`${company} ${grade}`] = gSummary;
-          rs.prices[`${company}_${grade}`] = gSummary.avg.toFixed(2);
+          // Use median for the graded price matrix — more resistant to outliers
+          rs.prices[`${company}_${grade}`] = gSummary.median.toFixed(2);
         }
       }
     }
@@ -2352,20 +2367,38 @@ async function ebaySearch(query, limit = 20) {
   }
 }
 
-// Process eBay results into pricing summary
+// Process eBay results into pricing summary with outlier removal
 function ebayPricingSummary(results) {
   if (!results || !results.itemSummaries || !results.itemSummaries.length) return null;
   const items = results.itemSummaries;
   const prices = items.map(i => parseFloat(i.price?.value || 0)).filter(p => p > 0).sort((a,b) => a - b);
   if (!prices.length) return null;
-  const sum = prices.reduce((a,b) => a + b, 0);
+  
+  // Remove outliers using IQR method (interquartile range)
+  const q1Idx = Math.floor(prices.length * 0.25);
+  const q3Idx = Math.floor(prices.length * 0.75);
+  const q1 = prices[q1Idx];
+  const q3 = prices[q3Idx];
+  const iqr = q3 - q1;
+  const lowerBound = q1 - (iqr * 1.5);
+  const upperBound = q3 + (iqr * 1.5);
+  
+  // Only filter if we have enough data points (5+), otherwise use all
+  const filtered = prices.length >= 5 ? prices.filter(p => p >= lowerBound && p <= upperBound) : prices;
+  const usePrices = filtered.length >= 2 ? filtered : prices;
+  
+  const sum = usePrices.reduce((a,b) => a + b, 0);
+  // Include listing titles for debugging
+  const listings = items.map(i => ({title: i.title||'', price: parseFloat(i.price?.value||0)})).filter(l => l.price > 0);
   return {
-    count: prices.length,
-    low: prices[0],
-    high: prices[prices.length - 1],
-    avg: sum / prices.length,
-    median: prices[Math.floor(prices.length / 2)],
-    totalResults: results.total || prices.length
+    count: usePrices.length,
+    low: usePrices[0],
+    high: usePrices[usePrices.length - 1],
+    avg: sum / usePrices.length,
+    median: usePrices[Math.floor(usePrices.length / 2)],
+    totalResults: results.total || prices.length,
+    outliers: prices.length - usePrices.length,
+    listings: listings
   };
 }
 
