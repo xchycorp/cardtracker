@@ -51,7 +51,7 @@ async function loadFromFirebase() {
       const fbData = snap.data();
       if (fbData.inventory) {
         D = fbData;
-        ensureFields();
+        ensureFields(); if(typeof syncCrackList==="function") syncCrackList();
       }
     }
     firebaseReady = true;
@@ -91,7 +91,7 @@ onSnapshot(DOC_REF, (snap) => {
   const fbData = snap.data();
   if (fbData && fbData.inventory) {
     D = fbData;
-    ensureFields();
+    ensureFields(); if(typeof syncCrackList==="function") syncCrackList();
     render();
   }
 });
@@ -101,13 +101,14 @@ onSnapshot(DOC_REF, (snap) => {
 // ============================================================
 const emptyData = () => ({
   inventory: [], sales: [], purchases: [], grading: [], sealed: [], expenses: [],
-  capital: [],
+  capital: [], crackList: [],
   settings: { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0 },
   nextIds: { C:1, S:1, P:1, G:1, SL:1, E:1, CAP:1 }
 });
 
 function ensureFields() {
   if (!D.capital) D.capital = [];
+  if (!D.crackList) D.crackList = [];
   if (!D.settings) D.settings = { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0 };
   if (!D.nextIds) D.nextIds = { C:1,S:1,P:1,G:1,SL:1,E:1,CAP:1 };
   if (!D.nextIds.CAP) D.nextIds.CAP = 1;
@@ -127,6 +128,9 @@ window.quickEntryRows = [];
 window.quickSalesMode = false;
 window.quickSalesRows = [];
 window.activePickerRow = null;
+window.gradingSelectMode = false;
+window.gradingSelectedCards = new Set();
+window.gradingDeclaredValue = '';
 let toast = null;
 let charts = {};
 
@@ -480,7 +484,7 @@ const SCHEMAS = {
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
-  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button>${window.ebayState.appId?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''}`
+  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button>${window.ebayState.appId?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''} <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="startGradingSelect()">📦 Select for Grading</button>`
     :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button>`:'';
   // Apply search and sort
   const filtered = filterData(data, type);
@@ -496,10 +500,33 @@ function rTable(type,m) {
 
   if(!data.length) return `<div class="panel"><h3>${s.title} ${addBtn}${quickAddBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
 
+  // Grading select mode toolbar for inventory
+  const gradingToolbar = (type==='inventory' && window.gradingSelectMode) ? `
+    <div style="background:var(--purple);background:linear-gradient(135deg,rgba(168,85,247,.15),rgba(78,124,255,.1));border:1px solid var(--purple);border-radius:var(--radius-sm);padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;animation:fadeUp .3s ease">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:20px">📦</span>
+        <div>
+          <div style="font-weight:700;font-size:13px;color:var(--text)">PSA Grading Submission</div>
+          <div style="font-size:11px;color:var(--text-dim)">${window.gradingSelectedCards.size} card${window.gradingSelectedCards.size!==1?'s':''} selected</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+        <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">Declared Value ($)</label>
+        <input type="number" id="grading_declared_value" class="search-input" style="width:100px;font-size:12px" step="0.01" placeholder="e.g. 50" value="${window.gradingDeclaredValue}" oninput="window.gradingDeclaredValue=this.value">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="gradingSelectAll()" style="font-size:11px">☑ Select All</button>
+        <button class="btn btn-sm" onclick="gradingDeselectAll()" style="font-size:11px">☐ Deselect All</button>
+        <button class="btn btn-accent btn-sm" onclick="generatePSASubmission()" style="font-size:11px" ${window.gradingSelectedCards.size===0?'disabled':''}>📋 Generate PSA Submission</button>
+        <button class="btn btn-sm" onclick="cancelGradingSelect()" style="font-size:11px">✕ Cancel</button>
+      </div>
+    </div>` : '';
+
   return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
+    ${gradingToolbar}
     ${searchBar}
-    <table><thead><tr>${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
-    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return`<tr>${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r">${type==='inventory'?`<select class="quick-status" onchange="quickStatus(${i},this.value)" title="Quick status change"><option value="">⚡</option>${['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].map(st=>`<option value="${st}"${row.status===st?' disabled':''}>${st}</option>`).join('')}</select> `:''}<button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`;}).join(''):`<tr><td colspan="${s.cols.length+1}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
+    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
+    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];const isEligible=type==='inventory'&&window.gradingSelectMode&&row.status!=='Sold'&&row.status!=='Submitted'&&row.status!=='Graded';const isChecked=window.gradingSelectedCards.has(i);return`<tr${isChecked?' style="background:rgba(168,85,247,.08)"':''}>${type==='inventory'&&window.gradingSelectMode?`<td style="text-align:center">${isEligible?`<input type="checkbox" ${isChecked?'checked':''} onchange="toggleGradingCard(${i})" style="width:18px;height:18px;cursor:pointer;accent-color:var(--purple)">`:'<span style="color:var(--text-faint);font-size:10px" title="Already ${row.status||''}">—</span>'}</td>`:''}${s.cols.map(c=>{const val=c.render?c.render(row[c.k],row):(row[c.k]||'');return`<td${c.r?' class="r mono"':''}>${val}</td>`;}).join('')}<td class="r">${type==='inventory'?`<select class="quick-status" onchange="quickStatus(${i},this.value)" title="Quick status change"><option value="">⚡</option>${['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].map(st=>`<option value="${st}"${row.status===st?' disabled':''}>${st}</option>`).join('')}</select> `:''}<button class="btn btn-sm" onclick="openEdit('${type}',${i})">✏️</button> <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))delRow('${type}',${i})">🗑</button></td></tr>`;}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&window.gradingSelectMode?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
     </tbody></table></div>`;
 }
 
@@ -1469,6 +1496,214 @@ window.quickStatus = function(idx, newStatus) {
   render();
 };
 
+// ============================================================
+// PSA GRADING SUBMISSION MODE
+// ============================================================
+window.startGradingSelect = function() {
+  window.gradingSelectMode = true;
+  window.gradingSelectedCards = new Set();
+  window.gradingDeclaredValue = '';
+  render();
+  showToast('Select cards for PSA grading submission');
+};
+
+window.cancelGradingSelect = function() {
+  if (window.gradingSelectedCards.size > 0 && !confirm('Cancel grading selection? Your selections will be lost.')) return;
+  window.gradingSelectMode = false;
+  window.gradingSelectedCards = new Set();
+  window.gradingDeclaredValue = '';
+  render();
+};
+
+window.toggleGradingCard = function(idx) {
+  if (window.gradingSelectedCards.has(idx)) {
+    window.gradingSelectedCards.delete(idx);
+  } else {
+    window.gradingSelectedCards.add(idx);
+  }
+  render();
+};
+
+window.gradingSelectAll = function() {
+  D.inventory.forEach((card, idx) => {
+    if (card.status !== 'Sold' && card.status !== 'Submitted' && card.status !== 'Graded') {
+      window.gradingSelectedCards.add(idx);
+    }
+  });
+  render();
+};
+
+window.gradingDeselectAll = function() {
+  window.gradingSelectedCards = new Set();
+  render();
+};
+
+window.generatePSASubmission = function() {
+  const selected = Array.from(window.gradingSelectedCards).sort((a,b) => a - b);
+  if (!selected.length) { showToast('No cards selected'); return; }
+  
+  const declaredVal = window.gradingDeclaredValue ? parseFloat(window.gradingDeclaredValue) : 0;
+  const today = new Date().toISOString().slice(0, 10);
+  
+  // Build the submission list
+  const lines = [];
+  const cards = selected.map(idx => D.inventory[idx]).filter(Boolean);
+  
+  lines.push('PSA GRADING SUBMISSION — ' + today);
+  lines.push('═'.repeat(60));
+  lines.push('');
+  lines.push(padRight('Card Name', 35) + ' | ' + padRight('Set', 25) + ' | ' + padRight('Number', 8) + ' | ' + 'Declared Value');
+  lines.push('─'.repeat(35) + ' | ' + '─'.repeat(25) + ' | ' + '─'.repeat(8) + ' | ' + '─'.repeat(14));
+  
+  cards.forEach(card => {
+    // Parse card name: format is typically "SetName CardName #Number"
+    const cardName = card.cardName || '';
+    let parsedSet = '', parsedName = '', parsedNumber = '';
+    
+    const numMatch = cardName.match(/^(.+?)\s+#(\S+)\s*(.*)$/);
+    if (numMatch) {
+      const fullName = numMatch[1].trim();
+      parsedNumber = numMatch[2];
+      const suffix = numMatch[3] || '';
+      
+      // Try to split set from card name — last 1-2 words are usually the pokemon name
+      const words = fullName.split(/\s+/);
+      if (words.length >= 3) {
+        // Heuristic: pokemon names are 1-2 words at the end
+        // Try finding where the card name starts (capitalize after set pattern)
+        parsedName = words.slice(-1).join(' ');
+        parsedSet = words.slice(0, -1).join(' ');
+      } else if (words.length === 2) {
+        parsedSet = words[0];
+        parsedName = words[1];
+      } else {
+        parsedName = fullName;
+      }
+      if (suffix) parsedName += ' ' + suffix;
+    } else {
+      parsedName = cardName;
+    }
+    
+    const dv = declaredVal ? '$' + declaredVal.toFixed(2) : (num(card.marketValue) ? '$' + num(card.marketValue).toFixed(2) : '—');
+    lines.push(padRight(parsedName || cardName, 35) + ' | ' + padRight(parsedSet, 25) + ' | ' + padRight(parsedNumber, 8) + ' | ' + dv);
+  });
+  
+  lines.push('');
+  lines.push('═'.repeat(60));
+  lines.push(`Total Cards: ${cards.length}`);
+  if (declaredVal) lines.push(`Blanket Declared Value: $${declaredVal.toFixed(2)} per card`);
+  lines.push(`Total Declared Value: $${(declaredVal ? declaredVal * cards.length : cards.reduce((s, c) => s + num(c.marketValue), 0)).toFixed(2)}`);
+  
+  const submissionText = lines.join('\n');
+  
+  // Create grading entries and update inventory status
+  let gradingCount = 0;
+  selected.forEach(idx => {
+    const card = D.inventory[idx];
+    if (!card) return;
+    
+    // Update inventory card status to Submitted
+    const oldStatus = card.status;
+    card.status = 'Submitted';
+    
+    // Create grading entry linked to this inventory card
+    const gradingEntry = {
+      id: nextId('G'),
+      cardName: card.cardName || '',
+      cardId: card.id || '',
+      company: 'PSA',
+      serviceLevel: '',
+      dateSubmitted: today,
+      dateReturned: '',
+      gradingFee: 0,
+      shipTo: 0,
+      shipBack: 0,
+      totalCost: 0,
+      preCondition: '',
+      gradeReceived: '',
+      preValue: declaredVal || num(card.marketValue) || num(card.costBasis) || 0,
+      postValue: 0,
+      action: 'New Grade',
+      notes: 'Auto-created from PSA batch submission'
+    };
+    D.grading.push(gradingEntry);
+    gradingCount++;
+  });
+  
+  saveData();
+  
+  // Show the submission in a modal for copying
+  window.gradingSelectMode = false;
+  window.gradingSelectedCards = new Set();
+  window.gradingDeclaredValue = '';
+  
+  // Use a special modal to show the copyable text
+  window._psaSubmissionText = submissionText;
+  window._psaSubmissionCount = gradingCount;
+  render();
+  
+  // Show submission result modal after render
+  setTimeout(() => {
+    showPSASubmissionModal(submissionText, gradingCount);
+  }, 100);
+};
+
+function padRight(str, len) {
+  str = String(str || '');
+  if (str.length > len) return str.substring(0, len - 1) + '…';
+  return str + ' '.repeat(Math.max(0, len - str.length));
+}
+
+function showPSASubmissionModal(text, count) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-bg';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:750px">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">
+        <span>📦 PSA Submission Generated</span>
+        <button class="close" onclick="this.closest('.modal-bg').remove()">&times;</button>
+      </h2>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;gap:12px;margin-bottom:12px">
+          <div style="background:var(--green);background:rgba(0,214,143,.12);border:1px solid var(--green);border-radius:var(--radius-sm);padding:10px 14px;flex:1;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:var(--green)">${count}</div>
+            <div style="font-size:10px;color:var(--text-dim)">Cards Submitted</div>
+          </div>
+          <div style="background:var(--purple);background:rgba(168,85,247,.12);border:1px solid var(--purple);border-radius:var(--radius-sm);padding:10px 14px;flex:1;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:var(--purple)">${count}</div>
+            <div style="font-size:10px;color:var(--text-dim)">Grading Entries Created</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">All selected cards have been marked as <strong style="color:var(--purple)">Submitted</strong> and grading entries have been auto-created in your Grading tab.</div>
+      </div>
+      <textarea id="psaSubmissionText" readonly style="width:100%;height:300px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:14px;resize:vertical;white-space:pre;overflow-x:auto;line-height:1.5">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+      <div class="form-actions" style="margin-top:12px">
+        <button class="btn" onclick="this.closest('.modal-bg').remove()">Close</button>
+        <button class="btn btn-accent" onclick="copyPSASubmission()">📋 Copy to Clipboard</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('app').appendChild(overlay);
+}
+
+window.copyPSASubmission = function() {
+  const textarea = document.getElementById('psaSubmissionText');
+  if (!textarea) return;
+  textarea.select();
+  try {
+    navigator.clipboard.writeText(textarea.value).then(() => {
+      showToast('Submission list copied to clipboard!');
+    }).catch(() => {
+      document.execCommand('copy');
+      showToast('Submission list copied!');
+    });
+  } catch(e) {
+    document.execCommand('copy');
+    showToast('Submission list copied!');
+  }
+};
+
 window.setSearch = function(val) { window.searchTerm = val; render(); setTimeout(()=>{const el=document.querySelector('.search-input');if(el){el.focus();el.selectionStart=el.selectionEnd=val.length;}},0); };
 window.toggleSort = function(col) {
   if (window.sortCol === col) {
@@ -1622,7 +1857,10 @@ function rAnalytics(m) {
 // ============================================================
 // RESEARCH TAB
 // ============================================================
-window.researchState = {cardName:'', results:[], selectedCard:null, prices:{}, loading:false, gradingFee:20, currentGrade:'', currentCompany:'PSA', targetGrade:'', targetCompany:'CGC', buyPrice:'', mode:'single', bulkCards:[], bulkScanning:false};
+window.researchState = {cardName:'', results:[], selectedCard:null, prices:{}, loading:false, gradingFee:20, currentGrade:'', currentCompany:'PSA', targetGrade:'', targetCompany:'CGC', buyPrice:'', mode:'single', bulkCards:[], bulkScanning:false, includeEbayFee:false, crackCandidates:[]};
+
+// Sync crackCandidates from Firebase after data loads
+function syncCrackList() { window.researchState.crackCandidates = D.crackList || []; }
 
 function rResearch(m) {
   const rs = window.researchState;
@@ -1732,15 +1970,15 @@ function rResearchSingle(rs) {
         <div style="font-size:11px;color:var(--text-faint);margin-bottom:8px;font-weight:600">CURRENT CARD</div>
         <div class="form-group" style="margin-bottom:10px">
           <label style="font-size:12px">Buy Price ($)</label>
-          <input type="number" id="rg_buyPrice" class="search-input" step="0.01" placeholder="What you'd pay..." value="${rs.buyPrice}" oninput="window.researchState.buyPrice=this.value;render()">
+          <input type="number" id="rg_buyPrice" class="search-input" step="0.01" placeholder="What you'd pay..." value="${rs.buyPrice}" onchange="window.researchState.buyPrice=this.value">
         </div>
         <div class="form-group" style="margin-bottom:10px">
           <label style="font-size:12px">Current Grade</label>
           <div style="display:flex;gap:6px">
-            <select id="rg_currentCompany" class="search-input" style="width:80px" onchange="window.researchState.currentCompany=this.value;render()">
+            <select id="rg_currentCompany" class="search-input" style="width:80px" onchange="window.researchState.currentCompany=this.value">
               ${['PSA','CGC','BGS','SGC','Other'].map(o=>`<option${rs.currentCompany===o?' selected':''}>${o}</option>`).join('')}
             </select>
-            <input type="text" id="rg_currentGrade" class="search-input" placeholder="e.g. 8" value="${rs.currentGrade}" oninput="window.researchState.currentGrade=this.value;render()">
+            <input type="text" id="rg_currentGrade" class="search-input" placeholder="e.g. 8" value="${rs.currentGrade}" onchange="window.researchState.currentGrade=this.value">
           </div>
         </div>
       </div>
@@ -1748,34 +1986,73 @@ function rResearchSingle(rs) {
         <div style="font-size:11px;color:var(--text-faint);margin-bottom:8px;font-weight:600">TARGET REGRADE</div>
         <div class="form-group" style="margin-bottom:10px">
           <label style="font-size:12px">Grading Fee ($)</label>
-          <input type="number" id="rg_gradingFee" class="search-input" step="0.01" value="${rs.gradingFee}" oninput="window.researchState.gradingFee=this.value;render()">
+          <input type="number" id="rg_gradingFee" class="search-input" step="0.01" value="${rs.gradingFee}" onchange="window.researchState.gradingFee=this.value">
         </div>
         <div class="form-group" style="margin-bottom:10px">
           <label style="font-size:12px">Target Grade</label>
           <div style="display:flex;gap:6px">
-            <select id="rg_targetCompany" class="search-input" style="width:80px" onchange="window.researchState.targetCompany=this.value;render()">
+            <select id="rg_targetCompany" class="search-input" style="width:80px" onchange="window.researchState.targetCompany=this.value">
               ${['PSA','CGC','BGS','SGC','Other'].map(o=>`<option${rs.targetCompany===o?' selected':''}>${o}</option>`).join('')}
             </select>
-            <input type="text" id="rg_targetGrade" class="search-input" placeholder="e.g. 10" value="${rs.targetGrade}" oninput="window.researchState.targetGrade=this.value;render()">
+            <input type="text" id="rg_targetGrade" class="search-input" placeholder="e.g. 10" value="${rs.targetGrade}" onchange="window.researchState.targetGrade=this.value">
           </div>
         </div>
       </div>
     </div>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:8px;margin-bottom:8px">
+      <button class="btn btn-accent" onclick="render()" style="font-size:12px">Calculate</button>
+      <label style="font-size:12px;display:flex;align-items:center;gap:6px;color:var(--text-dim)">
+        <input type="checkbox" ${rs.includeEbayFee?'checked':''} onchange="window.researchState.includeEbayFee=this.checked;render()"> Include eBay fees (~16%)
+      </label>
+    </div>
     ${rRegradeResult(rs)}
   </div>
   <div class="panel" style="margin-top:14px">
-    <h3 style="color:var(--cyan)">📋 Quick Lookup from Inventory</h3>
-    <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Click a card from your inventory to research it.</div>
-    <div style="max-height:300px;overflow-y:auto">
-      ${D.inventory.filter(c=>c.status!=='Sold').slice(0,20).map((c,i)=>{
-        const co=c.gradingCompany||'';const gr=c.grade||'';
-        const gradeStr=(co||gr)?`<span style="color:var(--yellow);font-weight:600">${co}${co&&gr?' ':''}${gr}</span>`:'<span style="color:var(--text-dim)">Raw</span>';
-        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer" onclick="researchFromInventory(${D.inventory.indexOf(c)})">
-          <div><strong style="font-size:13px">${c.cardName||''}</strong> ${gradeStr}</div>
-          <div style="font-size:12px;color:var(--text-dim)">${c.marketValue?'$'+num(c.marketValue).toFixed(2):'No price'}</div>
-        </div>`;
-      }).join('')}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="color:var(--cyan);margin:0">🔥 Crack Candidates</h3>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-accent" onclick="addToCrackList()" style="font-size:11px">+ Add Current Card</button>
+        ${rs.crackCandidates.length?`<button class="btn btn-sm" onclick="clearCrackList()" style="font-size:10px">Clear</button>`:''}
+      </div>
     </div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Cards researched this session. Compares PSA 8 buy price → CGC 9 and CGC 10 sell price.${rs.includeEbayFee?' After 16% eBay fees.':''}</div>
+    ${rs.crackCandidates.length?`
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Card</th>
+          <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Buy (PSA 8)</th>
+          <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">CGC 9</th>
+          <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">CGC 10</th>
+          <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Best Profit</th>
+          <th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">ROI</th>
+          <th style="padding:6px;border-bottom:1px solid var(--border)"></th>
+        </tr></thead>
+        <tbody>
+          ${rs.crackCandidates.sort((a,b) => b.roi - a.roi).map((c, i) => {
+            const feeRate = rs.includeEbayFee ? 0.16 : 0;
+            const gradingFee = num(rs.gradingFee) || 20;
+            const totalCost = c.buyPrice + gradingFee;
+            const cgc9net = c.cgc9 * (1 - feeRate);
+            const cgc10net = c.cgc10 * (1 - feeRate);
+            const bestNet = Math.max(cgc9net, cgc10net);
+            const profit = bestNet - totalCost;
+            const roi = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+            const isProfit = profit >= 0;
+            return `<tr>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)"><strong>${c.cardName}</strong></td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right">$${c.buyPrice.toFixed(2)}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;color:${cgc9net-totalCost>=0?'var(--green)':'var(--text-dim)'}">$${c.cgc9?c.cgc9.toFixed(2):'—'}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;color:${cgc10net-totalCost>=0?'var(--green)':'var(--text-dim)'}">$${c.cgc10?c.cgc10.toFixed(2):'—'}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;color:${isProfit?'var(--green)':'var(--red)'}">${isProfit?'+':'-'}$${Math.abs(profit).toFixed(2)}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;color:${isProfit?'var(--green)':'var(--red)'}">${roi.toFixed(0)}%</td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)"><button class="btn btn-sm" onclick="removeCrackCandidate(${i})" style="font-size:10px">✕</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    `:'<div style="color:var(--text-dim);font-size:12px;text-align:center;padding:12px">Research cards and click "+ Add Current Card" to save to your crack list. Uses PSA 8 price as buy cost and CGC 9/10 as target values from the graded matrix.</div>'}
   </div>`;
 }
 
@@ -1873,52 +2150,109 @@ function rGradedMatrix(rs) {
 function rRegradeResult(rs) {
   const buy = num(rs.buyPrice);
   const fee = num(rs.gradingFee);
-  if (!buy || !rs.targetGrade) return '<div style="margin-top:16px;padding:16px;background:var(--bg);border-radius:var(--radius-sm);text-align:center;color:var(--text-dim);font-size:12px">Enter a buy price and target grade to see the analysis.</div>';
+  const ebayFeeRate = rs.includeEbayFee ? 0.16 : 0;
+  if (!buy || !rs.targetGrade) return '<div style="margin-top:16px;padding:16px;background:var(--bg);border-radius:var(--radius-sm);text-align:center;color:var(--text-dim);font-size:12px">Enter a buy price and target grade, then click Calculate.</div>';
   
   const totalCost = buy + fee;
   const targetKey = rs.targetCompany + '_' + rs.targetGrade;
   const targetPrice = num(rs.prices[targetKey]);
   
-  // Also check one grade below target for risk analysis
+  // Net after eBay fees
+  const targetNet = targetPrice ? targetPrice * (1 - ebayFeeRate) : 0;
+  
+  // One grade below for risk analysis
   const gradeNum = parseFloat(rs.targetGrade);
   const belowGrade = gradeNum >= 10 ? '9.5' : gradeNum >= 9.5 ? '9' : gradeNum >= 9 ? '8.5' : gradeNum >= 8.5 ? '8' : String(gradeNum - 1);
   const belowKey = rs.targetCompany + '_' + belowGrade;
   const belowPrice = num(rs.prices[belowKey]);
+  const belowNet = belowPrice ? belowPrice * (1 - ebayFeeRate) : 0;
   
   return `
     <div style="margin-top:16px;padding:16px;background:var(--bg);border-radius:var(--radius-sm)">
-      <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:10px">ANALYSIS</div>
+      <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:10px">ANALYSIS${rs.includeEbayFee?' (after ~16% eBay fees)':''}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
         <div style="text-align:center">
-          <div style="font-size:11px;color:var(--text-dim)">Buy + Grade Cost</div>
+          <div style="font-size:11px;color:var(--text-dim)">Total Cost</div>
           <div style="font-size:18px;font-weight:700;color:var(--text)">$${totalCost.toFixed(2)}</div>
           <div style="font-size:10px;color:var(--text-faint)">$${buy.toFixed(2)} card + $${fee.toFixed(2)} grading</div>
         </div>
         <div style="text-align:center">
-          <div style="font-size:11px;color:var(--text-dim)">${rs.targetCompany} ${rs.targetGrade} Value</div>
-          <div style="font-size:18px;font-weight:700;${targetPrice?'color:var(--green)':'color:var(--text-faint)'}">${targetPrice?'$'+targetPrice.toFixed(2):'Enter price →'}</div>
-          ${targetPrice?`<div style="font-size:10px;color:${targetPrice-totalCost>=0?'var(--green)':'var(--red)'}">Profit: $${(targetPrice-totalCost).toFixed(2)} (${totalCost?(((targetPrice-totalCost)/totalCost)*100).toFixed(0):'0'}% ROI)</div>`:''}
+          <div style="font-size:11px;color:var(--text-dim)">${rs.targetCompany} ${rs.targetGrade} ${rs.includeEbayFee?'Net':'Value'}</div>
+          <div style="font-size:18px;font-weight:700;${targetPrice?'color:var(--green)':'color:var(--text-faint)'}">${targetPrice?(rs.includeEbayFee?'$'+targetNet.toFixed(2):'$'+targetPrice.toFixed(2)):'Enter price →'}</div>
+          ${targetPrice?`<div style="font-size:10px;color:var(--text-faint)">${rs.includeEbayFee?`Sell $${targetPrice.toFixed(2)} - $${(targetPrice*ebayFeeRate).toFixed(2)} fees`:''}</div>`:''}
+          ${targetPrice?`<div style="font-size:10px;color:${(rs.includeEbayFee?targetNet:targetPrice)-totalCost>=0?'var(--green)':'var(--red)'}">Profit: $${((rs.includeEbayFee?targetNet:targetPrice)-totalCost).toFixed(2)} (${totalCost?((((rs.includeEbayFee?targetNet:targetPrice)-totalCost)/totalCost)*100).toFixed(0):'0'}% ROI)</div>`:''}
         </div>
         <div style="text-align:center">
-          <div style="font-size:11px;color:var(--text-dim)">${rs.targetCompany} ${belowGrade} Value</div>
-          <div style="font-size:18px;font-weight:700;${belowPrice?'color:var(--yellow)':'color:var(--text-faint)'}">${belowPrice?'$'+belowPrice.toFixed(2):'Enter price →'}</div>
-          ${belowPrice?`<div style="font-size:10px;color:${belowPrice-totalCost>=0?'var(--green)':'var(--red)'}">If downgraded: $${(belowPrice-totalCost).toFixed(2)}</div>`:''}
+          <div style="font-size:11px;color:var(--text-dim)">${rs.targetCompany} ${belowGrade} ${rs.includeEbayFee?'Net':'Value'}</div>
+          <div style="font-size:18px;font-weight:700;${belowPrice?'color:var(--yellow)':'color:var(--text-faint)'}">${belowPrice?(rs.includeEbayFee?'$'+belowNet.toFixed(2):'$'+belowPrice.toFixed(2)):'Enter price →'}</div>
+          ${belowPrice?`<div style="font-size:10px;color:${(rs.includeEbayFee?belowNet:belowPrice)-totalCost>=0?'var(--green)':'var(--red)'}">If downgraded: $${((rs.includeEbayFee?belowNet:belowPrice)-totalCost).toFixed(2)}</div>`:''}
         </div>
       </div>
       ${targetPrice?`
-      <div style="padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;text-align:center;${targetPrice-totalCost>=0?'background:rgba(46,213,115,.12);color:var(--green);border:1px solid var(--green)':'background:rgba(255,71,87,.12);color:var(--red);border:1px solid var(--red)'}">
-        ${targetPrice-totalCost>=0?
-          `✅ PROFITABLE if you hit ${rs.targetCompany} ${rs.targetGrade} — $${(targetPrice-totalCost).toFixed(2)} profit (${(((targetPrice-totalCost)/totalCost)*100).toFixed(0)}% ROI)`:
-          `❌ NOT PROFITABLE even at ${rs.targetCompany} ${rs.targetGrade} — loss of $${Math.abs(targetPrice-totalCost).toFixed(2)}`}
+      <div style="padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;text-align:center;${(rs.includeEbayFee?targetNet:targetPrice)-totalCost>=0?'background:rgba(46,213,115,.12);color:var(--green);border:1px solid var(--green)':'background:rgba(255,71,87,.12);color:var(--red);border:1px solid var(--red)'}">
+        ${(rs.includeEbayFee?targetNet:targetPrice)-totalCost>=0?
+          `✅ PROFITABLE at ${rs.targetCompany} ${rs.targetGrade} — $${((rs.includeEbayFee?targetNet:targetPrice)-totalCost).toFixed(2)} profit (${((((rs.includeEbayFee?targetNet:targetPrice)-totalCost)/totalCost)*100).toFixed(0)}% ROI)`:
+          `❌ NOT PROFITABLE at ${rs.targetCompany} ${rs.targetGrade} — loss of $${Math.abs((rs.includeEbayFee?targetNet:targetPrice)-totalCost).toFixed(2)}`}
       </div>
-      ${belowPrice&&targetPrice-totalCost>=0?`
+      ${belowPrice&&(rs.includeEbayFee?targetNet:targetPrice)-totalCost>=0?`
       <div style="margin-top:8px;padding:10px 14px;border-radius:var(--radius-sm);font-size:12px;text-align:center;background:var(--bg);border:1px solid var(--border)">
-        ⚠️ Risk: If it grades ${belowGrade} instead, ${belowPrice-totalCost>=0?`you still profit $${(belowPrice-totalCost).toFixed(2)}`:`you lose $${Math.abs(belowPrice-totalCost).toFixed(2)}`}
+        ⚠️ Risk: If it grades ${belowGrade} instead, ${(rs.includeEbayFee?belowNet:belowPrice)-totalCost>=0?`you still profit $${((rs.includeEbayFee?belowNet:belowPrice)-totalCost).toFixed(2)}`:`you lose $${Math.abs((rs.includeEbayFee?belowNet:belowPrice)-totalCost).toFixed(2)}`}
       </div>`:''}`
       :'<div style="font-size:12px;color:var(--text-dim);text-align:center">Fill in the graded price matrix above to see profit/loss analysis</div>'}
     </div>
   `;
 }
+
+// Crack candidate list management
+window.addToCrackList = function() {
+  const rs = window.researchState;
+  const customInput = document.getElementById('ebay_custom_search');
+  const cardName = customInput?.value?.trim() || rs.cardName || (rs.selectedCard ? rs.selectedCard.name : '');
+  if (!cardName) { showToast('Search for a card first'); return; }
+  
+  const psa8 = num(rs.prices['PSA_8']);
+  const cgc9 = num(rs.prices['CGC_9']);
+  const cgc10 = num(rs.prices['CGC_10']);
+  
+  if (!psa8) { showToast('Fill in PSA 8 price in the graded matrix first (this is your buy price)'); return; }
+  if (!cgc9 && !cgc10) { showToast('Fill in CGC 9 or CGC 10 price in the graded matrix first'); return; }
+  
+  if (D.crackList.find(c => c.cardName === cardName)) { showToast('Card already in crack list'); return; }
+  
+  const gradingFee = num(rs.gradingFee) || 20;
+  const totalCost = psa8 + gradingFee;
+  const feeRate = rs.includeEbayFee ? 0.16 : 0;
+  const bestNet = Math.max((cgc9||0) * (1-feeRate), (cgc10||0) * (1-feeRate));
+  const profit = bestNet - totalCost;
+  const roi = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+  
+  D.crackList.push({
+    cardName, buyPrice: psa8, cgc9: cgc9||0, cgc10: cgc10||0,
+    gradingFee, profit, roi, dateAdded: new Date().toISOString().slice(0,10)
+  });
+  
+  // Also keep in session state for display
+  rs.crackCandidates = D.crackList;
+  saveData();
+  render();
+  showToast(`Added ${cardName} — ${profit >= 0 ? '+' : '-'}$${Math.abs(profit).toFixed(2)} potential`);
+};
+
+window.removeCrackCandidate = function(idx) {
+  D.crackList.splice(idx, 1);
+  window.researchState.crackCandidates = D.crackList;
+  saveData();
+  render();
+};
+
+window.clearCrackList = function() {
+  if (confirm('Clear all crack candidates?')) {
+    D.crackList = [];
+    window.researchState.crackCandidates = D.crackList;
+    saveData();
+    render();
+  }
+};
 
 // Research tab search functions
 let researchSearchTimer = null;
