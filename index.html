@@ -2275,11 +2275,12 @@ try {
 async function getEbayToken() {
   const eb = window.ebayState;
   if (!eb.appId || !eb.certId) return null;
-  // Return cached token if still valid (with 5 min buffer)
   if (eb.token && Date.now() < eb.tokenExpiry - 300000) return eb.token;
   try {
     const creds = btoa(`${eb.appId}:${eb.certId}`);
-    const resp = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+    // Use CORS proxy for OAuth token request
+    const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.ebay.com/identity/v1/oauth2/token');
+    const resp = await fetch(proxyUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -2291,20 +2292,45 @@ async function getEbayToken() {
     const data = await resp.json();
     eb.token = data.access_token;
     eb.tokenExpiry = Date.now() + (data.expires_in * 1000);
+    console.log('eBay token obtained, expires in', data.expires_in, 'seconds');
     return eb.token;
   } catch(e) {
     console.error('eBay token error:', e);
-    return null;
+    // Try alternative proxy
+    try {
+      const creds = btoa(`${eb.appId}:${eb.certId}`);
+      const resp = await fetch('https://corsproxy.io/?https://api.ebay.com/identity/v1/oauth2/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${creds}`
+        },
+        body: 'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope'
+      });
+      if (!resp.ok) throw new Error('eBay auth (proxy2) failed: ' + resp.status);
+      const data = await resp.json();
+      eb.token = data.access_token;
+      eb.tokenExpiry = Date.now() + (data.expires_in * 1000);
+      eb._proxyBase = 'https://corsproxy.io/?';
+      console.log('eBay token obtained via corsproxy');
+      return eb.token;
+    } catch(e2) {
+      console.error('eBay token error (both proxies failed):', e2);
+      return null;
+    }
   }
 }
 
 // eBay Browse API search for active listings
 async function ebaySearch(query, limit = 20) {
   const token = await getEbayToken();
-  if (!token) { console.error('eBay: No token'); return null; }
+  if (!token) { console.error('eBay: No token'); showToast('eBay authentication failed — check console'); return null; }
   try {
-    const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&category_ids=183454&filter=buyingOptions:{FIXED_PRICE|AUCTION}`;
-    console.log('eBay search:', query, url);
+    const ebayUrl = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&category_ids=183454&filter=buyingOptions:{FIXED_PRICE|AUCTION}`;
+    // Route through CORS proxy
+    const proxyBase = window.ebayState._proxyBase || 'https://api.allorigins.win/raw?url=';
+    const url = proxyBase + encodeURIComponent(ebayUrl);
+    console.log('eBay search:', query);
     const resp = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -2318,7 +2344,7 @@ async function ebaySearch(query, limit = 20) {
       return null;
     }
     const data = await resp.json();
-    console.log('eBay results:', data.total, 'items');
+    console.log('eBay results:', data.total, 'items for:', query);
     return data;
   } catch(e) {
     console.error('eBay search error:', e);
