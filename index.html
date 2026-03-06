@@ -244,12 +244,11 @@ window.render = function render() {
         <button class="btn" onclick="importExcel()">📥 Import</button>
         <button class="btn" onclick="exportExcel()">📤 Export</button>
         <button class="btn" onclick="exportMenu()">📄 Reports</button>
-        <button class="btn btn-danger btn-sm" onclick="if(confirm('Clear ALL data? This cannot be undone.'))resetAll()">Reset</button>
       </div>
     </div>
     <div class="tabs">
-      ${['overview','scanner','inventory','sales','purchases','grading','sealed','expenses','capital','analytics','research','financials'].map(t2=>{
-        const labels={overview:'Overview',scanner:'Scanner',inventory:'Inventory',sales:'Sales',purchases:'Purchases',grading:'Grading',sealed:'Sealed',expenses:'Expenses',capital:'Capital',analytics:'Analytics',research:'Research',financials:'Financials'};
+      ${['overview','scanner','research','inventory','purchases','grading','sealed','sales','expenses','capital','analytics','financials'].map(t2=>{
+        const labels={overview:'Overview',scanner:'Scanner',research:'Research',inventory:'Inventory',purchases:'Purchases',grading:'Grading',sealed:'Sealed',sales:'Sales',expenses:'Expenses',capital:'Capital',analytics:'Analytics',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
         return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
@@ -270,7 +269,7 @@ window.render = function render() {
     }</div>
     ${window.modal?rModal():''}
     <div class="toast" id="toast" style="display:${toast?'block':'none'}">${toast||''}</div>
-    <div class="footer">CardTracker · Real-time cloud sync · Data shared between all users</div>
+    <div class="footer">CardTracker · Real-time cloud sync · Data shared between all users · <a href="#" onclick="event.preventDefault();exportThenReset()" style="color:var(--red);text-decoration:none;font-size:11px">Reset All Data</a></div>
     <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none" onchange="handleImport(event)">
   `;
   if(window.tab==='overview') renderCharts(m);
@@ -528,7 +527,7 @@ function renderTableRow(type, row, i, s) {
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
-  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button>${window.ebayState.appId?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''} <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="startGradingSelect('PSA')">📦 PSA Submission</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="startGradingSelect('CGC')">📦 CGC Submission</button>`
+  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button>${window.ebayState.appId?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''}`
     :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button>`:'';
   // Apply search and sort
   const filtered = filterData(data, type);
@@ -1541,8 +1540,36 @@ window.quickStatus = function(idx, newStatus) {
 };
 
 // ============================================================
-// PSA GRADING SUBMISSION MODE
+// GRADING SUBMISSION MODE
 // ============================================================
+window.showGradingCompanyPicker = function() {
+  // Show a small dropdown overlay to pick grading company
+  const existing = document.getElementById('grading-company-picker');
+  if (existing) { existing.remove(); return; }
+  
+  const btn = document.querySelector('[onclick="showGradingCompanyPicker()"]');
+  if (!btn) return;
+  const rect = btn.getBoundingClientRect();
+  
+  const picker = document.createElement('div');
+  picker.id = 'grading-company-picker';
+  picker.style.cssText = 'position:fixed;z-index:9999;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 8px 24px rgba(0,0,0,.4);padding:6px;min-width:140px;top:' + (rect.bottom + 4) + 'px;left:' + rect.left + 'px;animation:fadeUp .15s ease';
+  picker.innerHTML = ['PSA','CGC','Other'].map(function(co) {
+    return '<div style="padding:8px 14px;cursor:pointer;border-radius:6px;font-size:13px;font-weight:600;color:var(--text);transition:background .15s" onmouseover="this.style.background=\'var(--card-hover)\'" onmouseout="this.style.background=\'transparent\'" onclick="document.getElementById(\'grading-company-picker\').remove();startGradingSelect(\'' + co + '\')">' + co + '</div>';
+  }).join('');
+  
+  document.body.appendChild(picker);
+  
+  // Close on click outside
+  const closeHandler = function(e) {
+    if (!picker.contains(e.target) && e.target !== btn) {
+      picker.remove();
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(function() { document.addEventListener('click', closeHandler); }, 10);
+};
+
 window.startGradingSelect = function(company) {
   window.gradingSelectMode = true;
   window.gradingSelectedCards = new Set();
@@ -1783,7 +1810,6 @@ function sortData(data, cols) {
     return window.sortDir === 'asc' ? String(va||'').localeCompare(String(vb||'')) : String(vb||'').localeCompare(String(va||''));
   });
 }
-window.resetAll = function() { D=emptyData(); saveData(); render(); };
 
 // ============================================================
 // ANALYTICS TAB
@@ -3498,42 +3524,153 @@ window.exportMenu = function() {
 // ============================================================
 window.importExcel = function() { document.getElementById('fileIn').click(); };
 
+window.exportExcel = function() {
+  const wb=XLSX.utils.book_new();
+  const mkSheet=(data,headers,name)=>{const ws=XLSX.utils.aoa_to_sheet([headers.map(h=>h.v),...data.map(r=>headers.map(h=>r[h.field]!==undefined?r[h.field]:''))]);headers.forEach((h,i)=>{ws['!cols']=ws['!cols']||[];ws['!cols'][i]={wch:h.w||14};});XLSX.utils.book_append_sheet(wb,ws,name);};
+  mkSheet(D.inventory,[
+    {v:'Card ID',field:'id',w:10},{v:'Date Added',field:'dateAdded',w:12},{v:'Card Name',field:'cardName',w:25},
+    {v:'Set/Series',field:'setSeries',w:16},{v:'Card Type',field:'cardType',w:12},{v:'Status',field:'status',w:12},
+    {v:'Condition/Grade',field:'grade',w:14},{v:'Grading Co.',field:'gradingCompany',w:10},
+    {v:'Cost Basis ($)',field:'costBasis',w:14},{v:'Grading Cost ($)',field:'gradingCost',w:14},
+    {v:'Current Market Value ($)',field:'marketValue',w:18},{v:'Platform Listed',field:'platform',w:14},
+    {v:'List Price ($)',field:'listPrice',w:14},{v:'TCGdex ID',field:'_tcgdexId',w:16},
+    {v:'Notes',field:'notes',w:25}
+  ],'Inventory');
+  mkSheet(D.sales,[
+    {v:'Sale ID',field:'id',w:10},{v:'Card ID',field:'cardId',w:10},{v:'Date',field:'date',w:12},
+    {v:'Card Name',field:'cardName',w:25},{v:'Card Type',field:'cardType',w:12},
+    {v:'Grading Co.',field:'gradingCompany',w:10},{v:'Grade',field:'grade',w:10},
+    {v:'Platform',field:'platform',w:12},{v:'Sale Price ($)',field:'salePrice',w:14},
+    {v:'Platform Fee ($)',field:'platformFee',w:14},{v:'Consignment Fee ($)',field:'consignFee',w:14},
+    {v:'Actual Shipping Cost ($)',field:'shipCost',w:14},{v:'Cost Basis ($)',field:'costBasis',w:14},
+    {v:'Buyer Info',field:'buyer',w:14},{v:'Notes',field:'notes',w:25}
+  ],'Sales');
+  mkSheet(D.purchases,[
+    {v:'Purchase ID',field:'id',w:10},{v:'Date',field:'date',w:12},{v:'Source',field:'source',w:14},
+    {v:'Source Type',field:'sourceType',w:14},{v:'Description',field:'description',w:25},
+    {v:'Category',field:'category',w:14},{v:'Quantity',field:'qty',w:10},
+    {v:'Unit Cost ($)',field:'unitCost',w:14},{v:'Shipping ($)',field:'shipping',w:12},
+    {v:'Tax ($)',field:'tax',w:10},{v:'Grand Total ($)',field:'grandTotal',w:14},
+    {v:'Payment Method',field:'payMethod',w:14},{v:'Notes',field:'notes',w:25}
+  ],'Purchases');
+  mkSheet(D.grading,[
+    {v:'Submission ID',field:'id',w:12},{v:'Card ID',field:'cardId',w:10},
+    {v:'Date Submitted',field:'dateSubmitted',w:14},{v:'Date Returned',field:'dateReturned',w:14},
+    {v:'Card Name',field:'cardName',w:25},{v:'Grading Company',field:'company',w:14},
+    {v:'Service Level',field:'serviceLevel',w:14},{v:'Grade Received',field:'gradeReceived',w:12},
+    {v:'Grading Fee ($)',field:'gradingFee',w:14},{v:'Shipping to Grader ($)',field:'shipTo',w:14},
+    {v:'Return Shipping ($)',field:'shipBack',w:14},{v:'Total Grading Cost ($)',field:'totalCost',w:14},
+    {v:'Pre-Grade Condition',field:'preCondition',w:14},{v:'Pre-Grade Value ($)',field:'preValue',w:16},
+    {v:'Post-Grade Value ($)',field:'postValue',w:16},{v:'Action',field:'action',w:12},
+    {v:'Notes',field:'notes',w:25}
+  ],'Grading Log');
+  mkSheet(D.sealed,[
+    {v:'Sealed ID',field:'id',w:10},{v:'Date Acquired',field:'dateAcquired',w:14},
+    {v:'Product Name',field:'productName',w:25},{v:'Product Type',field:'productType',w:14},
+    {v:'Set/Series',field:'setSeries',w:16},{v:'Year',field:'year',w:8},
+    {v:'Purchase Price ($)',field:'purchasePrice',w:14},{v:'Source',field:'source',w:14},
+    {v:'Status',field:'status',w:10},{v:'Date Sold',field:'dateSold',w:14},
+    {v:'Sale Price ($)',field:'salePrice',w:14},{v:'Est Pull Value ($)',field:'pullValue',w:14},
+    {v:'Notes',field:'notes',w:25}
+  ],'Sealed');
+  mkSheet(D.expenses,[
+    {v:'Expense ID',field:'id',w:10},{v:'Date',field:'date',w:12},{v:'Category',field:'category',w:16},
+    {v:'Description',field:'description',w:30},{v:'Amount ($)',field:'amount',w:14},
+    {v:'Vendor',field:'vendor',w:16},{v:'Payment Method',field:'payMethod',w:14},
+    {v:'Receipt',field:'receipt',w:8},{v:'Notes',field:'notes',w:25}
+  ],'Expenses');
+  mkSheet(D.capital||[],[
+    {v:'Capital ID',field:'id',w:10},{v:'Date',field:'date',w:12},{v:'Type',field:'type',w:14},
+    {v:'Amount ($)',field:'amount',w:14},{v:'Description',field:'description',w:25},
+    {v:'Payment Method',field:'method',w:14},{v:'Notes',field:'notes',w:25}
+  ],'Capital');
+  mkSheet(D.crackList||[],[
+    {v:'Card Name',field:'cardName',w:25},{v:'Buy Price ($)',field:'buyPrice',w:14},
+    {v:'CGC 9 ($)',field:'cgc9',w:12},{v:'CGC 10 ($)',field:'cgc10',w:12},
+    {v:'Grading Fee ($)',field:'gradingFee',w:14},{v:'Profit ($)',field:'profit',w:12},
+    {v:'ROI (%)',field:'roi',w:10},{v:'Date Added',field:'dateAdded',w:12}
+  ],'Crack Candidates');
+  // Settings sheet — key/value pairs
+  const sett = D.settings || {};
+  const settData = Object.keys(sett).map(k => ({key:k, value:sett[k]}));
+  mkSheet(settData,[{v:'Setting',field:'key',w:25},{v:'Value',field:'value',w:20}],'Settings');
+  // NextIds sheet
+  const nids = D.nextIds || {};
+  const nidData = Object.keys(nids).map(k => ({key:k, value:nids[k]}));
+  mkSheet(nidData,[{v:'Prefix',field:'key',w:10},{v:'Next Number',field:'value',w:14}],'NextIds');
+  XLSX.writeFile(wb,'CardTracker_Export_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  showToast('Full backup exported!');
+};
+
 window.handleImport = function(e) {
   const file=e.target.files[0];if(!file)return;
   const reader=new FileReader();
   reader.onload=function(ev){
     try{
       const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true});
-      const readSheet=(name,startRow)=>{const ws=wb.Sheets[name];if(!ws)return[];const json=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});const headers=json[startRow-1]||[];return json.slice(startRow).filter(r=>r&&!r.every(c=>c===''||c===null)).map(row=>{const obj={};headers.forEach((h,i)=>{if(h)obj[String(h).trim()]=row[i]!==undefined?row[i]:'';});return obj;});};
-      const mapInv=r=>({id:r['Card ID']||'',dateAdded:r['Date Added']||'',cardName:r['Card Name']||'',setSeries:r['Set/Series']||'',cardType:r['Card Type']||'',status:r['Status']||'',grade:r['Condition/Grade']||'',gradingCompany:r['Grading Co.']||'',costBasis:num(r['Cost Basis ($)']),gradingCost:num(r['Grading Cost ($)']),marketValue:num(r['Current Market Value ($)']),platform:r['Platform Listed']||'',notes:r['Notes']||''});
-      const mapSale=r=>({id:r['Sale ID']||'',date:r['Date']||'',cardName:r['Card Name']||'',platform:r['Platform']||'',salePrice:num(r['Sale Price ($)']),platformFee:num(r['Platform Fee ($)']),consignFee:num(r['Consignment Fee ($)']),shipCost:num(r['Actual Shipping Cost ($)']),costBasis:num(r['Cost Basis ($)']),buyer:r['Buyer Info']||'',notes:r['Notes']||''});
-      const mapGrade=r=>({id:r['Submission ID']||'',dateSubmitted:r['Date Submitted']||'',cardName:r['Card Name']||'',company:r['Grading Company']||'',gradeReceived:r['Grade Received']||'',totalCost:num(r['Total Grading Cost ($)']),gradingFee:num(r['Grading Fee ($)']),shipTo:num(r['Shipping to Grader ($)']),shipBack:num(r['Return Shipping ($)']),preValue:num(r['Pre-Grade Value ($)']),postValue:num(r['Post-Grade Value ($)']),action:r['Action']||'',notes:r['Notes']||''});
-      const mapExp=r=>({id:r['Expense ID']||'',date:r['Date']||'',category:r['Category']||'',description:r['Description']||'',amount:num(r['Amount ($)']),payMethod:r['Payment Method']||'',vendor:r['Vendor']||'',notes:r['Notes']||''});
-      const inv=readSheet('Inventory',3).filter(r=>r['Card ID']||r['Card Name']).map(mapInv);
-      const sales=readSheet('Sales',3).filter(r=>r['Sale ID']||r['Card Name']).map(mapSale);
-      const grading=readSheet('Grading Log',3).filter(r=>r['Submission ID']||r['Card Name']).map(mapGrade);
-      const expenses=readSheet('Expenses',3).filter(r=>r['Expense ID']||r['Description']).map(mapExp);
+      const readSheet=(name)=>{const ws=wb.Sheets[name];if(!ws)return[];const json=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});if(!json.length)return[];let hdrIdx=0;const r0=json[0]||[];const r0ok=r0.some(c=>String(c||'').match(/ID|Name|Date|Setting|Prefix|Type|Card|Amount/i));if(!r0ok&&json.length>2){const r2=json[2]||[];if(r2.some(c=>String(c||'').match(/ID|Name|Date/i)))hdrIdx=2;}const headers=json[hdrIdx]||[];return json.slice(hdrIdx+1).filter(r=>r&&!r.every(c=>c===''||c===null)).map(row=>{const obj={};headers.forEach((h,i)=>{if(h)obj[String(h).trim()]=row[i]!==undefined?row[i]:'';});return obj;});};
+      const mapInv=r=>({id:r['Card ID']||'',dateAdded:r['Date Added']||'',cardName:r['Card Name']||'',setSeries:r['Set/Series']||'',cardType:r['Card Type']||'',status:r['Status']||'',grade:r['Condition/Grade']||'',gradingCompany:r['Grading Co.']||'',costBasis:num(r['Cost Basis ($)']),gradingCost:num(r['Grading Cost ($)']),marketValue:num(r['Current Market Value ($)']),platform:r['Platform Listed']||'',listPrice:num(r['List Price ($)']),_tcgdexId:r['TCGdex ID']||'',notes:r['Notes']||''});
+      const mapSale=r=>({id:r['Sale ID']||'',cardId:r['Card ID']||'',date:r['Date']||'',cardName:r['Card Name']||'',cardType:r['Card Type']||'',gradingCompany:r['Grading Co.']||'',grade:r['Grade']||'',platform:r['Platform']||'',salePrice:num(r['Sale Price ($)']),platformFee:num(r['Platform Fee ($)']),consignFee:num(r['Consignment Fee ($)']),shipCost:num(r['Actual Shipping Cost ($)']),costBasis:num(r['Cost Basis ($)']),buyer:r['Buyer Info']||'',notes:r['Notes']||''});
+      const mapPurchase=r=>({id:r['Purchase ID']||'',date:r['Date']||'',source:r['Source']||'',sourceType:r['Source Type']||'',description:r['Description']||'',category:r['Category']||'',qty:num(r['Quantity']),unitCost:num(r['Unit Cost ($)']),shipping:num(r['Shipping ($)']),tax:num(r['Tax ($)']),grandTotal:num(r['Grand Total ($)']),payMethod:r['Payment Method']||'',notes:r['Notes']||''});
+      const mapGrade=r=>({id:r['Submission ID']||'',cardId:r['Card ID']||'',dateSubmitted:r['Date Submitted']||'',dateReturned:r['Date Returned']||'',cardName:r['Card Name']||'',company:r['Grading Company']||'',serviceLevel:r['Service Level']||'',gradeReceived:r['Grade Received']||'',gradingFee:num(r['Grading Fee ($)']),shipTo:num(r['Shipping to Grader ($)']),shipBack:num(r['Return Shipping ($)']),totalCost:num(r['Total Grading Cost ($)']),preCondition:r['Pre-Grade Condition']||'',preValue:num(r['Pre-Grade Value ($)']),postValue:num(r['Post-Grade Value ($)']),action:r['Action']||'',notes:r['Notes']||''});
+      const mapSealed=r=>({id:r['Sealed ID']||'',dateAcquired:r['Date Acquired']||'',productName:r['Product Name']||'',productType:r['Product Type']||'',setSeries:r['Set/Series']||'',year:r['Year']||'',purchasePrice:num(r['Purchase Price ($)']),source:r['Source']||'',status:r['Status']||'',dateSold:r['Date Sold']||'',salePrice:num(r['Sale Price ($)']),pullValue:num(r['Est Pull Value ($)']),notes:r['Notes']||''});
+      const mapExp=r=>({id:r['Expense ID']||'',date:r['Date']||'',category:r['Category']||'',description:r['Description']||'',amount:num(r['Amount ($)']),payMethod:r['Payment Method']||'',vendor:r['Vendor']||'',receipt:r['Receipt']||'',notes:r['Notes']||''});
+      const mapCapital=r=>({id:r['Capital ID']||'',date:r['Date']||'',type:r['Type']||'',amount:num(r['Amount ($)']),description:r['Description']||'',method:r['Payment Method']||'',notes:r['Notes']||''});
+      const mapCrack=r=>({cardName:r['Card Name']||'',buyPrice:num(r['Buy Price ($)']),cgc9:num(r['CGC 9 ($)']),cgc10:num(r['CGC 10 ($)']),gradingFee:num(r['Grading Fee ($)']),profit:num(r['Profit ($)']),roi:num(r['ROI (%)']),dateAdded:r['Date Added']||''});
+
+      const inv=readSheet('Inventory').filter(r=>r['Card ID']||r['Card Name']).map(mapInv);
+      const sales=readSheet('Sales').filter(r=>r['Sale ID']||r['Card Name']).map(mapSale);
+      const purchases=readSheet('Purchases').filter(r=>r['Purchase ID']||r['Description']).map(mapPurchase);
+      const grading=readSheet('Grading Log').filter(r=>r['Submission ID']||r['Card Name']).map(mapGrade);
+      const sealed=readSheet('Sealed').filter(r=>r['Sealed ID']||r['Product Name']).map(mapSealed);
+      const expenses=readSheet('Expenses').filter(r=>r['Expense ID']||r['Description']).map(mapExp);
+      const capital=readSheet('Capital').filter(r=>r['Capital ID']||r['Type']).map(mapCapital);
+      const cracks=readSheet('Crack Candidates').filter(r=>r['Card Name']).map(mapCrack);
+
       function mergeRecords(existing,incoming,idPrefix){let added=0,updated=0;const map={};existing.forEach((r,i)=>{if(r.id)map[r.id]=i;});incoming.forEach(r=>{if(r.id&&map[r.id]!==undefined){existing[map[r.id]]=r;updated++;}else{if(!r.id)r.id=nextId(idPrefix);existing.push(r);added++;}});return{added,updated};}
       let tA=0,tU=0;
       if(inv.length){const r=mergeRecords(D.inventory,inv,'C');tA+=r.added;tU+=r.updated;}
       if(sales.length){const r=mergeRecords(D.sales,sales,'S');tA+=r.added;tU+=r.updated;}
+      if(purchases.length){const r=mergeRecords(D.purchases,purchases,'P');tA+=r.added;tU+=r.updated;}
       if(grading.length){const r=mergeRecords(D.grading,grading,'G');tA+=r.added;tU+=r.updated;}
+      if(sealed.length){const r=mergeRecords(D.sealed,sealed,'SL');tA+=r.added;tU+=r.updated;}
       if(expenses.length){const r=mergeRecords(D.expenses,expenses,'E');tA+=r.added;tU+=r.updated;}
+      if(capital.length){const r=mergeRecords(D.capital,capital,'CAP');tA+=r.added;tU+=r.updated;}
+      if(cracks.length){D.crackList=cracks;tA+=cracks.length;}
+
+      // Restore settings if present
+      const settRows=readSheet('Settings');
+      if(settRows.length){
+        if(!D.settings)D.settings={};
+        settRows.forEach(r=>{if(r['Setting'])D.settings[r['Setting']]=num(r['Value']);});
+      }
+      // Restore nextIds if present
+      const nidRows=readSheet('NextIds');
+      if(nidRows.length){
+        if(!D.nextIds)D.nextIds={};
+        nidRows.forEach(r=>{if(r['Prefix'])D.nextIds[r['Prefix']]=num(r['Next Number']);});
+      }
+
       saveData();showToast(`Import complete! ${tA} added, ${tU} updated — synced to cloud`);render();
     }catch(err){alert('Error importing: '+err.message);}
   };
   reader.readAsArrayBuffer(file);e.target.value='';
 };
 
-window.exportExcel = function() {
-  const wb=XLSX.utils.book_new();
-  const mkSheet=(data,headers,name)=>{const ws=XLSX.utils.aoa_to_sheet([headers.map(h=>h.v),...data.map(r=>headers.map(h=>r[h.field]!==undefined?r[h.field]:''))]);headers.forEach((h,i)=>{ws['!cols']=ws['!cols']||[];ws['!cols'][i]={wch:h.w||14};});XLSX.utils.book_append_sheet(wb,ws,name);};
-  mkSheet(D.inventory,[{v:'Card ID',field:'id',w:10},{v:'Date Added',field:'dateAdded',w:12},{v:'Card Name',field:'cardName',w:25},{v:'Set/Series',field:'setSeries',w:16},{v:'Card Type',field:'cardType',w:12},{v:'Status',field:'status',w:12},{v:'Condition/Grade',field:'grade',w:14},{v:'Grading Co.',field:'gradingCompany',w:10},{v:'Cost Basis ($)',field:'costBasis',w:14},{v:'Grading Cost ($)',field:'gradingCost',w:14},{v:'Current Market Value ($)',field:'marketValue',w:18},{v:'Platform Listed',field:'platform',w:14},{v:'Notes',field:'notes',w:25}],'Inventory');
-  mkSheet(D.sales,[{v:'Sale ID',field:'id',w:10},{v:'Date',field:'date',w:12},{v:'Card Name',field:'cardName',w:25},{v:'Platform',field:'platform',w:12},{v:'Sale Price ($)',field:'salePrice',w:14},{v:'Platform Fee ($)',field:'platformFee',w:14},{v:'Consignment Fee ($)',field:'consignFee',w:14},{v:'Actual Shipping Cost ($)',field:'shipCost',w:14},{v:'Cost Basis ($)',field:'costBasis',w:14},{v:'Notes',field:'notes',w:25}],'Sales');
-  mkSheet(D.grading,[{v:'Submission ID',field:'id',w:12},{v:'Date Submitted',field:'dateSubmitted',w:14},{v:'Card Name',field:'cardName',w:25},{v:'Grading Company',field:'company',w:14},{v:'Grade Received',field:'gradeReceived',w:12},{v:'Total Grading Cost ($)',field:'totalCost',w:14},{v:'Pre-Grade Value ($)',field:'preValue',w:16},{v:'Post-Grade Value ($)',field:'postValue',w:16},{v:'Notes',field:'notes',w:25}],'Grading Log');
-  mkSheet(D.expenses,[{v:'Expense ID',field:'id',w:10},{v:'Date',field:'date',w:12},{v:'Category',field:'category',w:16},{v:'Description',field:'description',w:30},{v:'Amount ($)',field:'amount',w:14},{v:'Vendor',field:'vendor',w:16},{v:'Payment Method',field:'payMethod',w:14},{v:'Notes',field:'notes',w:25}],'Expenses');
-  XLSX.writeFile(wb,'CardTracker_Export_'+new Date().toISOString().slice(0,10)+'.xlsx');
-  showToast('Excel exported!');
+window.resetAll = function() { D=emptyData(); saveData(); render(); };
+
+window.exportThenReset = function() {
+  if (!confirm('This will export a full backup of ALL your data, then wipe everything clean.\n\nYou can re-import the backup file later to restore.\n\nContinue?')) return;
+  exportExcel();
+  // Small delay to ensure file download starts before reset
+  setTimeout(function() {
+    if (confirm('Backup file downloaded. Are you absolutely sure you want to reset ALL data now?\n\nThis will clear inventory, sales, purchases, grading, sealed, expenses, capital, settings — everything.\n\nThis cannot be undone.')) {
+      D = emptyData();
+      saveData();
+      render();
+      showToast('All data has been reset');
+    }
+  }, 1000);
 };
 
 // ============================================================
