@@ -2361,9 +2361,16 @@ window.selectResearchCard = function(idx) {
   window.researchState.selectedCard = card;
   window.researchState.cardName = `${card.set?card.set.name:''} ${card.name||''} #${card.localId||''}`.trim();
   window.researchState.prices = {};
+  window.researchState._ebayData = null;
+  window.researchState._ebayError = '';
+  window.researchState._ebayCustomQuery = '';
   const resultsEl = document.getElementById('research-search-results');
   if (resultsEl) resultsEl.style.display = 'none';
   render();
+  // Auto-trigger eBay lookup if connected
+  if (window.ebayState.appId) {
+    setTimeout(() => researchEbayLookup(), 100);
+  }
 };
 
 // eBay pricing display
@@ -2433,6 +2440,7 @@ window.researchEbayLookup = async function() {
   const numClean = number.replace(/[^\d]/g, '');
   
   rs._ebayError = '';
+  rs.prices = {};
   showToast('Searching eBay...');
   
   try {
@@ -2495,6 +2503,7 @@ window.researchEbayFillMatrix = async function() {
   const baseQuery = input.value.trim();
   rs._ebayCustomQuery = baseQuery;
   rs._ebayError = '';
+  rs.prices = {};
   showToast('Filling matrix for: ' + baseQuery);
   
   try {
