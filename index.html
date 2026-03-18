@@ -422,6 +422,8 @@ const SCHEMAS = {
       {k:'salePrice',l:'Sale Price ($)',type:'number'},{k:'platformFee',l:'Platform Fee ($)',type:'number'},
       {k:'consignFee',l:'Consignment Fee ($)',type:'number'},{k:'shipCost',l:'Shipping Cost ($)',type:'number'},
       {k:'costBasis',l:'Cost Basis ($)',type:'number'},
+      {k:'ebayShipping',l:'Buyer-Paid Shipping ($)',type:'number',placeholder:'For 1099-K reconciliation'},
+      {k:'ebayTax',l:'eBay-Collected Tax ($)',type:'number',placeholder:'For 1099-K reconciliation'},
       {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG','Bulk Lot']},
       {k:'buyer',l:'Buyer Info'},{k:'notes',l:'Notes',type:'textarea',full:true}
     ],
@@ -3917,8 +3919,256 @@ function rFinancials(m) {
     <div class="fin-row bold bd"><span class="lbl">Starting Cash</span><span class="amt">${fmtD(m.startingCash)}</span></div>
     <div class="fin-row bold bd"><span class="lbl">Net Cash Change</span><span class="amt ${m.cashBalance-m.startingCash>=0?'pos':'neg'}">${fmtD(m.cashBalance-m.startingCash)}</span></div>
     <div class="fin-row bold bd" style="font-size:15px"><span class="lbl">Ending Cash</span><span class="amt">${fmtD(m.cashBalance)}</span></div>
-  </div>`;
+  </div>
+  ${r1099K(m)}
+  ${rYearEndInventory(m)}`;
 }
+
+// ============================================================
+// 1099-K RECONCILIATION
+// ============================================================
+function r1099K(m) {
+  // Filter eBay sales only
+  const ebaySales = D.sales.filter(function(s) { return (s.platform || '').toLowerCase() === 'ebay'; });
+  if (!ebaySales.length) {
+    return '<div class="panel" style="margin-top:14px"><h3 style="color:var(--accent)">📋 1099-K Reconciliation</h3><div style="font-size:12px;color:var(--text-dim)">No eBay sales recorded yet. This section reconciles your sales data with the 1099-K gross amount eBay reports to the IRS.</div></div>';
+  }
+  
+  const totalSalePrice = ebaySales.reduce(function(s, r) { return s + num(r.salePrice); }, 0);
+  const totalPlatformFee = ebaySales.reduce(function(s, r) { return s + num(r.platformFee); }, 0);
+  const totalShipCost = ebaySales.reduce(function(s, r) { return s + num(r.shipCost); }, 0);
+  const totalEbayShipping = ebaySales.reduce(function(s, r) { return s + num(r.ebayShipping || 0); }, 0);
+  const totalEbayTax = ebaySales.reduce(function(s, r) { return s + num(r.ebayTax || 0); }, 0);
+  
+  // 1099-K gross = sale price + buyer-paid shipping + sales tax collected
+  // This is what eBay reports to the IRS
+  const gross1099K = totalSalePrice + totalEbayShipping + totalEbayTax;
+  
+  // Group by month for breakdown
+  const byMonth = {};
+  ebaySales.forEach(function(s) {
+    const mo = (s.date || '').slice(0, 7) || 'Unknown';
+    if (!byMonth[mo]) byMonth[mo] = { sales: 0, shipping: 0, tax: 0, count: 0 };
+    byMonth[mo].sales += num(s.salePrice);
+    byMonth[mo].shipping += num(s.ebayShipping || 0);
+    byMonth[mo].tax += num(s.ebayTax || 0);
+    byMonth[mo].count++;
+  });
+  const months = Object.keys(byMonth).sort();
+  
+  // Non-eBay sales summary
+  const otherSales = D.sales.filter(function(s) { return (s.platform || '').toLowerCase() !== 'ebay'; });
+  const otherTotal = otherSales.reduce(function(s, r) { return s + num(r.salePrice); }, 0);
+
+  return '<div class="panel" style="margin-top:14px">' +
+    '<h3 style="color:var(--accent)">📋 1099-K Reconciliation <button class="btn btn-sm" onclick="exportPDF(\'1099k\')" style="font-size:10px">📄 PDF</button></h3>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Reconciles your eBay sales with the 1099-K gross amount eBay reports to the IRS. The 1099-K total will be higher than your actual card sales because it includes buyer-paid shipping and sales tax eBay collected.</div>' +
+    '<div class="fin-grid"><div>' +
+      '<div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">1099-K GROSS BREAKDOWN</span></div>' +
+      '<div class="fin-row indent"><span class="lbl">Card Sale Prices (your revenue)</span><span class="amt">' + fmtD(totalSalePrice) + '</span></div>' +
+      '<div class="fin-row indent"><span class="lbl">+ Buyer-Paid Shipping</span><span class="amt">' + fmtD(totalEbayShipping) + '</span></div>' +
+      '<div class="fin-row indent"><span class="lbl">+ eBay-Collected Sales Tax</span><span class="amt">' + fmtD(totalEbayTax) + '</span></div>' +
+      '<div class="fin-row bold bd"><span class="lbl">Expected 1099-K Gross</span><span class="amt">' + fmtD(gross1099K) + '</span></div>' +
+      '<div style="height:10px"></div>' +
+      '<div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">YOUR ACTUAL BUSINESS NUMBERS</span></div>' +
+      '<div class="fin-row indent"><span class="lbl">eBay Card Sales Revenue</span><span class="amt">' + fmtD(totalSalePrice) + '</span></div>' +
+      '<div class="fin-row indent"><span class="lbl">eBay Platform Fees Paid</span><span class="amt neg">(' + fmtD(totalPlatformFee) + ')</span></div>' +
+      '<div class="fin-row indent"><span class="lbl">Your Actual Shipping Costs</span><span class="amt neg">(' + fmtD(totalShipCost) + ')</span></div>' +
+      '<div class="fin-row bold bt"><span class="lbl">eBay Net After Fees & Shipping</span><span class="amt ' + (totalSalePrice - totalPlatformFee - totalShipCost >= 0 ? 'pos' : 'neg') + '">' + fmtD(totalSalePrice - totalPlatformFee - totalShipCost) + '</span></div>' +
+      (otherSales.length ? '<div style="height:10px"></div><div class="fin-row indent" style="color:var(--text-dim)"><span class="lbl">Non-eBay Sales (' + otherSales.length + ' sales)</span><span class="amt">' + fmtD(otherTotal) + '</span></div>' : '') +
+    '</div><div>' +
+      '<div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:8px">MONTHLY BREAKDOWN</div>' +
+      '<div style="overflow-y:auto;max-height:300px"><table style="width:100%;border-collapse:collapse;font-size:11px">' +
+        '<thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Month</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)"># Sales</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Card Sales</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">+ Ship</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">+ Tax</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">1099-K</th></tr></thead>' +
+        '<tbody>' + months.map(function(mo) {
+          var d = byMonth[mo];
+          return '<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">' + mo + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + d.count + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(d.sales) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(d.shipping) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(d.tax) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border);font-weight:600">' + fmtD(d.sales + d.shipping + d.tax) + '</td></tr>';
+        }).join('') +
+        '<tr style="font-weight:700"><td style="padding:4px 8px;border-top:2px solid var(--border)">Total</td><td class="r mono" style="padding:4px 8px;border-top:2px solid var(--border)">' + ebaySales.length + '</td><td class="r mono" style="padding:4px 8px;border-top:2px solid var(--border)">' + fmtD(totalSalePrice) + '</td><td class="r mono" style="padding:4px 8px;border-top:2px solid var(--border)">' + fmtD(totalEbayShipping) + '</td><td class="r mono" style="padding:4px 8px;border-top:2px solid var(--border)">' + fmtD(totalEbayTax) + '</td><td class="r mono" style="padding:4px 8px;border-top:2px solid var(--border)">' + fmtD(gross1099K) + '</td></tr>' +
+        '</tbody></table></div>' +
+      (function() {
+        var missingCount = ebaySales.filter(function(s) { return !num(s.ebayShipping) && !num(s.ebayTax); }).length;
+        if (missingCount === 0) return '';
+        if (missingCount === ebaySales.length) return '<div style="margin-top:10px;padding:8px 12px;background:rgba(255,190,11,.1);border:1px solid var(--yellow);border-radius:var(--radius-sm);font-size:11px;color:var(--yellow)">⚠️ None of your ' + ebaySales.length + ' eBay sales have buyer shipping or tax data. Import your eBay CSV or edit individual sales to add these amounts — they\'re needed for accurate 1099-K reconciliation.</div>';
+        return '<div style="margin-top:10px;padding:8px 12px;background:rgba(255,190,11,.1);border:1px solid var(--yellow);border-radius:var(--radius-sm);font-size:11px;color:var(--yellow)">⚠️ ' + missingCount + ' of ' + ebaySales.length + ' eBay sales are missing buyer shipping and tax data. Edit those sales to add the amounts, or re-import via eBay CSV.</div>';
+      })() +
+    '</div></div>' +
+    '<div style="margin-top:12px;padding:10px 14px;background:var(--bg);border-radius:var(--radius-sm);font-size:11px;color:var(--text-dim)">' +
+      '<strong>How to use this:</strong> When you receive your 1099-K from eBay, compare the gross amount to the "Expected 1099-K Gross" above. They should match (within a few dollars for rounding). Show your accountant this reconciliation to explain why the 1099-K is higher than your actual card sales revenue. The difference is buyer-paid shipping and sales tax — neither is your income.' +
+    '</div>' +
+  '</div>';
+}
+
+// ============================================================
+// YEAR-END INVENTORY REPORT
+// ============================================================
+window._yeirYear = new Date().getFullYear();
+
+function rYearEndInventory(m) {
+  const year = window._yeirYear || new Date().getFullYear();
+  const cutoffDate = year + '-12-31';
+  
+  // Get all unsold inventory as of the cutoff date
+  // Cards added on or before cutoff AND not sold before cutoff
+  const unsoldAsOf = D.inventory.filter(function(card) {
+    // Include if added on or before cutoff (or no date — assume it existed)
+    const added = card.dateAdded || card.datePurchased || '';
+    if (added && added > cutoffDate) return false;
+    
+    // Exclude if sold on or before cutoff
+    if (card.status === 'Sold') {
+      // Check if there's a linked sale with a date
+      const sale = D.sales.find(function(s) { return s.cardId === card.id; });
+      if (sale && sale.date && sale.date <= cutoffDate) return false;
+      // If sold but no date info, exclude (assume sold before cutoff)
+      if (!sale) return false;
+      // Sale date after cutoff — card was still in inventory at year end
+      if (sale && sale.date > cutoffDate) return true;
+      return false;
+    }
+    return true;
+  });
+  
+  const totalCostBasis = unsoldAsOf.reduce(function(s, c) { return s + num(c.costBasis); }, 0);
+  const totalGradingCost = unsoldAsOf.reduce(function(s, c) { return s + num(c.gradingCost); }, 0);
+  const totalInvested = totalCostBasis + totalGradingCost;
+  const totalMarketValue = unsoldAsOf.reduce(function(s, c) { return s + num(c.marketValue); }, 0);
+  
+  // Group by status
+  const byStatus = {};
+  unsoldAsOf.forEach(function(c) {
+    var st = c.status || 'Unknown';
+    if (!byStatus[st]) byStatus[st] = { count: 0, cost: 0, grading: 0, market: 0 };
+    byStatus[st].count++;
+    byStatus[st].cost += num(c.costBasis);
+    byStatus[st].grading += num(c.gradingCost);
+    byStatus[st].market += num(c.marketValue);
+  });
+  
+  // Group by card type
+  const byType = {};
+  unsoldAsOf.forEach(function(c) {
+    var t = c.cardType || 'Other';
+    if (!byType[t]) byType[t] = { count: 0, cost: 0, grading: 0, market: 0 };
+    byType[t].count++;
+    byType[t].cost += num(c.costBasis);
+    byType[t].grading += num(c.gradingCost);
+    byType[t].market += num(c.marketValue);
+  });
+  
+  // Top 10 most valuable cards by cost basis
+  var topCards = unsoldAsOf.slice().sort(function(a, b) { return (num(b.costBasis) + num(b.gradingCost)) - (num(a.costBasis) + num(a.gradingCost)); }).slice(0, 10);
+
+  return '<div class="panel" style="margin-top:14px">' +
+    '<h3><span style="color:var(--green)">📦 Year-End Inventory Report</span><span class="right">' +
+      '<select onchange="window._yeirYear=parseInt(this.value);render()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:4px 8px;font-size:12px;font-family:\'DM Sans\',sans-serif">' +
+      [2024, 2025, 2026, 2027].map(function(y) { return '<option value="' + y + '"' + (y === year ? ' selected' : '') + '>' + y + '</option>'; }).join('') +
+      '</select> ' +
+      '<button class="btn btn-sm" onclick="exportInventoryReport()" style="font-size:10px">📄 Export PDF</button>' +
+    '</span></h3>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Inventory valuation as of December 31, ' + year + ' for tax purposes. Shows all cards that were in your possession at year end, valued at cost basis (what you paid).</div>' +
+    '<div class="metrics" style="margin-bottom:14px">' +
+      '<div class="mc" style="border-left-color:var(--blue)"><div class="lbl">Cards in Inventory</div><div class="val">' + unsoldAsOf.length + '</div></div>' +
+      '<div class="mc" style="border-left-color:var(--green)"><div class="lbl">Total Cost Basis</div><div class="val">' + fmtD(totalCostBasis) + '</div><div class="sub" style="color:var(--text-dim)">What you paid for cards</div></div>' +
+      '<div class="mc" style="border-left-color:var(--purple)"><div class="lbl">Total Grading Costs</div><div class="val">' + fmtD(totalGradingCost) + '</div></div>' +
+      '<div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Total Invested</div><div class="val">' + fmtD(totalInvested) + '</div><div class="sub" style="color:var(--text-dim)">Cost basis + grading</div></div>' +
+      '<div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Est. Market Value</div><div class="val">' + fmtD(totalMarketValue) + '</div><div class="sub" style="color:' + (totalMarketValue > totalInvested ? 'var(--green)' : 'var(--red)') + '">' + (totalMarketValue > totalInvested ? '+' : '') + fmtD(totalMarketValue - totalInvested) + ' unrealized</div></div>' +
+    '</div>' +
+    '<div class="fin-grid">' +
+      '<div>' +
+        '<div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:8px">BY STATUS</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Status</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cards</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cost Basis</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Grading</th></tr></thead><tbody>' +
+        Object.keys(byStatus).map(function(st) { var d = byStatus[st]; return '<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">' + st + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + d.count + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(d.cost) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(d.grading) + '</td></tr>'; }).join('') +
+        '</tbody></table>' +
+      '</div>' +
+      '<div>' +
+        '<div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:8px">BY CARD TYPE</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Type</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cards</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cost Basis</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Market</th></tr></thead><tbody>' +
+        Object.keys(byType).map(function(t) { var d = byType[t]; return '<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">' + t + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + d.count + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(d.cost) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(d.market) + '</td></tr>'; }).join('') +
+        '</tbody></table>' +
+      '</div>' +
+    '</div>' +
+    (topCards.length ? '<div style="margin-top:14px"><div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:8px">TOP 10 HIGHEST COST BASIS CARDS</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">#</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Card</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Status</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cost</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Grade $</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Total</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Market</th></tr></thead><tbody>' +
+      topCards.map(function(c, i) { var total = num(c.costBasis) + num(c.gradingCost); return '<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">' + (i + 1) + '</td><td style="padding:4px 8px;border-bottom:1px solid var(--border);font-weight:600">' + (c.cardName || '') + (c.gradingCompany ? ' <span style="color:var(--yellow)">' + c.gradingCompany + ' ' + (c.grade || '') + '</span>' : '') + '</td><td style="padding:4px 8px;border-bottom:1px solid var(--border)">' + (c.status || '') + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(num(c.costBasis)) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(num(c.gradingCost)) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border);font-weight:700">' + fmtD(total) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--green)">' + (num(c.marketValue) ? fmtD(num(c.marketValue)) : '—') + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' : '') +
+    '<div style="margin-top:12px;padding:10px 14px;background:var(--bg);border-radius:var(--radius-sm);font-size:11px;color:var(--text-dim)">' +
+      '<strong>For your accountant:</strong> The "Total Cost Basis" figure is your ending inventory value for tax purposes. This represents what you paid to acquire cards that remained unsold as of 12/31/' + year + '. Grading costs are a separate deductible expense. Export this as a PDF for your records.' +
+    '</div>' +
+  '</div>';
+}
+
+// Export year-end inventory report as PDF
+window.exportInventoryReport = function() {
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF();
+  const m = M();
+  const year = window._yeirYear || new Date().getFullYear();
+  const cutoffDate = year + '-12-31';
+  
+  const unsoldAsOf = D.inventory.filter(function(card) {
+    const added = card.dateAdded || card.datePurchased || '';
+    if (added && added > cutoffDate) return false;
+    if (card.status === 'Sold') {
+      const sale = D.sales.find(function(s) { return s.cardId === card.id; });
+      if (sale && sale.date && sale.date <= cutoffDate) return false;
+      if (!sale) return false;
+      if (sale && sale.date > cutoffDate) return true;
+      return false;
+    }
+    return true;
+  });
+  
+  const totalCost = unsoldAsOf.reduce(function(s, c) { return s + num(c.costBasis); }, 0);
+  const totalGrading = unsoldAsOf.reduce(function(s, c) { return s + num(c.gradingCost); }, 0);
+  
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.text('Year-End Inventory Report', 14, 22);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('As of December 31, ' + year, 14, 30);
+  doc.text('Generated: ' + new Date().toLocaleDateString(), 14, 36);
+  
+  doc.autoTable({
+    startY: 42,
+    head: [['Summary', 'Value']],
+    body: [
+      ['Total Cards in Inventory', String(unsoldAsOf.length)],
+      ['Total Cost Basis', fmtD(totalCost)],
+      ['Total Grading Costs', fmtD(totalGrading)],
+      ['Total Invested (Cost + Grading)', fmtD(totalCost + totalGrading)]
+    ],
+    theme: 'plain',
+    styles: { fontSize: 10, cellPadding: 3 },
+    columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } }
+  });
+  
+  var cardRows = unsoldAsOf.map(function(c) {
+    return [
+      c.id || '',
+      (c.cardName || '').substring(0, 30),
+      c.status || '',
+      (c.gradingCompany || '') + (c.grade ? ' ' + c.grade : ''),
+      fmtD(num(c.costBasis)),
+      fmtD(num(c.gradingCost)),
+      fmtD(num(c.costBasis) + num(c.gradingCost))
+    ];
+  });
+  
+  doc.autoTable({
+    startY: doc.lastAutoTable.finalY + 10,
+    head: [['ID', 'Card Name', 'Status', 'Grade', 'Cost Basis', 'Grading', 'Total']],
+    body: cardRows,
+    theme: 'striped',
+    styles: { fontSize: 8, cellPadding: 2 },
+    columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right', fontStyle: 'bold' } },
+    headStyles: { fillColor: [30, 30, 60], textColor: [228, 228, 240] }
+  });
+  
+  doc.save('Inventory_Report_' + year + '.pdf');
+  showToast('Year-End Inventory Report exported!');
+};
 
 // ============================================================
 // PDF EXPORT
@@ -3979,13 +4229,42 @@ window.exportPDF = function(type) {
       ['Total Revenue',fmtD(m.tSale)],['Total COGS',fmtD(m.tCOGS)],['Total Expenses',fmtD(m.tExp)],['Net Income',fmtD(m.net)]
     ],theme:'striped',styles:{fontSize:10,cellPadding:4},columnStyles:{1:{halign:'right',fontStyle:'bold'}}});
     doc.save('Key_Ratios.pdf');showToast('Key Ratios PDF exported!');
+  } else if(type==='1099k'){
+    const ebaySales = D.sales.filter(s => (s.platform||'').toLowerCase() === 'ebay');
+    const totalSalePrice = ebaySales.reduce((s,r) => s + num(r.salePrice), 0);
+    const totalPlatformFee = ebaySales.reduce((s,r) => s + num(r.platformFee), 0);
+    const totalShipCost = ebaySales.reduce((s,r) => s + num(r.shipCost), 0);
+    const totalEbayShipping = ebaySales.reduce((s,r) => s + num(r.ebayShipping || 0), 0);
+    const totalEbayTax = ebaySales.reduce((s,r) => s + num(r.ebayTax || 0), 0);
+    const gross1099K = totalSalePrice + totalEbayShipping + totalEbayTax;
+    doc.text('1099-K Reconciliation',14,22);doc.setFontSize(10);doc.setFont('helvetica','normal');doc.text(`Tax Year: ${today}`,14,30);
+    doc.autoTable({startY:36,head:[['Item','Amount']],body:[
+      [{content:'1099-K GROSS BREAKDOWN',styles:{fontStyle:'bold',fontSize:11}},''],
+      ['  Card Sale Prices (your revenue)',fmtD(totalSalePrice)],
+      ['  + Buyer-Paid Shipping',fmtD(totalEbayShipping)],
+      ['  + eBay-Collected Sales Tax',fmtD(totalEbayTax)],
+      [{content:'Expected 1099-K Gross',styles:{fontStyle:'bold'}},{content:fmtD(gross1099K),styles:{fontStyle:'bold'}}],
+      ['',''],
+      [{content:'YOUR ACTUAL BUSINESS NUMBERS',styles:{fontStyle:'bold',fontSize:11}},''],
+      ['  eBay Card Sales Revenue',fmtD(totalSalePrice)],
+      ['  eBay Platform Fees Paid','('+fmtD(totalPlatformFee)+')'],
+      ['  Your Actual Shipping Costs','('+fmtD(totalShipCost)+')'],
+      [{content:'eBay Net After Fees & Shipping',styles:{fontStyle:'bold'}},{content:fmtD(totalSalePrice-totalPlatformFee-totalShipCost),styles:{fontStyle:'bold'}}],
+      ['',''],
+      ['Total eBay Sales Count',String(ebaySales.length)],
+      ['Non-eBay Sales Count',String(D.sales.length - ebaySales.length)],
+      ['Non-eBay Sales Revenue',fmtD(D.sales.filter(s=>(s.platform||'').toLowerCase()!=='ebay').reduce((s,r)=>s+num(r.salePrice),0))]
+    ],theme:'plain',styles:{fontSize:10,cellPadding:3},columnStyles:{1:{halign:'right'}}});
+    doc.setFontSize(8);doc.text('The 1099-K gross includes buyer-paid shipping and eBay-collected sales tax, which are not your income.',14,doc.lastAutoTable.finalY+10);
+    doc.save('1099K_Reconciliation.pdf');showToast('1099-K Reconciliation PDF exported!');
   }
 };
 
 window.exportMenu = function() {
-  const c=prompt('Export which report as PDF?\n\n1 - Income Statement\n2 - Balance Sheet\n3 - Cash Flow\n4 - Key Ratios\n5 - All Four');
+  const c=prompt('Export which report as PDF?\n\n1 - Income Statement\n2 - Balance Sheet\n3 - Cash Flow\n4 - Key Ratios\n5 - 1099-K Reconciliation\n6 - Year-End Inventory\n7 - All Reports');
   if(c==='1')exportPDF('income');else if(c==='2')exportPDF('balance');else if(c==='3')exportPDF('cashflow');else if(c==='4')exportPDF('ratios');
-  else if(c==='5'){exportPDF('income');setTimeout(()=>exportPDF('balance'),500);setTimeout(()=>exportPDF('cashflow'),1000);setTimeout(()=>exportPDF('ratios'),1500);}
+  else if(c==='5')exportPDF('1099k');else if(c==='6')exportInventoryReport();
+  else if(c==='7'){exportPDF('income');setTimeout(()=>exportPDF('balance'),500);setTimeout(()=>exportPDF('cashflow'),1000);setTimeout(()=>exportPDF('ratios'),1500);setTimeout(()=>exportPDF('1099k'),2000);setTimeout(()=>exportInventoryReport(),2500);}
 };
 
 // ============================================================
@@ -4012,6 +4291,7 @@ window.exportExcel = function() {
     {v:'Platform',field:'platform',w:12},{v:'Sale Price ($)',field:'salePrice',w:14},
     {v:'Platform Fee ($)',field:'platformFee',w:14},{v:'Consignment Fee ($)',field:'consignFee',w:14},
     {v:'Actual Shipping Cost ($)',field:'shipCost',w:14},{v:'Cost Basis ($)',field:'costBasis',w:14},
+    {v:'Buyer-Paid Shipping ($)',field:'ebayShipping',w:16},{v:'eBay-Collected Tax ($)',field:'ebayTax',w:16},
     {v:'Buyer Info',field:'buyer',w:14},{v:'eBay Transaction ID',field:'ebayTransactionId',w:18},
     {v:'Notes',field:'notes',w:25}
   ],'Sales');
@@ -4084,7 +4364,7 @@ window.handleImport = function(e) {
       const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true});
       const readSheet=(name)=>{const ws=wb.Sheets[name];if(!ws)return[];const json=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});if(!json.length)return[];let hdrIdx=0;const r0=json[0]||[];const r0ok=r0.some(c=>String(c||'').match(/ID|Name|Date|Setting|Prefix|Type|Card|Amount/i));if(!r0ok&&json.length>2){const r2=json[2]||[];if(r2.some(c=>String(c||'').match(/ID|Name|Date/i)))hdrIdx=2;}const headers=json[hdrIdx]||[];return json.slice(hdrIdx+1).filter(r=>r&&!r.every(c=>c===''||c===null)).map(row=>{const obj={};headers.forEach((h,i)=>{if(h)obj[String(h).trim()]=row[i]!==undefined?row[i]:'';});return obj;});};
       const mapInv=r=>({id:r['Card ID']||'',dateAdded:r['Date Added']||'',cardName:r['Card Name']||'',setSeries:r['Set/Series']||'',cardType:r['Card Type']||'',status:r['Status']||'',grade:r['Condition/Grade']||'',gradingCompany:r['Grading Co.']||'',costBasis:num(r['Cost Basis ($)']),gradingCost:num(r['Grading Cost ($)']),marketValue:num(r['Current Market Value ($)']),platform:r['Platform Listed']||'',listPrice:num(r['List Price ($)']),_tcgdexId:r['TCGdex ID']||'',notes:r['Notes']||''});
-      const mapSale=r=>({id:r['Sale ID']||'',cardId:r['Card ID']||'',date:r['Date']||'',cardName:r['Card Name']||'',cardType:r['Card Type']||'',gradingCompany:r['Grading Co.']||'',grade:r['Grade']||'',platform:r['Platform']||'',salePrice:num(r['Sale Price ($)']),platformFee:num(r['Platform Fee ($)']),consignFee:num(r['Consignment Fee ($)']),shipCost:num(r['Actual Shipping Cost ($)']),costBasis:num(r['Cost Basis ($)']),buyer:r['Buyer Info']||'',ebayTransactionId:r['eBay Transaction ID']||'',notes:r['Notes']||''});
+      const mapSale=r=>({id:r['Sale ID']||'',cardId:r['Card ID']||'',date:r['Date']||'',cardName:r['Card Name']||'',cardType:r['Card Type']||'',gradingCompany:r['Grading Co.']||'',grade:r['Grade']||'',platform:r['Platform']||'',salePrice:num(r['Sale Price ($)']),platformFee:num(r['Platform Fee ($)']),consignFee:num(r['Consignment Fee ($)']),shipCost:num(r['Actual Shipping Cost ($)']),costBasis:num(r['Cost Basis ($)']),ebayShipping:num(r['Buyer-Paid Shipping ($)']),ebayTax:num(r['eBay-Collected Tax ($)']),buyer:r['Buyer Info']||'',ebayTransactionId:r['eBay Transaction ID']||'',notes:r['Notes']||''});
       const mapPurchase=r=>({id:r['Purchase ID']||'',date:r['Date']||'',source:r['Source']||'',sourceType:r['Source Type']||'',description:r['Description']||'',category:r['Category']||'',qty:num(r['Quantity']),unitCost:num(r['Unit Cost ($)']),shipping:num(r['Shipping ($)']),tax:num(r['Tax ($)']),grandTotal:num(r['Grand Total ($)']),payMethod:r['Payment Method']||'',notes:r['Notes']||''});
       const mapGrade=r=>({id:r['Submission ID']||'',cardId:r['Card ID']||'',dateSubmitted:r['Date Submitted']||'',dateReturned:r['Date Returned']||'',cardName:r['Card Name']||'',company:r['Grading Company']||'',serviceLevel:r['Service Level']||'',gradeReceived:r['Grade Received']||'',gradingFee:num(r['Grading Fee ($)']),shipTo:num(r['Shipping to Grader ($)']),shipBack:num(r['Return Shipping ($)']),totalCost:num(r['Total Grading Cost ($)']),preCondition:r['Pre-Grade Condition']||'',preValue:num(r['Pre-Grade Value ($)']),postValue:num(r['Post-Grade Value ($)']),action:r['Action']||'',notes:r['Notes']||''});
       const mapSealed=r=>({id:r['Sealed ID']||'',dateAcquired:r['Date Acquired']||'',productName:r['Product Name']||'',productType:r['Product Type']||'',setSeries:r['Set/Series']||'',year:r['Year']||'',purchasePrice:num(r['Purchase Price ($)']),source:r['Source']||'',status:r['Status']||'',dateSold:r['Date Sold']||'',salePrice:num(r['Sale Price ($)']),pullValue:num(r['Est Pull Value ($)']),notes:r['Notes']||''});
