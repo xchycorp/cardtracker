@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script type="module">
 // Imports must be at top level in ES modules
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -101,7 +102,7 @@ onSnapshot(DOC_REF, (snap) => {
 // ============================================================
 const emptyData = () => ({
   inventory: [], sales: [], purchases: [], grading: [], sealed: [], expenses: [],
-  capital: [], crackList: [],
+  capital: [], crackList: [], nameCorrections: {},
   settings: { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0 },
   nextIds: { C:1, S:1, P:1, G:1, SL:1, E:1, CAP:1 }
 });
@@ -109,6 +110,7 @@ const emptyData = () => ({
 function ensureFields() {
   if (!D.capital) D.capital = [];
   if (!D.crackList) D.crackList = [];
+  if (!D.nameCorrections) D.nameCorrections = {};
   if (!D.settings) D.settings = { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0 };
   if (!D.nextIds) D.nextIds = { C:1,S:1,P:1,G:1,SL:1,E:1,CAP:1 };
   if (!D.nextIds.CAP) D.nextIds.CAP = 1;
@@ -117,6 +119,48 @@ function ensureFields() {
 }
 
 let D = emptyData();
+
+// ============================================================
+// CARD NAME CORRECTION SYSTEM
+// ============================================================
+// Builds a key from AI identification for the corrections dictionary
+function scanKey(set, name, number) {
+  return [set||'', name||'', (number||'').replace(/[^\d]/g,'')].join('|').toLowerCase().trim();
+}
+
+// Build formatted name from AI response, checking corrections first
+function buildScannedName(cardInfo) {
+  const setName = cardInfo.set || '';
+  const cardName = cardInfo.name || '';
+  const number = cardInfo.number || '';
+  const edition = cardInfo.edition || '';
+  const key = scanKey(setName, cardName, number);
+  
+  // Check if we have a user correction for this exact AI identification
+  if (D.nameCorrections && D.nameCorrections[key]) {
+    return { formatted: D.nameCorrections[key], corrected: true, _scanKey: key };
+  }
+  
+  // Build the default formatted name
+  let formatted = `${setName} ${cardName}`.trim();
+  if (number) formatted += ` #${number.replace('#','').split('/')[0].trim()}`;
+  if (edition && edition !== 'Unlimited' && edition !== '') formatted += ` ${edition}`;
+  return { formatted, corrected: false, _scanKey: key };
+}
+
+// Save a correction if the user changed the name from what the AI identified
+function saveNameCorrection(scanKeyStr, originalFormatted, finalName) {
+  if (!scanKeyStr || !finalName) return;
+  const trimmedFinal = finalName.trim();
+  const trimmedOrig = (originalFormatted || '').trim();
+  // Only save if the name actually changed
+  if (trimmedFinal && trimmedFinal !== trimmedOrig) {
+    if (!D.nameCorrections) D.nameCorrections = {};
+    D.nameCorrections[scanKeyStr] = trimmedFinal;
+    saveData();
+    console.log('Name correction saved:', scanKeyStr, '→', trimmedFinal);
+  }
+}
 window.tab = 'overview';
 window.modal = null;
 window.editIdx = null;
@@ -272,6 +316,8 @@ window.render = function render() {
     <div class="footer">CardTracker · Real-time cloud sync · Data shared between all users · <a href="#" onclick="event.preventDefault();exportThenReset()" style="color:var(--red);text-decoration:none;font-size:11px">Reset All Data</a></div>
     <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none" onchange="handleImport(event)">
     <input type="file" id="ebayCsvIn" accept=".csv" style="display:none" onchange="handleEbayCsvImport(event)">
+    <input type="file" id="receiptScanInput" accept="image/*" capture="environment" style="display:none" onchange="handleReceiptScan(event)">
+    <input type="file" id="receiptUploadInput" accept="image/*" style="display:none" onchange="handleReceiptScan(event)">
   `;
   if(window.tab==='overview') renderCharts(m);
 };
@@ -449,8 +495,9 @@ const SCHEMAS = {
     title:'Business Expenses',addLabel:'+ Add Expense',
     cols:[
       {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'category',l:'Category',w:130},
-      {k:'description',l:'Description',w:220},{k:'amount',l:'Amount',w:90,r:1,render:v=>fmt(num(v))},
-      {k:'vendor',l:'Vendor',w:120},{k:'payMethod',l:'Payment',w:100}
+      {k:'description',l:'Description',w:200},{k:'amount',l:'Amount',w:90,r:1,render:v=>fmt(num(v))},
+      {k:'vendor',l:'Vendor',w:120},{k:'payMethod',l:'Payment',w:90},
+      {k:'receipt',l:'📎',w:40,render:(_,row)=>{if(row.receipt==='Yes'){const hasImg=getReceiptImage(row.id);return hasImg?`<span style="cursor:pointer;font-size:14px" onclick="event.stopPropagation();viewReceipt('${row.id}')" title="View receipt">🧾</span>`:'<span style="color:var(--green);font-size:10px">Yes</span>';}return'<span style="color:var(--text-faint);font-size:10px">—</span>';}}
     ],
     fields:[
       {k:'description',l:'Description',required:true},{k:'date',l:'Date',type:'date'},
@@ -529,7 +576,9 @@ function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
   const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button>${window.ebayState.appId||window.poketraceState.apiKey?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''}`
-    :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openEbayCsvImport()">📥 eBay CSV</button>`:'';
+    :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openEbayCsvImport()">📥 eBay CSV</button>`
+    :type==='expenses'?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt()">📷 Scan Receipt</button>${getReceiptCount()>0?` <button class="btn btn-sm" onclick="exportReceipts()">📦 Export Receipts</button>`:''}`
+    :'';
   // Apply search and sort
   const filtered = filterData(data, type);
   const sorted = sortData(filtered, s.cols);
@@ -617,7 +666,15 @@ window.saveSetting = function(key, value) {
 // MODAL
 // ============================================================
 window.openAdd = function(type) { window.modal={type,mode:'add',data:{date:new Date().toISOString().slice(0,10),dateAdded:new Date().toISOString().slice(0,10),dateAcquired:new Date().toISOString().slice(0,10),dateSubmitted:new Date().toISOString().slice(0,10)}};window.editIdx=null;render(); };
-window.openEdit = function(type,idx) { window.modal={type,mode:'edit',data:{...D[type][idx]}};window.editIdx=idx;render(); };
+window.openEdit = function(type,idx) {
+  window.modal={type,mode:'edit',data:{...D[type][idx]}};window.editIdx=idx;
+  // Load receipt image from localStorage for expenses
+  if (type === 'expenses' && D[type][idx].receipt === 'Yes') {
+    const img = getReceiptImage(D[type][idx].id);
+    if (img) window.modal.data._receiptImg = img;
+  }
+  render();
+};
 
 function rModal() {
   if(!window.modal) return '';
@@ -668,6 +725,27 @@ function rModal() {
           `<input type="${f.type||'text'}" id="f_${f.k}" value="${window.modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}${f.placeholder?' placeholder="'+f.placeholder+'"':''}>`}
         </div>`;}).join('')}
       </div>
+      ${window.modal.type==='expenses'?`
+      <div style="margin-top:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:8px">📎 RECEIPT IMAGE</div>
+        ${window.modal.data._receiptImg?`
+          <div style="display:flex;gap:12px;align-items:center">
+            <img src="${window.modal.data._receiptImg}" style="width:60px;height:80px;object-fit:contain;border-radius:4px;border:1px solid var(--border);cursor:pointer" onclick="window.open(this.src,'_blank')">
+            <div style="flex:1">
+              <div style="font-size:12px;color:var(--green);font-weight:600">✓ Receipt photo attached</div>
+              <div style="font-size:10px;color:var(--text-dim);margin-top:2px">Image will be stored locally on this device</div>
+            </div>
+            <button class="btn btn-sm" onclick="window.modal.data._receiptImg=null;render()" style="font-size:10px">✕ Remove</button>
+          </div>
+        `:`
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-sm" onclick="attachReceiptToExpense()" style="font-size:11px">📷 Attach Receipt Photo</button>
+            <span style="font-size:10px;color:var(--text-dim)">Take a photo or upload an image of the receipt</span>
+          </div>
+          <input type="file" id="receiptAttachInput" accept="image/*" style="display:none" onchange="handleReceiptAttach(event)">
+        `}
+      </div>
+      `:''}
       <div class="form-actions">
         <button class="btn" onclick="window.modal=null;render()">Cancel</button>
         <button class="btn btn-accent" onclick="saveModal()">💾 Save</button>
@@ -705,6 +783,11 @@ window.saveModal = async function() {
   }
   
   // Auto-fetch market value for inventory adds if no market value set
+  // Save name correction if user edited after scanning
+  if(window.modal.type==='inventory' && window.modal.data._scanKey && row.cardName) {
+    saveNameCorrection(window.modal.data._scanKey, window.modal.data._originalScanName, row.cardName);
+  }
+  
   if(window.modal.type==='inventory' && window.modal.mode==='add' && !num(row.marketValue) && row.cardName) {
     const isRaw = !row.grade || !row.gradingCompany;
     // Prefer PokeTrace for raw cards
@@ -772,7 +855,13 @@ window.saveModal = async function() {
   saveData();window.modal=null;render();
 };
 
-window.delRow = function(type,idx) { D[type].splice(idx,1); saveData(); showToast('Record deleted & synced'); render(); };
+window.delRow = function(type,idx) {
+  // Clean up receipt image if deleting an expense
+  if (type === 'expenses' && D[type][idx] && D[type][idx].id) {
+    deleteReceiptImage(D[type][idx].id);
+  }
+  D[type].splice(idx,1); saveData(); showToast('Record deleted & synced'); render();
+};
 
 // Refresh all inventory market values from eBay
 window.refreshAllMarketValues = async function() {
@@ -815,17 +904,34 @@ window.refreshAllMarketValues = async function() {
           failed++;
         }
       } else if (!hasGrade && hasPT) {
-        // Raw card — use PokeTrace for sold data (NM avg)
-        const ptData = await poketraceSearch(card.cardName);
-        const best = pokectraceBestMatch(ptData, card.cardName);
-        const nmPrice = poketraceNMPrice(best);
-        
-        if (nmPrice && nmPrice.avg) {
-          card.marketValue = Number(nmPrice.avg.toFixed(2));
-          updated++;
-        } else {
-          failed++;
+        // Raw card — try PokeTrace first, fall back to eBay if it fails
+        let gotPrice = false;
+        try {
+          const ptData = await poketraceSearch(card.cardName);
+          const best = pokectraceBestMatch(ptData, card.cardName);
+          const nmPrice = poketraceNMPrice(best);
+          if (nmPrice && nmPrice.avg) {
+            card.marketValue = Number(nmPrice.avg.toFixed(2));
+            updated++;
+            gotPrice = true;
+          }
+        } catch(ptErr) {
+          console.log('PokeTrace failed for', card.cardName, '— trying eBay fallback');
         }
+        // Fallback to eBay if PokeTrace returned nothing or errored
+        if (!gotPrice && hasEB) {
+          try {
+            const query = `${card.cardName} -PSA -CGC -BGS -SGC -graded -slab`;
+            const results = await ebaySearch(query.trim(), 15);
+            const summary = ebayPricingSummary(results);
+            if (summary && summary.median) {
+              card.marketValue = Number(summary.median.toFixed(2));
+              updated++;
+              gotPrice = true;
+            }
+          } catch(ebErr) { /* both failed */ }
+        }
+        if (!gotPrice) failed++;
       } else if (!hasGrade && hasEB) {
         // Raw card fallback to eBay if no PokeTrace
         const query = `${card.cardName} -PSA -CGC -BGS -SGC -graded -slab`;
@@ -1486,14 +1592,15 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       const cardName = cardInfo.name || '';
       const number = cardInfo.number || '';
       const edition = cardInfo.edition || '';
-      let formatted = `${setName} ${cardName}`.trim();
-      if (number) formatted += ` #${number.replace('#','').split('/')[0].trim()}`;
-      if (edition && edition !== 'Unlimited' && edition !== '') formatted += ` ${edition}`;
+      const scanResult = buildScannedName(cardInfo);
+      let formatted = scanResult.formatted;
       
       window.modal.data.cardName = formatted;
       window.modal.data.cardType = cardInfo.cardType || 'Pokemon';
       window.modal.data._pokemonRarity = cardInfo.rarity || '';
-      window.modal.data._scanStatus = '✅ ' + formatted;
+      window.modal.data._scanStatus = (scanResult.corrected ? '✅ Auto-corrected: ' : '✅ ') + formatted;
+      window.modal.data._scanKey = scanResult._scanKey || '';
+      window.modal.data._originalScanName = formatted;
       
       // Instead of auto-picking, trigger search dropdown so user can confirm correct card
       render();
@@ -2898,8 +3005,9 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       const setName = cardInfo.set || '';
       const cardName = cardInfo.name || '';
       const number = (cardInfo.number||'').replace('#','').split('/')[0].trim();
-      let formatted = `${setName} ${cardName}`.trim();
-      if (number) formatted += ` #${number}`;
+      const scanResult = buildScannedName({set: setName, name: cardName, number: number, edition: ''});
+      let formatted = scanResult.formatted;
+      if (scanResult.corrected) showToast(`Auto-corrected: ${formatted}`);
       
       // Try TCGdex for image + pricing
       let tcgImg = '', marketPrice = '';
@@ -3007,12 +3115,13 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       const cardInfo = JSON.parse(cleaned);
       if (cardInfo.error) { showToast(cardInfo.error); window.researchState.loading = false; render(); return; }
       
-      // Build search query from identified card and trigger research search
-      const searchQuery = `${cardInfo.set||''} ${cardInfo.name||''} ${cardInfo.number||''}`.trim();
+      // Build search query from identified card (check corrections first)
+      const scanResult = buildScannedName(cardInfo);
+      const searchQuery = scanResult.formatted;
       window.researchState.cardName = searchQuery;
       window.researchState.loading = false;
       render();
-      showToast(`Identified: ${searchQuery}`);
+      showToast(scanResult.corrected ? `Auto-corrected: ${searchQuery}` : `Identified: ${searchQuery}`);
       // Trigger the search
       setTimeout(() => { researchSearch(searchQuery); }, 100);
     } catch(err) {
@@ -3383,8 +3492,65 @@ function rScanner(m) {
         </table>
       </div>
     `:'<div class="empty"><div class="icon">📷</div>Scan cards to build your queue. Review and edit before saving to inventory.</div>'}
-  </div>`;
+  </div>
+  
+  ${rNameCorrections()}`;
 }
+
+function rNameCorrections() {
+  const corrections = D.nameCorrections || {};
+  const keys = Object.keys(corrections);
+  if (!keys.length) {
+    return '<div class="panel" style="margin-top:14px">' +
+      '<h3 style="color:var(--text-dim)">🧠 Name Corrections <span style="font-size:12px;color:var(--text-faint);font-weight:400">(0 learned)</span></h3>' +
+      '<div style="font-size:12px;color:var(--text-dim)">When you scan a card and edit its name before saving, the correction is remembered. Next time the AI identifies the same card, your corrected name is applied automatically.</div>' +
+    '</div>';
+  }
+  
+  const sorted = keys.sort((a, b) => corrections[a].localeCompare(corrections[b]));
+  
+  return '<div class="panel" style="margin-top:14px">' +
+    '<h3><span style="color:var(--cyan)">🧠 Name Corrections</span><span class="right">' +
+      '<span style="font-size:12px;color:var(--text-dim)">' + keys.length + ' learned</span> ' +
+      '<button class="btn btn-sm btn-danger" onclick="clearAllCorrections()" style="font-size:10px">Clear All</button>' +
+    '</span></h3>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">When you edit a scanned card name, the correction is saved and auto-applied on future scans of the same card. Synced to cloud.</div>' +
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<thead><tr>' +
+      '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">AI Identified (Set | Name | #)</th>' +
+      '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">→</th>' +
+      '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Your Corrected Name</th>' +
+      '<th style="padding:6px;border-bottom:1px solid var(--border);width:40px"></th>' +
+    '</tr></thead><tbody>' +
+    sorted.map(function(key) {
+      const parts = key.split('|');
+      const display = parts.map(function(p, idx) { return idx === 0 ? (p || '—') : idx === 1 ? (p || '—') : ('#' + (p || '—')); }).join(' · ');
+      return '<tr>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim);font-size:11px">' + display + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-faint)">→</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:600;color:var(--green)">' + corrections[key] + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid var(--border)"><button class="btn btn-sm" onclick="deleteCorrection(\'' + key.replace(/'/g, "\\'") + '\')" style="font-size:9px;padding:2px 6px" title="Remove this correction">✕</button></td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table></div>' +
+  '</div>';
+}
+
+window.deleteCorrection = function(key) {
+  if (!D.nameCorrections) return;
+  delete D.nameCorrections[key];
+  saveData();
+  render();
+  showToast('Correction removed');
+};
+
+window.clearAllCorrections = function() {
+  if (!confirm('Clear all ' + Object.keys(D.nameCorrections || {}).length + ' name corrections? This cannot be undone.')) return;
+  D.nameCorrections = {};
+  saveData();
+  render();
+  showToast('All name corrections cleared');
+};
 
 // Scanner functions
 window.scannerSaveKey = function() {
@@ -3537,14 +3703,16 @@ If this is not a Pokemon card, respond with: {"error":"Not a Pokemon card","note
       return;
     }
     
-    // Build formatted card name
+    // Build formatted card name (check corrections dictionary first)
+    const scanResult = buildScannedName(cardInfo);
+    const formatted = scanResult.formatted;
     const setName = cardInfo.set || '';
     const cardName = cardInfo.name || '';
     const number = cardInfo.number || '';
     const edition = cardInfo.edition || '';
-    let formatted = `${setName} ${cardName}`.trim();
-    if (number) formatted += ` #${number.replace('#','').split('/')[0].trim()}`;
-    if (edition && edition !== 'Unlimited' && edition !== '') formatted += ` ${edition}`;
+    if (scanResult.corrected) {
+      showToast(`✅ Auto-corrected: ${formatted}`);
+    }
     
     // Try to match against TCGdex for image and pricing
     let tcgImg = '';
@@ -3589,6 +3757,8 @@ If this is not a Pokemon card, respond with: {"error":"Not a Pokemon card","note
     ss.queue.push({
       img: tcgImg || base64DataUrl,
       cardName: formatted,
+      _originalName: formatted,
+      _scanKey: scanResult._scanKey || '',
       setName: setName,
       number: number,
       edition: edition,
@@ -3632,7 +3802,14 @@ window.scannerSaveAll = function() {
   if (!ss.queue.length) return;
   
   let count = 0;
+  let corrections = 0;
   for (const card of ss.queue) {
+    // Check if user edited the card name — save correction if so
+    if (card._scanKey && card.cardName !== card._originalName) {
+      saveNameCorrection(card._scanKey, card._originalName, card.cardName);
+      corrections++;
+    }
+    
     const row = {
       id: nextId('C'),
       cardName: card.cardName || '',
@@ -3655,7 +3832,9 @@ window.scannerSaveAll = function() {
   }
   
   saveData();
-  showToast(`${count} card${count>1?'s':''} saved to inventory & synced!`);
+  let msg = `${count} card${count>1?'s':''} saved to inventory & synced!`;
+  if (corrections) msg += ` ${corrections} name correction${corrections>1?'s':''} learned.`;
+  showToast(msg);
   ss.queue = [];
   render();
 };
@@ -3889,6 +4068,10 @@ window.exportExcel = function() {
   const nids = D.nextIds || {};
   const nidData = Object.keys(nids).map(k => ({key:k, value:nids[k]}));
   mkSheet(nidData,[{v:'Prefix',field:'key',w:10},{v:'Next Number',field:'value',w:14}],'NextIds');
+  // Name Corrections sheet
+  const nc = D.nameCorrections || {};
+  const ncData = Object.keys(nc).map(k => ({scanKey:k, correctedName:nc[k]}));
+  mkSheet(ncData,[{v:'Scan Key',field:'scanKey',w:35},{v:'Corrected Name',field:'correctedName',w:35}],'Name Corrections');
   XLSX.writeFile(wb,'CardTracker_Export_'+new Date().toISOString().slice(0,10)+'.xlsx');
   showToast('Full backup exported!');
 };
@@ -3940,6 +4123,12 @@ window.handleImport = function(e) {
       if(nidRows.length){
         if(!D.nextIds)D.nextIds={};
         nidRows.forEach(r=>{if(r['Prefix'])D.nextIds[r['Prefix']]=num(r['Next Number']);});
+      }
+      // Restore name corrections if present
+      const ncRows=readSheet('Name Corrections');
+      if(ncRows.length){
+        if(!D.nameCorrections)D.nameCorrections={};
+        ncRows.forEach(r=>{if(r['Scan Key']&&r['Corrected Name'])D.nameCorrections[r['Scan Key']]=r['Corrected Name'];});
       }
 
       saveData();showToast(`Import complete! ${tA} added, ${tU} updated — synced to cloud`);render();
@@ -4384,6 +4573,308 @@ function rEbayCsvImport() {
     '</div>' +
   '</div>';
 }
+
+// ============================================================
+// RECEIPT SCANNER & LOCAL STORAGE
+// ============================================================
+// Receipt images stored in localStorage, keyed by expense ID
+// Format: _ctReceipt_E001 = compressed base64 JPEG
+
+function getReceiptImage(expenseId) {
+  try { return window.localStorage?.getItem('_ctReceipt_' + expenseId) || null; } catch(e) { return null; }
+}
+
+function saveReceiptImage(expenseId, base64DataUrl) {
+  try { window.localStorage?.setItem('_ctReceipt_' + expenseId, base64DataUrl); } catch(e) {
+    console.error('Failed to save receipt image:', e);
+    showToast('⚠️ Could not save receipt image — localStorage may be full');
+  }
+}
+
+function deleteReceiptImage(expenseId) {
+  try { window.localStorage?.removeItem('_ctReceipt_' + expenseId); } catch(e) {}
+}
+
+function getReceiptCount() {
+  try {
+    let count = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      if (localStorage.key(i).startsWith('_ctReceipt_')) count++;
+    }
+    return count;
+  } catch(e) { return 0; }
+}
+
+window.scanReceipt = function() {
+  if (!window.scannerState.apiKey) {
+    showToast('Set your Anthropic API key in the Scanner tab first');
+    return;
+  }
+  // Show choice: camera or upload
+  const existing = document.getElementById('receipt-action-picker');
+  if (existing) { existing.remove(); return; }
+  
+  const btn = document.querySelector('[onclick="scanReceipt()"]');
+  if (!btn) { document.getElementById('receiptScanInput').click(); return; }
+  const rect = btn.getBoundingClientRect();
+  
+  const picker = document.createElement('div');
+  picker.id = 'receipt-action-picker';
+  picker.style.cssText = 'position:fixed;z-index:9999;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 8px 24px rgba(0,0,0,.4);padding:6px;min-width:160px;top:' + (rect.bottom + 4) + 'px;left:' + rect.left + 'px;animation:fadeUp .15s ease';
+  picker.innerHTML = '<div style="padding:8px 14px;cursor:pointer;border-radius:6px;font-size:13px;font-weight:600;color:var(--text);transition:background .15s" onmouseover="this.style.background=\'var(--card-hover)\'" onmouseout="this.style.background=\'transparent\'" onclick="document.getElementById(\'receipt-action-picker\').remove();document.getElementById(\'receiptScanInput\').click()">📷 Take Photo</div>' +
+    '<div style="padding:8px 14px;cursor:pointer;border-radius:6px;font-size:13px;font-weight:600;color:var(--text);transition:background .15s" onmouseover="this.style.background=\'var(--card-hover)\'" onmouseout="this.style.background=\'transparent\'" onclick="document.getElementById(\'receipt-action-picker\').remove();document.getElementById(\'receiptUploadInput\').click()">📁 Upload Image</div>';
+  
+  document.body.appendChild(picker);
+  const closeHandler = function(e) {
+    if (!picker.contains(e.target) && e.target !== btn) {
+      picker.remove();
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(function() { document.addEventListener('click', closeHandler); }, 10);
+};
+
+window.handleReceiptScan = async function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  
+  showToast('📸 Reading receipt...');
+  
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const base64DataUrl = e.target.result;
+      const match = base64DataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (!match) throw new Error('Invalid image format');
+      
+      // Compress for API call
+      let imgData = match[2];
+      let mediaType = match[1];
+      if (imgData.length > 500000) {
+        const compressed = await compressImage(base64DataUrl, 800);
+        const cMatch = compressed.match(/^data:(image\/\w+);base64,(.+)$/);
+        if (cMatch) { mediaType = cMatch[1]; imgData = cMatch[2]; }
+      }
+      
+      // Compress for storage (smaller, just for reference)
+      const storageImg = await compressImage(base64DataUrl, 600);
+      
+      const ss = window.scannerState;
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ss.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 600,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
+              { type: 'text', text: `Read this receipt and extract the purchase details. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
+{"vendor":"Store/Company Name","date":"YYYY-MM-DD","amount":00.00,"description":"Brief description of what was purchased","category":"one of: Shipping Supplies, Packaging, Software, Table Fee, Travel, Storage, Marketing, Insurance, Other","payMethod":"Cash, Credit Card, Debit Card, PayPal, or other method if visible","items":[{"name":"item name","qty":1,"price":0.00}],"tax":0.00,"subtotal":0.00,"total":0.00,"notes":"any other relevant details"}
+For the category, use your best judgment based on these Pokemon card business categories:
+- Shipping Supplies: boxes, mailers, tape, bubble wrap, labels, stamps, postage
+- Packaging: toploaders, sleeves, penny sleeves, card savers, team bags, one-touch cases
+- Software: any software subscriptions, apps, digital tools
+- Table Fee: card show table fees, convention fees, booth rental
+- Travel: gas, parking, tolls, hotel, flights for card shows
+- Storage: storage units, shelving, organizers
+- Marketing: advertising, business cards, promotional items
+- Insurance: shipping insurance, business insurance
+- Other: anything that doesn't fit above
+Use the TOTAL amount (including tax) as the "amount" field.
+If you cannot read the receipt clearly: {"error":"Cannot read receipt","notes":"description of what you see"}` }
+            ]
+          }]
+        })
+      });
+      
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error?.message || 'API error ' + response.status);
+      }
+      
+      const data = await response.json();
+      const text = data.content?.[0]?.text || '';
+      const cleaned = text.replace(/```json\s*|```/g, '').trim();
+      const receiptInfo = JSON.parse(cleaned);
+      
+      if (receiptInfo.error) {
+        showToast('❌ ' + receiptInfo.error + (receiptInfo.notes ? ': ' + receiptInfo.notes : ''));
+        return;
+      }
+      
+      // Open expense modal pre-filled with receipt data
+      window.modal = {
+        type: 'expenses',
+        mode: 'add',
+        data: {
+          description: receiptInfo.description || (receiptInfo.items && receiptInfo.items.length ? receiptInfo.items.map(function(it) { return it.name; }).join(', ') : ''),
+          date: receiptInfo.date || new Date().toISOString().slice(0, 10),
+          category: receiptInfo.category || 'Other',
+          amount: receiptInfo.amount || receiptInfo.total || 0,
+          payMethod: receiptInfo.payMethod || '',
+          vendor: receiptInfo.vendor || '',
+          receipt: 'Yes',
+          notes: (receiptInfo.items && receiptInfo.items.length > 1 ? 'Items: ' + receiptInfo.items.map(function(it) { return it.name + (it.qty > 1 ? ' x' + it.qty : '') + ' $' + Number(it.price).toFixed(2); }).join(', ') : '') + (receiptInfo.tax ? (receiptInfo.items && receiptInfo.items.length > 1 ? ' · ' : '') + 'Tax: $' + Number(receiptInfo.tax).toFixed(2) : ''),
+          _receiptImg: storageImg,
+          _receiptScanned: true
+        }
+      };
+      window.editIdx = null;
+      render();
+      showToast('Receipt scanned: ' + (receiptInfo.vendor || 'Unknown') + ' — $' + Number(receiptInfo.amount || receiptInfo.total || 0).toFixed(2));
+      
+    } catch(err) {
+      showToast('Receipt scan error: ' + err.message);
+      console.error('Receipt scan error:', err);
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+// Override saveModal to handle receipt image storage
+const _originalSaveModal = window.saveModal;
+window.saveModal = async function() {
+  // Capture receipt image before the normal save clears the modal
+  const hasReceiptImg = window.modal && window.modal.type === 'expenses' && window.modal.data && window.modal.data._receiptImg;
+  const receiptImg = hasReceiptImg ? window.modal.data._receiptImg : null;
+  const isNewExpense = window.modal && window.modal.mode === 'add' && window.modal.type === 'expenses';
+  
+  // For new expenses, we need to know what ID will be assigned
+  let nextExpId = null;
+  if (isNewExpense && receiptImg) {
+    nextExpId = 'E' + String(D.nextIds?.E || 1).padStart(3, '0');
+  }
+  
+  // Also handle attaching receipt to existing expense on edit
+  const isEditExpense = window.modal && window.modal.mode === 'edit' && window.modal.type === 'expenses';
+  let editExpId = null;
+  if (isEditExpense && receiptImg) {
+    editExpId = window.modal.data.id || null;
+  }
+  
+  // Run the original save
+  await _originalSaveModal();
+  
+  // After save, store the receipt image locally
+  if (receiptImg && (nextExpId || editExpId)) {
+    const expId = nextExpId || editExpId;
+    saveReceiptImage(expId, receiptImg);
+    console.log('Receipt image saved for', expId);
+  }
+};
+
+window.viewReceipt = function(expenseId) {
+  const img = getReceiptImage(expenseId);
+  if (!img) { showToast('Receipt image not found on this device'); return; }
+  
+  const expense = D.expenses.find(function(e) { return e.id === expenseId; });
+  const title = expense ? (expense.vendor || '') + ' — ' + (expense.date || '') + ' — ' + fmtD(num(expense.amount)) : expenseId;
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-bg';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = '<div class="modal" style="max-width:500px;text-align:center">' +
+    '<h2 style="display:flex;justify-content:space-between;align-items:center"><span>🧾 Receipt: ' + title + '</span><button class="close" onclick="this.closest(\'.modal-bg\').remove()">&times;</button></h2>' +
+    '<img src="' + img + '" style="max-width:100%;max-height:70vh;border-radius:8px;border:1px solid var(--border)">' +
+    '<div class="form-actions" style="margin-top:12px">' +
+      '<button class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this receipt image?\')){deleteReceiptImage(\'' + expenseId + '\');this.closest(\'.modal-bg\').remove();showToast(\'Receipt image deleted\')}">🗑 Delete Image</button>' +
+      '<button class="btn" onclick="this.closest(\'.modal-bg\').remove()">Close</button>' +
+      '<a class="btn btn-accent" href="' + img + '" download="Receipt_' + expenseId + '.jpg" style="text-decoration:none">💾 Download</a>' +
+    '</div>' +
+  '</div>';
+  document.getElementById('app').appendChild(overlay);
+};
+
+// Also allow attaching a receipt photo to an existing expense from the edit modal
+window.attachReceiptToExpense = function() {
+  document.getElementById('receiptAttachInput').click();
+};
+
+window.handleReceiptAttach = function(event) {
+  const file = event.target.files[0];
+  if (!file || !window.modal) return;
+  event.target.value = '';
+  
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    const compressed = await compressImage(e.target.result, 600);
+    window.modal.data._receiptImg = compressed;
+    window.modal.data.receipt = 'Yes';
+    // Update the receipt select field if visible
+    const receiptEl = document.getElementById('f_receipt');
+    if (receiptEl) receiptEl.value = 'Yes';
+    render();
+    showToast('Receipt photo attached');
+  };
+  reader.readAsDataURL(file);
+};
+
+window.exportReceipts = async function() {
+  const receiptCount = getReceiptCount();
+  if (!receiptCount) { showToast('No receipt images stored on this device'); return; }
+  if (!confirm('Export ' + receiptCount + ' receipt images as a ZIP file?\n\nImages are named by date, vendor, and expense ID for easy reference.')) return;
+  
+  showToast('Building ZIP file...');
+  
+  try {
+    const zip = new JSZip();
+    const imgFolder = zip.folder('receipts');
+    let count = 0;
+    
+    // Build a manifest CSV
+    let manifest = 'Expense ID,Date,Vendor,Category,Amount,Description,Payment Method\n';
+    
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key.startsWith('_ctReceipt_')) continue;
+      
+      const expId = key.replace('_ctReceipt_', '');
+      const imgData = localStorage.getItem(key);
+      if (!imgData) continue;
+      
+      // Find matching expense for naming
+      const expense = D.expenses.find(function(e) { return e.id === expId; });
+      const date = expense ? (expense.date || 'nodate') : 'nodate';
+      const vendor = expense ? (expense.vendor || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 20) : 'unknown';
+      const filename = date + '_' + vendor + '_' + expId + '.jpg';
+      
+      // Extract base64 data
+      const b64match = imgData.match(/^data:image\/\w+;base64,(.+)$/);
+      if (b64match) {
+        imgFolder.file(filename, b64match[1], { base64: true });
+        count++;
+        
+        if (expense) {
+          manifest += '"' + expId + '","' + (expense.date || '') + '","' + (expense.vendor || '').replace(/"/g, '""') + '","' + (expense.category || '') + '",' + num(expense.amount) + ',"' + (expense.description || '').replace(/"/g, '""') + '","' + (expense.payMethod || '') + '"\n';
+        }
+      }
+    }
+    
+    // Add manifest
+    zip.file('receipt_manifest.csv', manifest);
+    
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'CardTracker_Receipts_' + new Date().toISOString().slice(0, 10) + '.zip';
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    showToast(count + ' receipt' + (count > 1 ? 's' : '') + ' exported to ZIP!');
+  } catch(err) {
+    showToast('Export error: ' + err.message);
+    console.error('Receipt export error:', err);
+  }
+};
 
 // ============================================================
 // INIT
