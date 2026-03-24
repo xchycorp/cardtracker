@@ -167,6 +167,7 @@ window.editIdx = null;
 window.searchTerm = '';
 window.sortCol = null;
 window.sortDir = 'asc';
+window.statusFilter = '';
 window.quickEntryMode = false;
 window.quickEntryRows = [];
 window.quickSalesMode = false;
@@ -304,7 +305,7 @@ window.render = function render() {
       ${['overview','scanner','research','inventory','purchases','grading','sealed','sales','expenses','capital','analytics','financials'].map(t2=>{
         const labels={overview:'Overview',scanner:'Scanner',research:'Research',inventory:'Inventory',purchases:'Purchases',grading:'Grading',sealed:'Sealed',sales:'Sales',expenses:'Expenses',capital:'Capital',analytics:'Analytics',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
-        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
+        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
     </div>
     <div id="content">${
@@ -600,7 +601,16 @@ function rTable(type,m) {
   // Build original index map so edit/delete still work on the right record
   const idxMap = sorted.map(row => data.indexOf(row));
 
-  const searchBar = `<div class="search-bar"><input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input">${window.searchTerm?'<button class="btn btn-sm" onclick="clearSearch()" style="margin-left:6px">✕ Clear</button>':''}<span class="search-count">${window.searchTerm?`${sorted.length} of ${data.length}`:''}</span></div>`;
+  const statusFilterBar = type==='inventory' ? `<div style="display:flex;gap:3px;margin-bottom:10px;flex-wrap:wrap">${
+    ['','Raw','Submitted','Graded','Listed','Hold','Cracked','Sold'].map(st => {
+      const isActive = window.statusFilter === st;
+      const label = st || 'All';
+      const count = st ? data.filter(r => r.status === st).length : data.length;
+      return `<button class="btn btn-sm" style="font-size:10px;padding:4px 10px;${isActive ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : ''}" onclick="window.statusFilter='${st}';render()">${label}<span style="font-size:9px;opacity:.7;margin-left:3px">${count}</span></button>`;
+    }).join('')
+  }</div>` : '';
+
+  const searchBar = `<div class="search-bar"><input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input">${window.searchTerm||window.statusFilter?'<button class="btn btn-sm" onclick="clearSearch()" style="margin-left:6px">✕ Clear</button>':''}<span class="search-count">${window.searchTerm||window.statusFilter?`${sorted.length} of ${data.length}`:''}</span></div>`;
 
   // Show quick entry mode if active
   if(type==='inventory' && window.quickEntryMode) return rQuickEntry(data, addBtn, quickAddBtn);
@@ -633,6 +643,7 @@ function rTable(type,m) {
 
   return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
     ${gradingToolbar}
+    ${statusFilterBar}
     ${searchBar}
     <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
     <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&window.gradingSelectMode?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
@@ -868,9 +879,9 @@ window.saveModal = async function() {
     // Auto-mark inventory as Sold when linking a card to a sale on edit
     if(window.modal.type==='sales' && window.modal.data._linkedInvIdx !== undefined){
       const card = D.inventory[window.modal.data._linkedInvIdx];
-      if(card && card.status !== 'Sold'){
-        const oldStatus = card.status;
-        card.status = 'Sold';
+      if(card){
+        // Update card name to inventory name (replaces eBay auction title)
+        if(card.cardName) row.cardName = card.cardName;
         // Copy grade info to sale record
         if(card.gradingCompany) row.gradingCompany = card.gradingCompany;
         if(card.grade) row.grade = card.grade;
@@ -880,7 +891,12 @@ window.saveModal = async function() {
           row.costBasis = num(card.costBasis) + num(card.gradingCost);
         }
         row.cardId = card.id;
-        showToast(`${card.cardName}: ${oldStatus} → Sold`);
+        // Mark as sold if not already
+        if(card.status !== 'Sold'){
+          const oldStatus = card.status;
+          card.status = 'Sold';
+          showToast(`${card.cardName}: ${oldStatus} → Sold`);
+        }
       }
     }
     showToast('Record updated & synced');
@@ -2117,14 +2133,22 @@ window.toggleSort = function(col) {
   }
   render();
 };
-window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; render(); };
+window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; render(); };
 
 function filterData(data, type) {
-  if (!window.searchTerm) return data;
-  const term = window.searchTerm.toLowerCase();
-  return data.filter(row => {
-    return Object.values(row).some(v => String(v).toLowerCase().includes(term));
-  });
+  let result = data;
+  // Apply status filter for inventory
+  if (type === 'inventory' && window.statusFilter) {
+    result = result.filter(row => row.status === window.statusFilter);
+  }
+  // Apply text search
+  if (window.searchTerm) {
+    const term = window.searchTerm.toLowerCase();
+    result = result.filter(row => {
+      return Object.values(row).some(v => String(v).toLowerCase().includes(term));
+    });
+  }
+  return result;
 }
 
 function sortData(data, cols) {
