@@ -2814,40 +2814,84 @@ window.researchPokertraceLookup = async function() {
   const rs = window.researchState;
   if (!window.poketraceState.apiKey) return;
   
-  // Build search query (what we send to PokeTrace API)
-  let searchQuery = '';
-  // Build match name (what we use for scoring — includes set, name, and number)
-  let matchName = '';
+  let setName = '', pokeName = '', number = '', matchName = '';
   
   if (rs.selectedCard) {
-    const setName = rs.selectedCard.set ? rs.selectedCard.set.name : '';
-    const pokeName = rs.selectedCard.name || '';
-    const number = rs.selectedCard.localId || '';
-    // Send set + pokemon name to PokeTrace search
-    searchQuery = `${setName} ${pokeName}`.trim();
-    // Use full formatted name with number for matching
+    setName = rs.selectedCard.set ? rs.selectedCard.set.name : '';
+    pokeName = rs.selectedCard.name || '';
+    number = rs.selectedCard.localId || '';
     matchName = `${setName} ${pokeName} #${number}`.trim();
-  } else if (rs._ebayCustomQuery) {
-    searchQuery = rs._ebayCustomQuery;
-    matchName = rs.cardName || rs._ebayCustomQuery;
   } else if (rs.cardName) {
-    searchQuery = rs.cardName;
     matchName = rs.cardName;
+    // Try to extract parts from formatted name like "Set Name Pokemon #123"
+    const parts = rs.cardName.match(/^(.+?)\s+#(\d+)/);
+    if (parts) {
+      number = parts[2];
+      const beforeNum = parts[1].trim();
+      // Last word is likely the pokemon name
+      const words = beforeNum.split(/\s+/);
+      pokeName = words.pop() || '';
+      setName = words.join(' ');
+    } else {
+      pokeName = rs.cardName;
+    }
+  } else if (rs._ebayCustomQuery) {
+    matchName = rs._ebayCustomQuery;
+    pokeName = rs._ebayCustomQuery;
   }
-  if (!searchQuery) { showToast('Search for a card first'); return; }
+  
+  if (!pokeName && !setName) { showToast('Search for a card first'); return; }
   
   rs._poketraceError = '';
   showToast('Searching PokeTrace...');
-  dbg('PokeTrace', 'Research lookup — search: "' + searchQuery + '", match against: "' + matchName + '"');
+  
+  // Try multiple search strategies to find the right card
+  const strategies = [];
+  // Strategy 1: Pokemon name + number (most specific for PokeTrace's search)
+  if (pokeName && number) strategies.push({ query: `${pokeName} ${number}`, label: 'name+number' });
+  // Strategy 2: Set name + pokemon name + number
+  if (setName && pokeName && number) strategies.push({ query: `${setName} ${pokeName} ${number}`, label: 'set+name+number' });
+  // Strategy 3: Set name + pokemon name (broader)
+  if (setName && pokeName) strategies.push({ query: `${setName} ${pokeName}`, label: 'set+name' });
+  // Strategy 4: Just pokemon name (broadest fallback)
+  if (pokeName) strategies.push({ query: pokeName, label: 'name only' });
   
   try {
-    const ptData = await poketraceSearch(searchQuery);
-    const best = pokectraceBestMatch(ptData, matchName);
+    let best = null;
+    
+    for (const strat of strategies) {
+      dbg('PokeTrace', 'Research try: "' + strat.query + '" (' + strat.label + '), match: "' + matchName + '"');
+      const ptData = await poketraceSearch(strat.query);
+      if (!ptData || !ptData.data || !ptData.data.length) continue;
+      
+      const candidate = pokectraceBestMatch(ptData, matchName);
+      if (!candidate) continue;
+      
+      // Check if the match is actually good — number must match if we have a target number
+      if (number) {
+        const cn = (candidate.cardNumber || '').split('/')[0].replace(/^0+/, '');
+        const tn = number.replace(/^0+/, '');
+        if (cn === tn) {
+          dbg('PokeTrace', '✓ Number match confirmed: #' + cn + ' (' + strat.label + ')');
+          best = candidate;
+          break;
+        } else {
+          dbg('PokeTrace', '✗ Wrong number: got #' + cn + ', wanted #' + tn + ' (' + strat.label + ')');
+          // Keep searching with other strategies, but save as fallback
+          if (!best) best = candidate;
+        }
+      } else {
+        // No number to match against, take the best score
+        best = candidate;
+        break;
+      }
+    }
+    
     if (best) {
       rs._poketraceData = best;
       render();
       const nm = poketraceNMPrice(best);
-      showToast(nm ? `PokeTrace NM avg: $${Number(nm.avg).toFixed(2)}` : 'PokeTrace found card but no NM price');
+      showToast(nm ? `PokeTrace: $${Number(nm.avg).toFixed(2)} (${nm.source})` : 'PokeTrace found card but no price');
     } else {
       rs._poketraceData = null;
       render();
