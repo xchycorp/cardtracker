@@ -2858,59 +2858,69 @@ window.researchEbayLookup = async function() {
   const setShort = setName.split(' ').slice(0, 2).join(' ').replace(/[^a-zA-Z0-9\s]/g, '').trim();
   const numClean = number.replace(/[^\d]/g, '');
   
+  // Build a consistent base query used for ALL searches (raw + graded)
+  const baseQuery = `${setShort} ${cardName} ${numClean}`.trim();
+  
+  // Populate the custom search box so Fill Matrix uses the same query
+  rs._ebayCustomQuery = baseQuery;
+  const customInput = document.getElementById('ebay_custom_search');
+  if (customInput) customInput.value = baseQuery;
+  
   rs._ebayError = '';
   rs.prices = {};
   showToast('Searching eBay...');
+  dbg('Research', 'Auto Search base query: ' + baseQuery);
   
   try {
-    // Search raw card - short query like user would search
-    const rawQuery = `${setShort} ${cardName} ${numClean} -PSA -CGC -BGS -SGC -graded -slab`.trim();
+    // Search raw card
+    const rawQuery = `${baseQuery} -PSA -CGC -BGS -SGC -graded -slab`;
     const rawResults = await ebaySearch(rawQuery, 25);
     let rawSummary = ebayPricingSummary(rawResults);
     
-    // Fallback: just card name + number
+    // Fallback: just card name + number (drop set abbreviation)
     if (!rawSummary) {
       const fallbackQuery = `${cardName} ${numClean} -PSA -CGC -BGS -SGC -graded -slab`.trim();
       const fallbackResults = await ebaySearch(fallbackQuery, 25);
       rawSummary = ebayPricingSummary(fallbackResults);
     }
     
-    // Search graded variants - use precise queries
+    // Search graded variants using the SAME base query
     const graded = {};
     const gradeSearches = [
-      {company:'PSA', grade:'10', key:'PSA_10'},
-      {company:'PSA', grade:'9', key:'PSA_9'},
-      {company:'PSA', grade:'8', key:'PSA_8'},
-      {company:'CGC', grade:'10 Pristine', query:'CGC Pristine 10', key:'CGC_10.1'},
-      {company:'CGC', grade:'10', query:'CGC 10 -Pristine', key:'CGC_10'},
-      {company:'CGC', grade:'9.5', key:'CGC_9.5'},
-      {company:'CGC', grade:'9', key:'CGC_9'},
-      {company:'CGC', grade:'8.5', key:'CGC_8.5'},
-      {company:'CGC', grade:'8', key:'CGC_8'},
-      {company:'BGS', grade:'10', key:'BGS_10'},
-      {company:'BGS', grade:'9.5', key:'BGS_9.5'},
-      {company:'BGS', grade:'9', key:'BGS_9'},
-      {company:'BGS', grade:'8', key:'BGS_8'}
+      {query:'PSA 10', key:'PSA_10'},
+      {query:'PSA 9', key:'PSA_9'},
+      {query:'PSA 8', key:'PSA_8'},
+      {query:'PSA 7', key:'PSA_7'},
+      {query:'CGC Pristine 10', key:'CGC_10.1'},
+      {query:'CGC 10 -Pristine', key:'CGC_10'},
+      {query:'CGC 9.5', key:'CGC_9.5'},
+      {query:'CGC 9', key:'CGC_9'},
+      {query:'CGC 8.5', key:'CGC_8.5'},
+      {query:'CGC 8', key:'CGC_8'},
+      {query:'BGS 10', key:'BGS_10'},
+      {query:'BGS 9.5', key:'BGS_9.5'},
+      {query:'BGS 9', key:'BGS_9'},
+      {query:'BGS 8', key:'BGS_8'}
     ];
     for (const gs of gradeSearches) {
-      const searchTerms = gs.query || `${gs.company} ${gs.grade}`;
-      const gQuery = `${cardName} ${numClean} ${setShort} ${searchTerms} -lot -bundle -mystery -repack`.trim();
+      const gQuery = `${baseQuery} ${gs.query} -lot -bundle -mystery -repack`.trim();
       const gResults = await ebaySearch(gQuery, 15);
       const gSummary = ebayPricingSummary(gResults);
       if (gSummary && gSummary.count >= 1) {
-        graded[`${gs.company} ${gs.grade}`] = gSummary;
+        const label = gs.query.replace('-Pristine','').trim();
+        graded[label] = gSummary;
         rs.prices[gs.key] = gSummary.median.toFixed(2);
       }
     }
     
-    const ebayData = rawSummary ? {...rawSummary, graded: Object.keys(graded).length ? graded : null, query: rawQuery} : {count:0, query: rawQuery};
+    const ebayData = rawSummary ? {...rawSummary, graded: Object.keys(graded).length ? graded : null, query: baseQuery} : {count:0, query: baseQuery};
     rs._ebayData = ebayData;
     render();
     showToast(rawSummary ? `Found ${rawSummary.count} eBay listings!` : 'No eBay listings found');
   } catch(err) {
     rs._ebayError = 'eBay error: ' + err.message;
     render();
-    showToast('eBay search failed — check console (F12)');
+    showToast('eBay search failed');
   }
 };
 
