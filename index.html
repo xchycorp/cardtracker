@@ -178,6 +178,16 @@ window.gradingDeclaredValue = '';
 window.gradingCompanyChoice = 'PSA';
 let toast = null;
 let charts = {};
+let debugLog = [];
+const MAX_DEBUG = 50;
+
+function dbg(source, msg, data) {
+  const ts = new Date().toLocaleTimeString();
+  const entry = { ts, source, msg, data: data !== undefined ? String(data).substring(0, 200) : '' };
+  debugLog.unshift(entry);
+  if (debugLog.length > MAX_DEBUG) debugLog.pop();
+  console.log(`[${source}] ${msg}`, data !== undefined ? data : '');
+}
 
 function nextId(prefix) {
   if (!D.nextIds) D.nextIds = { C:1,S:1,P:1,G:1,SL:1,E:1,CAP:1 };
@@ -3012,7 +3022,7 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
       if (scanResult.corrected) showToast(`Auto-corrected: ${formatted}`);
       
       // Try TCGdex for image + pricing
-      let tcgImg = '', marketPrice = '';
+      let tcgImg = '', marketPrice = '', priceSource = '';
       try {
         let tcgCards = [];
         let params = [`name=like:${encodeURIComponent(cardName)}`];
@@ -3027,28 +3037,59 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
             tcgImg = detail.image ? detail.image + '/low.webp' : '';
             const tp = detail.pricing?.tcgplayer || {};
             marketPrice = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
+            if (marketPrice) priceSource = 'TCGPlayer';
+            dbg('Bulk', 'TCGdex: ' + (tcgImg ? 'img found' : 'no img') + ', price: ' + (marketPrice || 'none'));
           }
+        } else {
+          dbg('Bulk', 'TCGdex: no card match for ' + cardName);
         }
-      } catch(e) {}
+      } catch(e) { dbg('Bulk', 'TCGdex error: ' + e.message); }
       
-      // Also try eBay if connected
-      let ebayPrice = '';
-      if (window.ebayState.appId && cardName) {
+      // Try PokeTrace for sold data (primary for raw cards)
+      if (window.poketraceState.apiKey && cardName) {
+        try {
+          const ptData = await poketraceSearch(formatted || cardName);
+          const best = pokectraceBestMatch(ptData, formatted || cardName);
+          const nmPrice = poketraceNMPrice(best);
+          if (nmPrice && nmPrice.avg) {
+            marketPrice = nmPrice.avg;
+            priceSource = 'PokeTrace (sold)';
+            dbg('Bulk', 'PokeTrace price: $' + Number(nmPrice.avg).toFixed(2));
+          } else {
+            dbg('Bulk', 'PokeTrace: no NM price for ' + (formatted || cardName));
+          }
+        } catch(e) { dbg('Bulk', 'PokeTrace error: ' + e.message); }
+      } else if (!window.poketraceState.apiKey) {
+        dbg('Bulk', 'PokeTrace: skipped (no key)');
+      }
+      
+      // Fallback to eBay if still no price
+      if (!marketPrice && window.ebayState.appId && cardName) {
         try {
           const setShort = setName.split(' ').slice(0,2).join(' ').replace(/[^a-zA-Z0-9\s]/g,'').trim();
-          const ebayQuery = `${setShort} ${cardName} ${number}`.trim();
+          const ebayQuery = `${setShort} ${cardName} ${number} -PSA -CGC -BGS -SGC -graded -slab`.trim();
           const ebayResults = await ebaySearch(ebayQuery, 10);
           const ebaySummary = ebayPricingSummary(ebayResults);
-          if (ebaySummary) ebayPrice = ebaySummary.median;
-        } catch(e) {}
+          if (ebaySummary) {
+            marketPrice = ebaySummary.median;
+            priceSource = 'eBay (listings)';
+            dbg('Bulk', 'eBay price: $' + Number(ebaySummary.median).toFixed(2));
+          } else {
+            dbg('Bulk', 'eBay: no results for query');
+          }
+        } catch(e) { dbg('Bulk', 'eBay fallback error: ' + e.message); }
+      } else if (!marketPrice) {
+        dbg('Bulk', 'eBay: skipped (' + (!window.ebayState.appId ? 'no key' : 'no card name') + ')');
       }
+      
+      if (!marketPrice) dbg('Bulk', '⚠️ NO PRICE from any source for: ' + formatted);
       
       rs.bulkCards.push({
         img: tcgImg || base64DataUrl,
         cardName: formatted,
         setName: setName,
-        marketPrice: ebayPrice || marketPrice,
-        priceSource: ebayPrice ? 'eBay' : (marketPrice ? 'TCGPlayer' : ''),
+        marketPrice: marketPrice,
+        priceSource: priceSource,
         decision: ''
       });
       
@@ -3188,11 +3229,11 @@ try {
 // eBay OAuth token management
 async function getEbayToken() {
   const eb = window.ebayState;
-  if (!eb.appId || !eb.certId) return null;
-  if (eb.token && Date.now() < eb.tokenExpiry - 300000) return eb.token;
+  if (!eb.appId || !eb.certId) { dbg('eBay', 'No credentials set'); return null; }
+  if (eb.token && Date.now() < eb.tokenExpiry - 300000) { dbg('eBay', 'Using cached token'); return eb.token; }
   try {
     const creds = btoa(`${eb.appId}:${eb.certId}`);
-    // Use CORS proxy for OAuth token request
+    dbg('eBay', 'Requesting new token via allorigins proxy');
     const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.ebay.com/identity/v1/oauth2/token');
     const resp = await fetch(proxyUrl, {
       method: 'POST',
@@ -3206,10 +3247,10 @@ async function getEbayToken() {
     const data = await resp.json();
     eb.token = data.access_token;
     eb.tokenExpiry = Date.now() + (data.expires_in * 1000);
-    console.log('eBay token obtained, expires in', data.expires_in, 'seconds');
+    dbg('eBay', 'Token obtained, expires in ' + data.expires_in + 's');
     return eb.token;
   } catch(e) {
-    console.error('eBay token error:', e);
+    dbg('eBay', 'Token error (proxy1): ' + e.message);
     // Try alternative proxy
     try {
       const creds = btoa(`${eb.appId}:${eb.certId}`);
@@ -3226,10 +3267,10 @@ async function getEbayToken() {
       eb.token = data.access_token;
       eb.tokenExpiry = Date.now() + (data.expires_in * 1000);
       eb._proxyBase = 'https://corsproxy.io/?';
-      console.log('eBay token obtained via corsproxy');
+      dbg('eBay', 'Token obtained via corsproxy fallback');
       return eb.token;
     } catch(e2) {
-      console.error('eBay token error (both proxies failed):', e2);
+      dbg('eBay', 'Token error (both proxies): ' + e2.message);
       return null;
     }
   }
@@ -3238,13 +3279,12 @@ async function getEbayToken() {
 // eBay Browse API search for active listings
 async function ebaySearch(query, limit = 20) {
   const token = await getEbayToken();
-  if (!token) { console.error('eBay: No token'); showToast('eBay authentication failed — check console'); return null; }
+  if (!token) { dbg('eBay', 'Search aborted — no token'); showToast('eBay authentication failed — check console'); return null; }
   try {
     const ebayUrl = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(query)}&limit=${limit}&category_ids=183454&filter=buyingOptions:{FIXED_PRICE|AUCTION}`;
-    // Route through CORS proxy
     const proxyBase = window.ebayState._proxyBase || 'https://api.allorigins.win/raw?url=';
     const url = proxyBase + encodeURIComponent(ebayUrl);
-    console.log('eBay search:', query);
+    dbg('eBay', 'Searching: ' + query);
     const resp = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -3254,14 +3294,14 @@ async function ebaySearch(query, limit = 20) {
     });
     if (!resp.ok) {
       const errBody = await resp.text().catch(()=>'');
-      console.error('eBay search error:', resp.status, errBody);
+      dbg('eBay', 'Search error ' + resp.status, errBody.substring(0, 150));
       return null;
     }
     const data = await resp.json();
-    console.log('eBay results:', data.total, 'items for:', query);
+    dbg('eBay', 'Found ' + (data.total || 0) + ' results for: ' + query);
     return data;
   } catch(e) {
-    console.error('eBay search error:', e);
+    dbg('eBay', 'Search fetch error: ' + e.message);
     return null;
   }
 }
@@ -3306,22 +3346,23 @@ function ebayPricingSummary(results) {
 // ============================================================
 async function poketraceSearch(cardName) {
   const pt = window.poketraceState;
-  if (!pt.apiKey) return null;
+  if (!pt.apiKey) { dbg('PokeTrace', 'No API key set'); return null; }
   try {
     const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(cardName)}&market=US`;
+    dbg('PokeTrace', 'Searching: ' + cardName);
     const resp = await fetch(url, {
       headers: { 'X-API-Key': pt.apiKey }
     });
     if (!resp.ok) {
       const errBody = await resp.text().catch(() => '');
-      console.error('PokeTrace error:', resp.status, errBody);
+      dbg('PokeTrace', 'Error ' + resp.status, errBody.substring(0, 150));
       return null;
     }
     const data = await resp.json();
-    console.log('PokeTrace results:', data.data?.length, 'cards for:', cardName);
+    dbg('PokeTrace', 'Found ' + (data.data?.length || 0) + ' results for: ' + cardName);
     return data;
   } catch(e) {
-    console.error('PokeTrace error:', e);
+    dbg('PokeTrace', 'Fetch error: ' + e.message);
     return null;
   }
 }
@@ -3496,7 +3537,29 @@ function rScanner(m) {
     `:'<div class="empty"><div class="icon">📷</div>Scan cards to build your queue. Review and edit before saving to inventory.</div>'}
   </div>
   
-  ${rNameCorrections()}`;
+  ${rNameCorrections()}
+  ${rDebugPanel()}`;
+}
+
+function rDebugPanel() {
+  return '<details style="margin-top:14px">' +
+    '<summary style="font-size:11px;color:var(--text-faint);cursor:pointer;padding:8px 0;user-select:none">🐛 Debug Log (' + debugLog.length + ' entries)</summary>' +
+    '<div class="panel" style="margin-top:4px;padding:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+        '<span style="font-size:11px;color:var(--text-dim)">API calls and errors — most recent first</span>' +
+        '<button class="btn btn-sm" onclick="debugLog=[];render()" style="font-size:10px">Clear</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin-bottom:8px;font-size:10px;color:var(--text-dim)">' +
+        '<span>🔑 Keys: Anthropic ' + (window.scannerState.apiKey ? '✅' : '❌') + ' · eBay ' + (window.ebayState.appId ? '✅' : '❌') + ' · PokeTrace ' + (window.poketraceState.apiKey ? '✅' : '❌') + '</span>' +
+      '</div>' +
+      (debugLog.length ? '<div style="max-height:300px;overflow-y:auto;font-family:\'JetBrains Mono\',monospace;font-size:10px;line-height:1.6;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px">' +
+        debugLog.map(function(e) {
+          var color = e.msg.includes('error') || e.msg.includes('Error') || e.msg.includes('failed') || e.msg.includes('⚠️') ? 'var(--red)' : e.msg.includes('Found') || e.msg.includes('price') || e.msg.includes('Token obtained') ? 'var(--green)' : 'var(--text-dim)';
+          return '<div style="border-bottom:1px solid var(--border);padding:2px 0"><span style="color:var(--text-faint)">' + e.ts + '</span> <span style="color:var(--cyan);font-weight:600">[' + e.source + ']</span> <span style="color:' + color + '">' + e.msg + '</span>' + (e.data ? ' <span style="color:var(--text-faint)">' + e.data + '</span>' : '') + '</div>';
+        }).join('') +
+      '</div>' : '<div style="font-size:11px;color:var(--text-faint);text-align:center;padding:20px">No debug entries yet. Scan a card or trigger a price lookup to see API activity here.</div>') +
+    '</div>' +
+  '</details>';
 }
 
 function rNameCorrections() {
