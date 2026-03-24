@@ -4747,7 +4747,9 @@ window.exportThenReset = function() {
 window.ebayCsvState = {
   rows: [],      // parsed import rows
   active: false, // showing import UI
-  rawCsv: null   // raw parsed CSV data
+  rawCsv: null,  // raw parsed CSV data
+  defaultShipCost: '',     // default actual shipping cost per single-item order
+  defaultMultiShipCost: '' // default actual shipping cost per multi-item order
 };
 
 window.openEbayCsvImport = function() {
@@ -4915,6 +4917,7 @@ function parseEbayCsv(text) {
             _cardId: '',
             _linkedInvIdx: undefined,
             _costBasis: 0,
+            _shipCost: 0,
             _skip: false,
             _duplicate: false
           });
@@ -4946,6 +4949,7 @@ function parseEbayCsv(text) {
         _cardId: '',
         _linkedInvIdx: undefined,
         _costBasis: 0,
+        _shipCost: 0,
         _skip: false,
         _duplicate: false
       });
@@ -5017,6 +5021,50 @@ window.ebayCsvToggleSkip = function(rowIdx) {
   render();
 };
 
+window.ebayCsvApplyShipping = function() {
+  const singleCost = parseFloat(window.ebayCsvState.defaultShipCost) || 0;
+  const multiCost = parseFloat(window.ebayCsvState.defaultMultiShipCost) || 0;
+  if (!singleCost && !multiCost) { showToast('Enter at least one shipping cost'); return; }
+  
+  const rows = window.ebayCsvState.rows;
+  
+  // Group rows by order number to identify multi-item orders
+  const orderGroups = {};
+  rows.forEach(function(row, i) {
+    if (row._skip || row._duplicate) return;
+    const orderKey = row.orderNumber || ('single_' + i);
+    if (!orderGroups[orderKey]) orderGroups[orderKey] = [];
+    orderGroups[orderKey].push(row);
+  });
+  
+  let singleCount = 0, multiCount = 0;
+  
+  // Apply shipping cost per order
+  Object.keys(orderGroups).forEach(function(orderKey) {
+    const group = orderGroups[orderKey];
+    if (group.length === 1) {
+      // Single-item order — use single cost
+      group[0]._shipCost = singleCost ? Number(singleCost.toFixed(2)) : 0;
+      if (singleCost) singleCount++;
+    } else {
+      // Multi-item order — use multi cost, distributed proportionally
+      const costForOrder = multiCost || singleCost; // fall back to single if multi not set
+      const totalSold = group.reduce(function(s, r) { return s + r.soldFor; }, 0);
+      group.forEach(function(row) {
+        const ratio = totalSold > 0 ? row.soldFor / totalSold : 1 / group.length;
+        row._shipCost = Number((costForOrder * ratio).toFixed(2));
+      });
+      if (costForOrder) multiCount++;
+    }
+  });
+  
+  render();
+  var msg = 'Shipping applied:';
+  if (singleCount) msg += ' ' + singleCount + ' single orders @ $' + singleCost.toFixed(2);
+  if (multiCount) msg += (singleCount ? ' ·' : '') + ' ' + multiCount + ' multi-item orders @ $' + (multiCost || singleCost).toFixed(2) + ' (split proportionally)';
+  showToast(msg);
+};
+
 window.ebayCsvSaveAll = function() {
   const rows = window.ebayCsvState.rows.filter(r => !r._skip && !r._duplicate);
   if (!rows.length) { showToast('No rows to import — all skipped or duplicates'); return; }
@@ -5034,7 +5082,7 @@ window.ebayCsvSaveAll = function() {
       salePrice: row.soldFor,
       platformFee: row.ebayFee,
       consignFee: 0,
-      shipCost: 0, // left blank for manual entry
+      shipCost: row._shipCost || 0,
       costBasis: row._costBasis || 0,
       cardType: 'Pokemon',
       buyer: row.buyerUsername || '',
@@ -5115,7 +5163,18 @@ function rEbayCsvImport() {
       '<span style="color:var(--green)">✓ ' + linked + '/' + active.length + ' linked</span>' +
       '<span>💰 ' + fmtD(totalSales) + ' total sales · ' + fmtD(totalFees) + ' fees</span>' +
     '</div>' +
-    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Link each sale to an inventory card using the search box. Shipping cost is left blank — fill in later from your records.</div>' +
+    '<div style="display:flex;gap:16px;margin-bottom:14px;align-items:flex-end;flex-wrap:wrap">' +
+      '<div style="flex:0 0 auto">' +
+        '<div style="font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">Single-Item Order Ship Cost</div>' +
+        '<input type="number" id="ebcsv_default_ship" class="qe-input" style="width:90px;font-size:12px" step="0.01" placeholder="e.g. 4.50" value="' + (window.ebayCsvState.defaultShipCost || '') + '" oninput="window.ebayCsvState.defaultShipCost=this.value">' +
+      '</div>' +
+      '<div style="flex:0 0 auto">' +
+        '<div style="font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">Multi-Item Order Ship Cost</div>' +
+        '<input type="number" id="ebcsv_default_multi_ship" class="qe-input" style="width:90px;font-size:12px" step="0.01" placeholder="e.g. 9.00" value="' + (window.ebayCsvState.defaultMultiShipCost || '') + '" oninput="window.ebayCsvState.defaultMultiShipCost=this.value">' +
+      '</div>' +
+      '<button class="btn btn-sm" onclick="ebayCsvApplyShipping()" style="font-size:10px">Apply to All</button>' +
+      '<div style="font-size:10px;color:var(--text-dim);flex:1">Your actual cost to ship. Multi-item cost is split proportionally by sale price across items in the order.</div>' +
+    '</div>' +
     '<div style="overflow-x:auto"><table class="qe-table" style="min-width:1000px"><thead><tr>' +
       '<th style="width:30px"></th>' +
       '<th style="width:200px">eBay Item Title</th>' +
@@ -5126,6 +5185,7 @@ function rEbayCsvImport() {
       '<th style="width:80px">Tax</th>' +
       '<th style="width:80px">eBay Fee</th>' +
       '<th style="width:80px">Cost Basis</th>' +
+      '<th style="width:80px">Ship Cost</th>' +
       '<th style="width:50px"></th>' +
     '</tr></thead><tbody>' +
     rows.map(function(row, i) {
@@ -5150,6 +5210,7 @@ function rEbayCsvImport() {
         '<td class="r mono" style="font-size:11px;color:var(--text-dim)">' + fmtD(row.ebayTax) + '</td>' +
         '<td class="r mono" style="font-size:11px;color:var(--red)">' + fmtD(row.ebayFee) + '</td>' +
         '<td class="r mono" style="font-size:11px">' + (row._costBasis ? fmtD(row._costBasis) : '<span style="color:var(--text-faint)">—</span>') + '</td>' +
+        '<td class="r mono" style="font-size:11px">' + (row._shipCost ? fmtD(row._shipCost) : '<span style="color:var(--text-faint)">—</span>') + '</td>' +
         '<td>' + (isDupe ? '' : '<button class="btn btn-sm" onclick="ebayCsvToggleSkip(' + i + ')" style="font-size:9px;padding:2px 6px" title="' + (isSkipped ? 'Include' : 'Skip') + '">' + (isSkipped ? '↩️' : '🚫') + '</button>') + '</td>' +
       '</tr>';
     }).join('') +
