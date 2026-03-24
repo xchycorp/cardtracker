@@ -865,6 +865,24 @@ window.saveModal = async function() {
         showToast(`${card.cardName}: → Graded (${card.grade})`);
       }
     }
+    // Auto-mark inventory as Sold when linking a card to a sale on edit
+    if(window.modal.type==='sales' && window.modal.data._linkedInvIdx !== undefined){
+      const card = D.inventory[window.modal.data._linkedInvIdx];
+      if(card && card.status !== 'Sold'){
+        const oldStatus = card.status;
+        card.status = 'Sold';
+        // Copy grade info to sale record
+        if(card.gradingCompany) row.gradingCompany = card.gradingCompany;
+        if(card.grade) row.grade = card.grade;
+        if(card.cardType) row.cardType = card.cardType;
+        // Auto-fill cost basis if empty
+        if(!num(row.costBasis)){
+          row.costBasis = num(card.costBasis) + num(card.gradingCost);
+        }
+        row.cardId = card.id;
+        showToast(`${card.cardName}: ${oldStatus} → Sold`);
+      }
+    }
     showToast('Record updated & synced');
   }
   saveData();window.modal=null;render();
