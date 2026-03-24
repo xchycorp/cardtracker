@@ -3386,15 +3386,30 @@ function pokectraceBestMatch(ptData, cardName) {
   return ptData.data[0];
 }
 
-// Extract NM sold price from PokeTrace card
+// Extract best sold price from PokeTrace card — tries NM first, falls back to other conditions
 function poketraceNMPrice(card) {
   if (!card || !card.prices) return null;
-  // Prefer eBay NM avg (actual sold prices)
-  const ebayNM = card.prices?.ebay?.NEAR_MINT;
-  if (ebayNM && ebayNM.avg) return { avg: ebayNM.avg, low: ebayNM.low, high: ebayNM.high, saleCount: ebayNM.saleCount, avg7d: ebayNM.avg7d, avg30d: ebayNM.avg30d, lastUpdated: ebayNM.lastUpdated, source: 'PokeTrace (eBay sold)' };
-  // Fallback to TCGPlayer NM
-  const tcgNM = card.prices?.tcgplayer?.NEAR_MINT;
-  if (tcgNM && tcgNM.avg) return { avg: tcgNM.avg, low: tcgNM.low, high: tcgNM.high, saleCount: tcgNM.saleCount, avg7d: tcgNM.avg7d, avg30d: tcgNM.avg30d, lastUpdated: tcgNM.lastUpdated, source: 'PokeTrace (TCGPlayer sold)' };
+  
+  // Priority order: NM > LP > MP > HP > Damaged
+  const conditions = ['NEAR_MINT', 'LIGHTLY_PLAYED', 'MODERATELY_PLAYED', 'HEAVILY_PLAYED', 'DAMAGED'];
+  const condLabels = { NEAR_MINT: 'NM', LIGHTLY_PLAYED: 'LP', MODERATELY_PLAYED: 'MP', HEAVILY_PLAYED: 'HP', DAMAGED: 'DMG' };
+  
+  // Try eBay sold prices first (prefer over TCGPlayer)
+  for (const cond of conditions) {
+    const eb = card.prices?.ebay?.[cond];
+    if (eb && eb.avg) {
+      return { avg: eb.avg, low: eb.low, high: eb.high, saleCount: eb.saleCount, avg7d: eb.avg7d, avg30d: eb.avg30d, lastUpdated: eb.lastUpdated, source: 'PokeTrace (eBay sold' + (cond !== 'NEAR_MINT' ? ' · ' + condLabels[cond] : '') + ')' };
+    }
+  }
+  
+  // Fallback to TCGPlayer sold prices
+  for (const cond of conditions) {
+    const tc = card.prices?.tcgplayer?.[cond];
+    if (tc && tc.avg) {
+      return { avg: tc.avg, low: tc.low, high: tc.high, saleCount: tc.saleCount, avg7d: tc.avg7d, avg30d: tc.avg30d, lastUpdated: tc.lastUpdated, source: 'PokeTrace (TCGPlayer sold' + (cond !== 'NEAR_MINT' ? ' · ' + condLabels[cond] : '') + ')' };
+    }
+  }
+  
   return null;
 }
 
@@ -3547,7 +3562,10 @@ function rDebugPanel() {
     '<div class="panel" style="margin-top:4px;padding:12px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
         '<span style="font-size:11px;color:var(--text-dim)">API calls and errors — most recent first</span>' +
-        '<button class="btn btn-sm" onclick="debugLog=[];render()" style="font-size:10px">Clear</button>' +
+        '<div style="display:flex;gap:6px">' +
+          '<button class="btn btn-sm" onclick="copyDebugLog()" style="font-size:10px">📋 Copy</button>' +
+          '<button class="btn btn-sm" onclick="debugLog=[];render()" style="font-size:10px">Clear</button>' +
+        '</div>' +
       '</div>' +
       '<div style="display:flex;gap:8px;margin-bottom:8px;font-size:10px;color:var(--text-dim)">' +
         '<span>🔑 Keys: Anthropic ' + (window.scannerState.apiKey ? '✅' : '❌') + ' · eBay ' + (window.ebayState.appId ? '✅' : '❌') + ' · PokeTrace ' + (window.poketraceState.apiKey ? '✅' : '❌') + '</span>' +
@@ -3561,6 +3579,29 @@ function rDebugPanel() {
     '</div>' +
   '</details>';
 }
+
+window.copyDebugLog = function() {
+  if (!debugLog.length) { showToast('Debug log is empty'); return; }
+  var text = 'CardTracker Debug Log — ' + new Date().toLocaleString() + '\n';
+  text += 'Keys: Anthropic ' + (window.scannerState.apiKey ? 'YES' : 'NO') + ' · eBay ' + (window.ebayState.appId ? 'YES' : 'NO') + ' · PokeTrace ' + (window.poketraceState.apiKey ? 'YES' : 'NO') + '\n';
+  text += '─'.repeat(50) + '\n';
+  debugLog.forEach(function(e) {
+    text += e.ts + ' [' + e.source + '] ' + e.msg + (e.data ? ' ' + e.data : '') + '\n';
+  });
+  navigator.clipboard.writeText(text).then(function() {
+    showToast('Debug log copied to clipboard!');
+  }).catch(function() {
+    // Fallback for older browsers
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('Debug log copied!');
+  });
+};
 
 function rNameCorrections() {
   const corrections = D.nameCorrections || {};
