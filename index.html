@@ -574,6 +574,9 @@ function renderTableRow(type, row, i, s) {
       html += '<option value="' + st + '"' + (row.status === st ? ' disabled' : '') + '>' + st + '</option>';
     });
     html += '</select> ';
+    if (row.status !== 'Sold' && (window.poketraceState.apiKey || window.ebayState.appId)) {
+      html += '<button class="btn btn-sm" onclick="event.stopPropagation();refreshSinglePrice(' + i + ')" title="Refresh price" style="font-size:10px;padding:4px 6px">🔄</button> ';
+    }
   }
   html += '<button class="btn btn-sm" onclick="openEdit(\'' + type + '\',' + i + ')">✏️</button> ';
   html += '<button class="btn btn-sm btn-danger" onclick="if(confirm(\'Delete?\'))delRow(\'' + type + '\',' + i + ')">🗑</button>';
@@ -988,6 +991,97 @@ window.refreshAllMarketValues = async function() {
   saveData();
   render();
   showToast(`Done! ${updated} prices updated, ${failed} couldn't be found`);
+};
+
+// Refresh price for a single inventory card
+window.refreshSinglePrice = async function(idx) {
+  const card = D.inventory[idx];
+  if (!card || !card.cardName) { showToast('No card name'); return; }
+  if (card.status === 'Sold') { showToast('Card is sold'); return; }
+  
+  const hasGrade = card.grade && card.gradingCompany;
+  const hasPT = !!window.poketraceState.apiKey;
+  const hasEB = !!window.ebayState.appId;
+  
+  showToast('Refreshing price for ' + card.cardName.substring(0, 30) + '...');
+  dbg('Refresh', 'Single card: ' + card.cardName + (hasGrade ? ' (' + card.gradingCompany + ' ' + card.grade + ')' : ' (raw)'));
+  
+  try {
+    let gotPrice = false;
+    
+    if (hasGrade && hasEB) {
+      // Graded — use eBay
+      const company = card.gradingCompany.toUpperCase();
+      let query = '';
+      if (company === 'CGC' && (card.grade === '10.1' || card.grade === '11')) {
+        query = card.cardName + ' CGC Pristine 10';
+      } else {
+        query = card.cardName + ' ' + company + ' ' + card.grade;
+      }
+      const results = await ebaySearch(query.trim(), 15);
+      const summary = ebayPricingSummary(results);
+      if (summary && summary.median) {
+        card.marketValue = Number(summary.median.toFixed(2));
+        gotPrice = true;
+        dbg('Refresh', 'eBay price: $' + card.marketValue);
+      }
+    } else if (!hasGrade && hasPT) {
+      // Raw — try PokeTrace first
+      try {
+        const ptData = await poketraceSearch(card.cardName);
+        const best = pokectraceBestMatch(ptData, card.cardName);
+        const nmPrice = poketraceNMPrice(best);
+        if (nmPrice && nmPrice.avg) {
+          card.marketValue = Number(nmPrice.avg.toFixed(2));
+          gotPrice = true;
+          dbg('Refresh', 'PokeTrace price: $' + card.marketValue + ' (' + nmPrice.source + ')');
+        }
+      } catch(e) { dbg('Refresh', 'PokeTrace failed: ' + e.message); }
+      
+      // Fallback to eBay
+      if (!gotPrice && hasEB) {
+        const query = card.cardName + ' -PSA -CGC -BGS -SGC -graded -slab';
+        const results = await ebaySearch(query.trim(), 15);
+        const summary = ebayPricingSummary(results);
+        if (summary && summary.median) {
+          card.marketValue = Number(summary.median.toFixed(2));
+          gotPrice = true;
+          dbg('Refresh', 'eBay fallback price: $' + card.marketValue);
+        }
+      }
+    } else if (!hasGrade && hasEB) {
+      // Raw, no PokeTrace — eBay only
+      const query = card.cardName + ' -PSA -CGC -BGS -SGC -graded -slab';
+      const results = await ebaySearch(query.trim(), 15);
+      const summary = ebayPricingSummary(results);
+      if (summary && summary.median) {
+        card.marketValue = Number(summary.median.toFixed(2));
+        gotPrice = true;
+        dbg('Refresh', 'eBay price: $' + card.marketValue);
+      }
+    } else if (hasGrade && hasPT) {
+      // Graded, no eBay — try PokeTrace anyway
+      const ptData = await poketraceSearch(card.cardName);
+      const best = pokectraceBestMatch(ptData, card.cardName);
+      const nmPrice = poketraceNMPrice(best);
+      if (nmPrice && nmPrice.avg) {
+        card.marketValue = Number(nmPrice.avg.toFixed(2));
+        gotPrice = true;
+      }
+    }
+    
+    if (gotPrice) {
+      saveData();
+      render();
+      showToast(card.cardName.substring(0, 25) + ': $' + card.marketValue);
+    } else {
+      dbg('Refresh', '⚠️ No price found for ' + card.cardName);
+      showToast('No price found for ' + card.cardName.substring(0, 25));
+    }
+  } catch(e) {
+    dbg('Refresh', 'Error: ' + e.message);
+    showToast('Price refresh failed');
+  }
 };
 
 // ============================================================
