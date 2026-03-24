@@ -2814,22 +2814,35 @@ window.researchPokertraceLookup = async function() {
   const rs = window.researchState;
   if (!window.poketraceState.apiKey) return;
   
-  let searchName = '';
+  // Build search query (what we send to PokeTrace API)
+  let searchQuery = '';
+  // Build match name (what we use for scoring — includes set, name, and number)
+  let matchName = '';
+  
   if (rs.selectedCard) {
-    searchName = `${rs.selectedCard.set?rs.selectedCard.set.name:''} ${rs.selectedCard.name||''}`.trim();
+    const setName = rs.selectedCard.set ? rs.selectedCard.set.name : '';
+    const pokeName = rs.selectedCard.name || '';
+    const number = rs.selectedCard.localId || '';
+    // Send set + pokemon name to PokeTrace search
+    searchQuery = `${setName} ${pokeName}`.trim();
+    // Use full formatted name with number for matching
+    matchName = `${setName} ${pokeName} #${number}`.trim();
   } else if (rs._ebayCustomQuery) {
-    searchName = rs._ebayCustomQuery;
+    searchQuery = rs._ebayCustomQuery;
+    matchName = rs.cardName || rs._ebayCustomQuery;
   } else if (rs.cardName) {
-    searchName = rs.cardName;
+    searchQuery = rs.cardName;
+    matchName = rs.cardName;
   }
-  if (!searchName) { showToast('Search for a card first'); return; }
+  if (!searchQuery) { showToast('Search for a card first'); return; }
   
   rs._poketraceError = '';
   showToast('Searching PokeTrace...');
+  dbg('PokeTrace', 'Research lookup — search: "' + searchQuery + '", match against: "' + matchName + '"');
   
   try {
-    const ptData = await poketraceSearch(searchName);
-    const best = pokectraceBestMatch(ptData, searchName);
+    const ptData = await poketraceSearch(searchQuery);
+    const best = pokectraceBestMatch(ptData, matchName);
     if (best) {
       rs._poketraceData = best;
       render();
@@ -3478,12 +3491,13 @@ function pokectraceBestMatch(ptData, cardName) {
   
   const nameLower = (cardName || '').toLowerCase();
   const numMatch = cardName.match(/#(\d+)/);
-  const targetNum = numMatch ? numMatch[1].replace(/^0+/, '') : '';
+  const targetNum = numMatch ? numMatch[1] : '';
+  // Strip leading zeros for comparison but keep original for exact match
+  const targetNumStripped = targetNum.replace(/^0+/, '') || targetNum;
   
   // Extract set name words from the search for set matching
-  // Card names are typically "Set Name Pokemon Name #Number"
   const nameWithoutNum = nameLower.replace(/#\d+.*$/, '').trim();
-  const nameWords = nameWithoutNum.split(/\s+/);
+  const nameWords = nameWithoutNum.split(/\s+/).filter(function(w) { return w.length >= 3; });
   
   // Score each result
   let bestScore = -1;
@@ -3491,30 +3505,32 @@ function pokectraceBestMatch(ptData, cardName) {
   
   ptData.data.forEach(function(card) {
     let score = 0;
-    const cn = (card.cardNumber || '').split('/')[0].replace(/^0+/, '');
+    // Parse the card number from PokeTrace format "013/100" or "231"
+    const rawCN = (card.cardNumber || '').split('/')[0];
+    const cnStripped = rawCN.replace(/^0+/, '') || rawCN;
     const setNameLower = (card.set?.name || '').toLowerCase();
     const setSlugLower = (card.set?.slug || '').toLowerCase();
     const cardNameLower = (card.name || '').toLowerCase();
     
-    // Card number match is important (worth 10 points)
-    if (targetNum && cn === targetNum) {
-      score += 10;
+    // EXACT card number match (most important — worth 20 points)
+    if (targetNum && cnStripped === targetNumStripped) {
+      score += 20;
+    } else if (targetNum) {
+      // Wrong number — apply penalty to push mismatches down
+      score -= 5;
     }
     
     // Set name matching — check if set words appear in the result's set name
     nameWords.forEach(function(word) {
-      if (word.length >= 3) {
-        if (setNameLower.includes(word)) score += 3;
-        else if (setSlugLower.includes(word)) score += 2;
-        else if (cardNameLower.includes(word)) score += 1;
-      }
+      if (setNameLower.includes(word)) score += 3;
+      else if (setSlugLower.includes(word)) score += 2;
     });
     
-    // Bonus if the card's full name appears in the search
-    if (nameLower.includes(cardNameLower) && cardNameLower.length > 2) score += 5;
+    // Bonus if the pokemon name from the result appears in the search
+    if (cardNameLower.length > 2 && nameLower.includes(cardNameLower)) score += 5;
     
-    // Bonus if set name appears in the search
-    if (setNameLower && nameLower.includes(setNameLower)) score += 8;
+    // Bonus if full set name appears in the search
+    if (setNameLower.length > 3 && nameLower.includes(setNameLower)) score += 8;
     
     if (score > bestScore) {
       bestScore = score;
