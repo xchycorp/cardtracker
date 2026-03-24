@@ -3474,20 +3474,60 @@ async function poketraceSearch(cardName) {
 // Find best matching card from PokeTrace results
 function pokectraceBestMatch(ptData, cardName) {
   if (!ptData || !ptData.data || !ptData.data.length) return null;
-  // If only one result, use it
   if (ptData.data.length === 1) return ptData.data[0];
-  // Try to match by card number if present in the name
+  
+  const nameLower = (cardName || '').toLowerCase();
   const numMatch = cardName.match(/#(\d+)/);
-  if (numMatch) {
-    const targetNum = numMatch[1];
-    const match = ptData.data.find(c => {
-      const cn = (c.cardNumber || '').split('/')[0].replace(/^0+/, '');
-      return cn === targetNum || cn === targetNum.replace(/^0+/, '');
+  const targetNum = numMatch ? numMatch[1].replace(/^0+/, '') : '';
+  
+  // Extract set name words from the search for set matching
+  // Card names are typically "Set Name Pokemon Name #Number"
+  const nameWithoutNum = nameLower.replace(/#\d+.*$/, '').trim();
+  const nameWords = nameWithoutNum.split(/\s+/);
+  
+  // Score each result
+  let bestScore = -1;
+  let bestCard = null;
+  
+  ptData.data.forEach(function(card) {
+    let score = 0;
+    const cn = (card.cardNumber || '').split('/')[0].replace(/^0+/, '');
+    const setNameLower = (card.set?.name || '').toLowerCase();
+    const setSlugLower = (card.set?.slug || '').toLowerCase();
+    const cardNameLower = (card.name || '').toLowerCase();
+    
+    // Card number match is important (worth 10 points)
+    if (targetNum && cn === targetNum) {
+      score += 10;
+    }
+    
+    // Set name matching — check if set words appear in the result's set name
+    nameWords.forEach(function(word) {
+      if (word.length >= 3) {
+        if (setNameLower.includes(word)) score += 3;
+        else if (setSlugLower.includes(word)) score += 2;
+        else if (cardNameLower.includes(word)) score += 1;
+      }
     });
-    if (match) return match;
+    
+    // Bonus if the card's full name appears in the search
+    if (nameLower.includes(cardNameLower) && cardNameLower.length > 2) score += 5;
+    
+    // Bonus if set name appears in the search
+    if (setNameLower && nameLower.includes(setNameLower)) score += 8;
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestCard = card;
+    }
+  });
+  
+  // Log what we matched for debugging
+  if (bestCard) {
+    dbg('PokeTrace', 'Best match: ' + (bestCard.name || '') + ' #' + ((bestCard.cardNumber || '').split('/')[0]) + ' from ' + (bestCard.set?.name || '') + ' (score: ' + bestScore + ')');
   }
-  // Return first result as fallback
-  return ptData.data[0];
+  
+  return bestCard || ptData.data[0];
 }
 
 // Extract best sold price from PokeTrace card — tries NM first, falls back to other conditions
