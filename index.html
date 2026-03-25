@@ -324,7 +324,7 @@ window.render = function render() {
     }</div>
     ${window.modal?rModal():''}
     <div class="toast" id="toast" style="display:${toast?'block':'none'}">${toast||''}</div>
-    <div class="footer">CardTracker · Real-time cloud sync · Data shared between all users · <a href="#" onclick="event.preventDefault();exportThenReset()" style="color:var(--red);text-decoration:none;font-size:11px">Reset All Data</a></div>
+    <div class="footer">CardTracker · Real-time cloud sync · Data shared between all users${(function(){try{const lb=window.localStorage?.getItem('_ctLastAutoBackup');return lb?' · Last backup: '+lb:' · No backup yet';}catch(e){return'';}})()}<br><a href="#" onclick="event.preventDefault();exportThenReset()" style="color:var(--red);text-decoration:none;font-size:11px">Reset All Data</a></div>
     <input type="file" id="fileIn" accept=".xlsx,.xls" style="display:none" onchange="handleImport(event)">
     <input type="file" id="ebayCsvIn" accept=".csv" style="display:none" onchange="handleEbayCsvImport(event)">
     <input type="file" id="receiptScanInput" accept="image/*" capture="environment" style="display:none" onchange="handleReceiptScan(event)">
@@ -3899,40 +3899,37 @@ window.copyDebugLog = function() {
 function rNameCorrections() {
   const corrections = D.nameCorrections || {};
   const keys = Object.keys(corrections);
-  if (!keys.length) {
-    return '<div class="panel" style="margin-top:14px">' +
-      '<h3 style="color:var(--text-dim)">🧠 Name Corrections <span style="font-size:12px;color:var(--text-faint);font-weight:400">(0 learned)</span></h3>' +
-      '<div style="font-size:12px;color:var(--text-dim)">When you scan a card and edit its name before saving, the correction is remembered. Next time the AI identifies the same card, your corrected name is applied automatically.</div>' +
-    '</div>';
-  }
   
-  const sorted = keys.sort((a, b) => corrections[a].localeCompare(corrections[b]));
-  
-  return '<div class="panel" style="margin-top:14px">' +
-    '<h3><span style="color:var(--cyan)">🧠 Name Corrections</span><span class="right">' +
-      '<span style="font-size:12px;color:var(--text-dim)">' + keys.length + ' learned</span> ' +
-      '<button class="btn btn-sm btn-danger" onclick="clearAllCorrections()" style="font-size:10px">Clear All</button>' +
-    '</span></h3>' +
-    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">When you edit a scanned card name, the correction is saved and auto-applied on future scans of the same card. Synced to cloud.</div>' +
-    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
-    '<thead><tr>' +
-      '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">AI Identified (Set | Name | #)</th>' +
-      '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">→</th>' +
-      '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Your Corrected Name</th>' +
-      '<th style="padding:6px;border-bottom:1px solid var(--border);width:40px"></th>' +
-    '</tr></thead><tbody>' +
-    sorted.map(function(key) {
-      const parts = key.split('|');
-      const display = parts.map(function(p, idx) { return idx === 0 ? (p || '—') : idx === 1 ? (p || '—') : ('#' + (p || '—')); }).join(' · ');
-      return '<tr>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim);font-size:11px">' + display + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-faint)">→</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:600;color:var(--green)">' + corrections[key] + '</td>' +
-        '<td style="padding:6px 8px;border-bottom:1px solid var(--border)"><button class="btn btn-sm" onclick="deleteCorrection(\'' + key.replace(/'/g, "\\'") + '\')" style="font-size:9px;padding:2px 6px" title="Remove this correction">✕</button></td>' +
-      '</tr>';
-    }).join('') +
-    '</tbody></table></div>' +
-  '</div>';
+  return '<details style="margin-top:14px">' +
+    '<summary style="font-size:11px;color:var(--text-faint);cursor:pointer;padding:8px 0;user-select:none">🧠 Name Corrections (' + keys.length + ' learned)</summary>' +
+    '<div class="panel" style="margin-top:4px;padding:12px">' +
+      (keys.length ? 
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<span style="font-size:11px;color:var(--text-dim)">Edits you\'ve made to scanned names — auto-applied on future scans. Synced to cloud.</span>' +
+          '<button class="btn btn-sm btn-danger" onclick="clearAllCorrections()" style="font-size:10px">Clear All</button>' +
+        '</div>' +
+        '<div style="max-height:250px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">' +
+        '<thead><tr>' +
+          '<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">AI Identified</th>' +
+          '<th style="padding:4px;border-bottom:1px solid var(--border);color:var(--text-faint)">→</th>' +
+          '<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Corrected Name</th>' +
+          '<th style="padding:4px;border-bottom:1px solid var(--border);width:30px"></th>' +
+        '</tr></thead><tbody>' +
+        keys.sort(function(a, b) { return corrections[a].localeCompare(corrections[b]); }).map(function(key) {
+          var parts = key.split('|');
+          var display = parts.map(function(p, idx) { return idx === 0 ? (p || '—') : idx === 1 ? (p || '—') : ('#' + (p || '—')); }).join(' · ');
+          return '<tr>' +
+            '<td style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text-dim);font-size:10px">' + display + '</td>' +
+            '<td style="padding:3px 4px;border-bottom:1px solid var(--border);color:var(--text-faint)">→</td>' +
+            '<td style="padding:3px 8px;border-bottom:1px solid var(--border);font-weight:600;color:var(--green);font-size:10px">' + corrections[key] + '</td>' +
+            '<td style="padding:3px;border-bottom:1px solid var(--border)"><button class="btn btn-sm" onclick="deleteCorrection(\'' + key.replace(/'/g, "\\'") + '\')" style="font-size:9px;padding:1px 5px">✕</button></td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div>'
+      : '<div style="font-size:11px;color:var(--text-dim)">When you scan a card and edit its name before saving, the correction is remembered. Next time the AI identifies the same card, your corrected name is applied automatically.</div>'
+      ) +
+    '</div>' +
+  '</details>';
 }
 
 window.deleteCorrection = function(key) {
@@ -4750,6 +4747,7 @@ window.exportExcel = function() {
   const ncData = Object.keys(nc).map(k => ({scanKey:k, correctedName:nc[k]}));
   mkSheet(ncData,[{v:'Scan Key',field:'scanKey',w:35},{v:'Corrected Name',field:'correctedName',w:35}],'Name Corrections');
   XLSX.writeFile(wb,'CardTracker_Export_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  try { window.localStorage?.setItem('_ctLastAutoBackup', new Date().toISOString().slice(0,10)); } catch(e) {}
   showToast('Full backup exported!');
 };
 
@@ -5619,6 +5617,43 @@ window.exportReceipts = async function() {
 // ============================================================
 render();
 loadFromFirebase();
+
+// Weekly auto-backup — checks on app load, triggers on Mondays (or if 7+ days since last backup)
+setTimeout(function() {
+  try {
+    const lastBackup = window.localStorage?.getItem('_ctLastAutoBackup') || '';
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon
+    
+    if (lastBackup === today) return; // already backed up today
+    
+    let shouldBackup = false;
+    
+    if (!lastBackup) {
+      // Never backed up — do it now
+      shouldBackup = true;
+    } else {
+      const daysSince = Math.floor((now - new Date(lastBackup)) / 86400000);
+      if (daysSince >= 7) {
+        // Been 7+ days — backup regardless of day
+        shouldBackup = true;
+      } else if (dayOfWeek === 1 && lastBackup < today) {
+        // It's Monday and haven't backed up this week
+        shouldBackup = true;
+      }
+    }
+    
+    if (shouldBackup && D.inventory.length > 0) {
+      console.log('Auto-backup triggered — last backup:', lastBackup || 'never');
+      exportExcel();
+      window.localStorage?.setItem('_ctLastAutoBackup', today);
+      showToast('📦 Weekly auto-backup exported!');
+    }
+  } catch(e) {
+    console.error('Auto-backup error:', e);
+  }
+}, 5000); // 5 second delay after app loads
 
 } // end auth check
 </script>
