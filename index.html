@@ -444,10 +444,11 @@ const SCHEMAS = {
     title:'Purchase Log',addLabel:'+ Add Purchase',
     cols:[
       {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'source',l:'Source',w:120},
-      {k:'description',l:'Description',w:180},{k:'category',l:'Category',w:100},
+      {k:'description',l:'Description',w:170},{k:'category',l:'Category',w:100},
       {k:'qty',l:'Qty',w:50,r:1},{k:'unitCost',l:'Unit$',w:80,r:1,render:v=>fmt(num(v))},
       {k:'_total',l:'Total',w:80,r:1,render:(_,row)=>fmt(num(row.qty)*num(row.unitCost))},
-      {k:'grandTotal',l:'Grand Total',w:90,r:1,render:v=>fmt(num(v))}
+      {k:'grandTotal',l:'Grand Total',w:90,r:1,render:v=>fmt(num(v))},
+      {k:'receipt',l:'📎',w:40,render:(_,row)=>{if(row.receipt==='Yes'){const hasImg=getReceiptImage(row.id);return hasImg?`<span style="cursor:pointer;font-size:14px" onclick="event.stopPropagation();viewReceipt('${row.id}')" title="View receipt">🧾</span>`:'<span style="color:var(--green);font-size:10px">Yes</span>';}return'<span style="color:var(--text-faint);font-size:10px">—</span>';}}
     ],
     fields:[
       {k:'description',l:'Item Description',required:true},{k:'date',l:'Date',type:'date'},
@@ -455,7 +456,8 @@ const SCHEMAS = {
       {k:'category',l:'Category',type:'select',opts:['Raw Card','Graded Card','Sealed Product','Supplies']},
       {k:'qty',l:'Quantity',type:'number'},{k:'unitCost',l:'Unit Cost ($)',type:'number'},
       {k:'shipping',l:'Shipping ($)',type:'number'},{k:'tax',l:'Tax ($)',type:'number'},
-      {k:'payMethod',l:'Payment Method'},{k:'notes',l:'Notes',type:'textarea',full:true}
+      {k:'payMethod',l:'Payment Method'},{k:'receipt',l:'Receipt?',type:'select',opts:['Yes','No']},
+      {k:'notes',l:'Notes',type:'textarea',full:true}
     ],
     idPrefix:'P',
     onSave:r=>{r.grandTotal=num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax);}
@@ -590,10 +592,13 @@ function renderTableRow(type, row, i, s) {
 // ============================================================
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
-  const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
+  const isExpenses = type==='expenses';
+  const isPurchases = type==='purchases';
+  const addBtn = isExpenses ? '' : `<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
   const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button>${window.ebayState.appId||window.poketraceState.apiKey?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''}`
     :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openEbayCsvImport()">📥 eBay CSV</button>`
-    :type==='expenses'?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt()">📷 Scan Receipt</button>${getReceiptCount()>0?` <button class="btn btn-sm" onclick="exportReceipts()">📦 Export Receipts</button>`:''}`
+    :isExpenses?`<button class="btn btn-accent btn-sm" onclick="openAdd('expenses')">+ Add Expense</button> <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt('expenses')">📷 Scan Receipt</button>${getReceiptCount()>0?` <button class="btn btn-sm" onclick="exportReceipts()">📦 Export Receipts</button>`:''}`
+    :isPurchases?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt('purchases')">📷 Scan Receipt</button>`
     :'';
   // Apply search and sort
   const filtered = filterData(data, type);
@@ -694,8 +699,8 @@ window.saveSetting = function(key, value) {
 window.openAdd = function(type) { window.modal={type,mode:'add',data:{date:new Date().toISOString().slice(0,10),dateAdded:new Date().toISOString().slice(0,10),dateAcquired:new Date().toISOString().slice(0,10),dateSubmitted:new Date().toISOString().slice(0,10)}};window.editIdx=null;render(); };
 window.openEdit = function(type,idx) {
   window.modal={type,mode:'edit',data:{...D[type][idx]}};window.editIdx=idx;
-  // Load receipt image from localStorage for expenses
-  if (type === 'expenses' && D[type][idx].receipt === 'Yes') {
+  // Load receipt image from localStorage for expenses and purchases
+  if ((type === 'expenses' || type === 'purchases') && D[type][idx].receipt === 'Yes') {
     const img = getReceiptImage(D[type][idx].id);
     if (img) window.modal.data._receiptImg = img;
   }
@@ -751,7 +756,7 @@ function rModal() {
           `<input type="${f.type||'text'}" id="f_${f.k}" value="${window.modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}${f.placeholder?' placeholder="'+f.placeholder+'"':''}>`}
         </div>`;}).join('')}
       </div>
-      ${window.modal.type==='expenses'?`
+      ${window.modal.type==='expenses'||window.modal.type==='purchases'?`
       <div style="margin-top:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">
         <div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:8px">📎 RECEIPT IMAGE</div>
         ${window.modal.data._receiptImg?`
@@ -905,8 +910,8 @@ window.saveModal = async function() {
 };
 
 window.delRow = function(type,idx) {
-  // Clean up receipt image if deleting an expense
-  if (type === 'expenses' && D[type][idx] && D[type][idx].id) {
+  // Clean up receipt image if deleting an expense or purchase
+  if ((type === 'expenses' || type === 'purchases') && D[type][idx] && D[type][idx].id) {
     deleteReceiptImage(D[type][idx].id);
   }
   D[type].splice(idx,1); saveData(); showToast('Record deleted & synced'); render();
@@ -5341,7 +5346,10 @@ function getReceiptCount() {
   } catch(e) { return 0; }
 }
 
-window.scanReceipt = function() {
+window._receiptScanTarget = 'expenses'; // 'expenses' or 'purchases'
+
+window.scanReceipt = function(target) {
+  window._receiptScanTarget = target || 'expenses';
   if (!window.scannerState.apiKey) {
     showToast('Set your Anthropic API key in the Scanner tab first');
     return;
@@ -5350,7 +5358,7 @@ window.scanReceipt = function() {
   const existing = document.getElementById('receipt-action-picker');
   if (existing) { existing.remove(); return; }
   
-  const btn = document.querySelector('[onclick="scanReceipt()"]');
+  const btn = document.querySelector('[onclick="scanReceipt(\'' + window._receiptScanTarget + '\')"]');
   if (!btn) { document.getElementById('receiptScanInput').click(); return; }
   const rect = btn.getBoundingClientRect();
   
@@ -5375,6 +5383,7 @@ window.handleReceiptScan = async function(event) {
   if (!file) return;
   event.target.value = '';
   
+  const target = window._receiptScanTarget || 'expenses';
   showToast('📸 Reading receipt...');
   
   const reader = new FileReader();
@@ -5397,6 +5406,33 @@ window.handleReceiptScan = async function(event) {
       const storageImg = await compressImage(base64DataUrl, 600);
       
       const ss = window.scannerState;
+      
+      // Different prompts for expenses vs purchases
+      const expensePrompt = `Read this receipt and extract the purchase details. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
+{"vendor":"Store/Company Name","date":"YYYY-MM-DD","amount":00.00,"description":"Brief description of what was purchased","category":"one of: Shipping Supplies, Packaging, Software, Table Fee, Travel, Storage, Marketing, Insurance, Other","payMethod":"Cash, Credit Card, Debit Card, PayPal, or other method if visible","items":[{"name":"item name","qty":1,"price":0.00}],"tax":0.00,"subtotal":0.00,"total":0.00,"notes":"any other relevant details"}
+For the category, use your best judgment based on these Pokemon card business categories:
+- Shipping Supplies: boxes, mailers, tape, bubble wrap, labels, stamps, postage
+- Packaging: toploaders, sleeves, penny sleeves, card savers, team bags, one-touch cases
+- Software: any software subscriptions, apps, digital tools
+- Table Fee: card show table fees, convention fees, booth rental
+- Travel: gas, parking, tolls, hotel, flights for card shows
+- Storage: storage units, shelving, organizers
+- Marketing: advertising, business cards, promotional items
+- Insurance: shipping insurance, business insurance
+- Other: anything that doesn't fit above
+Use the TOTAL amount (including tax) as the "amount" field.
+If you cannot read the receipt clearly: {"error":"Cannot read receipt","notes":"description of what you see"}`;
+
+      const purchasePrompt = `Read this receipt and extract the purchase details for a Pokemon card business inventory purchase. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
+{"vendor":"Store/Company Name","date":"YYYY-MM-DD","items":[{"name":"item name","qty":1,"price":0.00}],"subtotal":0.00,"tax":0.00,"shipping":0.00,"total":0.00,"payMethod":"Cash, Credit Card, Debit Card, PayPal, or other method if visible","category":"one of: Raw Card, Graded Card, Sealed Product, Supplies","sourceType":"one of: eBay, Card Show, LCS, Online Store, Private Sale","notes":"any other relevant details"}
+For category, identify what type of items were purchased:
+- Sealed Product: booster boxes, ETBs, booster packs, collection boxes, blisters
+- Raw Card: individual ungraded cards
+- Graded Card: PSA, CGC, BGS slabbed cards
+- Supplies: toploaders, sleeves, card savers, shipping materials
+Use the TOTAL amount (including tax) as the "total" field.
+If you cannot read the receipt clearly: {"error":"Cannot read receipt","notes":"description of what you see"}`;
+
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -5412,20 +5448,7 @@ window.handleReceiptScan = async function(event) {
             role: 'user',
             content: [
               { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
-              { type: 'text', text: `Read this receipt and extract the purchase details. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
-{"vendor":"Store/Company Name","date":"YYYY-MM-DD","amount":00.00,"description":"Brief description of what was purchased","category":"one of: Shipping Supplies, Packaging, Software, Table Fee, Travel, Storage, Marketing, Insurance, Other","payMethod":"Cash, Credit Card, Debit Card, PayPal, or other method if visible","items":[{"name":"item name","qty":1,"price":0.00}],"tax":0.00,"subtotal":0.00,"total":0.00,"notes":"any other relevant details"}
-For the category, use your best judgment based on these Pokemon card business categories:
-- Shipping Supplies: boxes, mailers, tape, bubble wrap, labels, stamps, postage
-- Packaging: toploaders, sleeves, penny sleeves, card savers, team bags, one-touch cases
-- Software: any software subscriptions, apps, digital tools
-- Table Fee: card show table fees, convention fees, booth rental
-- Travel: gas, parking, tolls, hotel, flights for card shows
-- Storage: storage units, shelving, organizers
-- Marketing: advertising, business cards, promotional items
-- Insurance: shipping insurance, business insurance
-- Other: anything that doesn't fit above
-Use the TOTAL amount (including tax) as the "amount" field.
-If you cannot read the receipt clearly: {"error":"Cannot read receipt","notes":"description of what you see"}` }
+              { type: 'text', text: target === 'purchases' ? purchasePrompt : expensePrompt }
             ]
           }]
         })
@@ -5446,26 +5469,56 @@ If you cannot read the receipt clearly: {"error":"Cannot read receipt","notes":"
         return;
       }
       
-      // Open expense modal pre-filled with receipt data
-      window.modal = {
-        type: 'expenses',
-        mode: 'add',
-        data: {
-          description: receiptInfo.description || (receiptInfo.items && receiptInfo.items.length ? receiptInfo.items.map(function(it) { return it.name; }).join(', ') : ''),
-          date: receiptInfo.date || new Date().toISOString().slice(0, 10),
-          category: receiptInfo.category || 'Other',
-          amount: receiptInfo.amount || receiptInfo.total || 0,
-          payMethod: receiptInfo.payMethod || '',
-          vendor: receiptInfo.vendor || '',
-          receipt: 'Yes',
-          notes: (receiptInfo.items && receiptInfo.items.length > 1 ? 'Items: ' + receiptInfo.items.map(function(it) { return it.name + (it.qty > 1 ? ' x' + it.qty : '') + ' $' + Number(it.price).toFixed(2); }).join(', ') : '') + (receiptInfo.tax ? (receiptInfo.items && receiptInfo.items.length > 1 ? ' · ' : '') + 'Tax: $' + Number(receiptInfo.tax).toFixed(2) : ''),
-          _receiptImg: storageImg,
-          _receiptScanned: true
-        }
-      };
+      if (target === 'purchases') {
+        // Open purchase modal pre-filled
+        const items = receiptInfo.items || [];
+        const firstItem = items[0] || {};
+        const allItemNames = items.map(function(it) { return it.name + (it.qty > 1 ? ' x' + it.qty : ''); }).join(', ');
+        const totalQty = items.reduce(function(s, it) { return s + (it.qty || 1); }, 0);
+        const unitCost = totalQty > 0 ? (receiptInfo.subtotal || receiptInfo.total || 0) / totalQty : (receiptInfo.total || 0);
+        
+        window.modal = {
+          type: 'purchases',
+          mode: 'add',
+          data: {
+            description: allItemNames || receiptInfo.notes || '',
+            date: receiptInfo.date || new Date().toISOString().slice(0, 10),
+            source: receiptInfo.vendor || '',
+            sourceType: receiptInfo.sourceType || 'Online Store',
+            category: receiptInfo.category || 'Sealed Product',
+            qty: totalQty || 1,
+            unitCost: Number((unitCost).toFixed(2)) || 0,
+            shipping: receiptInfo.shipping || 0,
+            tax: receiptInfo.tax || 0,
+            payMethod: receiptInfo.payMethod || '',
+            notes: items.length > 1 ? 'Items: ' + items.map(function(it) { return it.name + (it.qty > 1 ? ' x' + it.qty : '') + ' $' + Number(it.price).toFixed(2); }).join(', ') : '',
+            _receiptImg: storageImg,
+            _receiptScanned: true
+          }
+        };
+      } else {
+        // Open expense modal pre-filled
+        window.modal = {
+          type: 'expenses',
+          mode: 'add',
+          data: {
+            description: receiptInfo.description || (receiptInfo.items && receiptInfo.items.length ? receiptInfo.items.map(function(it) { return it.name; }).join(', ') : ''),
+            date: receiptInfo.date || new Date().toISOString().slice(0, 10),
+            category: receiptInfo.category || 'Other',
+            amount: receiptInfo.amount || receiptInfo.total || 0,
+            payMethod: receiptInfo.payMethod || '',
+            vendor: receiptInfo.vendor || '',
+            receipt: 'Yes',
+            notes: (receiptInfo.items && receiptInfo.items.length > 1 ? 'Items: ' + receiptInfo.items.map(function(it) { return it.name + (it.qty > 1 ? ' x' + it.qty : '') + ' $' + Number(it.price).toFixed(2); }).join(', ') : '') + (receiptInfo.tax ? (receiptInfo.items && receiptInfo.items.length > 1 ? ' · ' : '') + 'Tax: $' + Number(receiptInfo.tax).toFixed(2) : ''),
+            _receiptImg: storageImg,
+            _receiptScanned: true
+          }
+        };
+      }
+      
       window.editIdx = null;
       render();
-      showToast('Receipt scanned: ' + (receiptInfo.vendor || 'Unknown') + ' — $' + Number(receiptInfo.amount || receiptInfo.total || 0).toFixed(2));
+      showToast('Receipt scanned: ' + (receiptInfo.vendor || 'Unknown') + ' — $' + Number(receiptInfo.total || receiptInfo.amount || 0).toFixed(2));
       
     } catch(err) {
       showToast('Receipt scan error: ' + err.message);
@@ -5479,40 +5532,45 @@ If you cannot read the receipt clearly: {"error":"Cannot read receipt","notes":"
 const _originalSaveModal = window.saveModal;
 window.saveModal = async function() {
   // Capture receipt image before the normal save clears the modal
-  const hasReceiptImg = window.modal && window.modal.type === 'expenses' && window.modal.data && window.modal.data._receiptImg;
+  const isReceiptType = window.modal && (window.modal.type === 'expenses' || window.modal.type === 'purchases');
+  const hasReceiptImg = isReceiptType && window.modal.data && window.modal.data._receiptImg;
   const receiptImg = hasReceiptImg ? window.modal.data._receiptImg : null;
-  const isNewExpense = window.modal && window.modal.mode === 'add' && window.modal.type === 'expenses';
+  const modalType = window.modal ? window.modal.type : '';
+  const isNew = window.modal && window.modal.mode === 'add';
   
-  // For new expenses, we need to know what ID will be assigned
-  let nextExpId = null;
-  if (isNewExpense && receiptImg) {
-    nextExpId = 'E' + String(D.nextIds?.E || 1).padStart(3, '0');
+  // For new records, we need to know what ID will be assigned
+  let nextRecId = null;
+  if (isNew && receiptImg) {
+    const prefix = modalType === 'purchases' ? 'P' : 'E';
+    const nextNum = D.nextIds?.[prefix] || 1;
+    nextRecId = prefix + String(nextNum).padStart(3, '0');
   }
   
-  // Also handle attaching receipt to existing expense on edit
-  const isEditExpense = window.modal && window.modal.mode === 'edit' && window.modal.type === 'expenses';
-  let editExpId = null;
-  if (isEditExpense && receiptImg) {
-    editExpId = window.modal.data.id || null;
+  // For edits, use the existing ID
+  let editRecId = null;
+  if (!isNew && receiptImg) {
+    editRecId = window.modal.data.id || null;
   }
   
   // Run the original save
   await _originalSaveModal();
   
   // After save, store the receipt image locally
-  if (receiptImg && (nextExpId || editExpId)) {
-    const expId = nextExpId || editExpId;
-    saveReceiptImage(expId, receiptImg);
-    console.log('Receipt image saved for', expId);
+  if (receiptImg && (nextRecId || editRecId)) {
+    const recId = nextRecId || editRecId;
+    saveReceiptImage(recId, receiptImg);
+    console.log('Receipt image saved for', recId);
   }
 };
 
-window.viewReceipt = function(expenseId) {
-  const img = getReceiptImage(expenseId);
+window.viewReceipt = function(recId) {
+  const img = getReceiptImage(recId);
   if (!img) { showToast('Receipt image not found on this device'); return; }
   
-  const expense = D.expenses.find(function(e) { return e.id === expenseId; });
-  const title = expense ? (expense.vendor || '') + ' — ' + (expense.date || '') + ' — ' + fmtD(num(expense.amount)) : expenseId;
+  const expense = D.expenses.find(function(e) { return e.id === recId; });
+  const purchase = !expense ? D.purchases.find(function(p) { return p.id === recId; }) : null;
+  const rec = expense || purchase;
+  const title = rec ? ((rec.vendor || rec.source || '') + ' — ' + (rec.date || '') + ' — ' + fmtD(num(rec.amount || rec.grandTotal || 0))) : recId;
   
   const overlay = document.createElement('div');
   overlay.className = 'modal-bg';
@@ -5521,9 +5579,9 @@ window.viewReceipt = function(expenseId) {
     '<h2 style="display:flex;justify-content:space-between;align-items:center"><span>🧾 Receipt: ' + title + '</span><button class="close" onclick="this.closest(\'.modal-bg\').remove()">&times;</button></h2>' +
     '<img src="' + img + '" style="max-width:100%;max-height:70vh;border-radius:8px;border:1px solid var(--border)">' +
     '<div class="form-actions" style="margin-top:12px">' +
-      '<button class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this receipt image?\')){deleteReceiptImage(\'' + expenseId + '\');this.closest(\'.modal-bg\').remove();showToast(\'Receipt image deleted\')}">🗑 Delete Image</button>' +
+      '<button class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this receipt image?\')){deleteReceiptImage(\'' + recId + '\');this.closest(\'.modal-bg\').remove();showToast(\'Receipt image deleted\')}">🗑 Delete Image</button>' +
       '<button class="btn" onclick="this.closest(\'.modal-bg\').remove()">Close</button>' +
-      '<a class="btn btn-accent" href="' + img + '" download="Receipt_' + expenseId + '.jpg" style="text-decoration:none">💾 Download</a>' +
+      '<a class="btn btn-accent" href="' + img + '" download="Receipt_' + recId + '.jpg" style="text-decoration:none">💾 Download</a>' +
     '</div>' +
   '</div>';
   document.getElementById('app').appendChild(overlay);
@@ -5556,7 +5614,7 @@ window.handleReceiptAttach = function(event) {
 window.exportReceipts = async function() {
   const receiptCount = getReceiptCount();
   if (!receiptCount) { showToast('No receipt images stored on this device'); return; }
-  if (!confirm('Export ' + receiptCount + ' receipt images as a ZIP file?\n\nImages are named by date, vendor, and expense ID for easy reference.')) return;
+  if (!confirm('Export ' + receiptCount + ' receipt images as a ZIP file?\n\nImages are named by date, vendor/source, and record ID for easy reference.')) return;
   
   showToast('Building ZIP file...');
   
@@ -5566,21 +5624,24 @@ window.exportReceipts = async function() {
     let count = 0;
     
     // Build a manifest CSV
-    let manifest = 'Expense ID,Date,Vendor,Category,Amount,Description,Payment Method\n';
+    let manifest = 'Record ID,Type,Date,Vendor/Source,Category,Amount,Description,Payment Method\n';
     
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (!key.startsWith('_ctReceipt_')) continue;
       
-      const expId = key.replace('_ctReceipt_', '');
+      const recId = key.replace('_ctReceipt_', '');
       const imgData = localStorage.getItem(key);
       if (!imgData) continue;
       
-      // Find matching expense for naming
-      const expense = D.expenses.find(function(e) { return e.id === expId; });
-      const date = expense ? (expense.date || 'nodate') : 'nodate';
-      const vendor = expense ? (expense.vendor || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 20) : 'unknown';
-      const filename = date + '_' + vendor + '_' + expId + '.jpg';
+      // Find matching expense or purchase for naming
+      const expense = D.expenses.find(function(e) { return e.id === recId; });
+      const purchase = !expense ? D.purchases.find(function(p) { return p.id === recId; }) : null;
+      const rec = expense || purchase;
+      const recType = expense ? 'Expense' : (purchase ? 'Purchase' : 'Unknown');
+      const date = rec ? (rec.date || 'nodate') : 'nodate';
+      const vendor = rec ? ((rec.vendor || rec.source || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 20)) : 'unknown';
+      const filename = date + '_' + vendor + '_' + recId + '.jpg';
       
       // Extract base64 data
       const b64match = imgData.match(/^data:image\/\w+;base64,(.+)$/);
@@ -5589,7 +5650,9 @@ window.exportReceipts = async function() {
         count++;
         
         if (expense) {
-          manifest += '"' + expId + '","' + (expense.date || '') + '","' + (expense.vendor || '').replace(/"/g, '""') + '","' + (expense.category || '') + '",' + num(expense.amount) + ',"' + (expense.description || '').replace(/"/g, '""') + '","' + (expense.payMethod || '') + '"\n';
+          manifest += '"' + recId + '","Expense","' + (expense.date || '') + '","' + (expense.vendor || '').replace(/"/g, '""') + '","' + (expense.category || '') + '",' + num(expense.amount) + ',"' + (expense.description || '').replace(/"/g, '""') + '","' + (expense.payMethod || '') + '"\n';
+        } else if (purchase) {
+          manifest += '"' + recId + '","Purchase","' + (purchase.date || '') + '","' + (purchase.source || '').replace(/"/g, '""') + '","' + (purchase.category || '') + '",' + num(purchase.grandTotal) + ',"' + (purchase.description || '').replace(/"/g, '""') + '","' + (purchase.payMethod || '') + '"\n';
         }
       }
     }
