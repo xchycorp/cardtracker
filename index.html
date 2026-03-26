@@ -329,6 +329,7 @@ window.render = function render() {
     <input type="file" id="ebayCsvIn" accept=".csv" style="display:none" onchange="handleEbayCsvImport(event)">
     <input type="file" id="receiptScanInput" accept="image/*" capture="environment" style="display:none" onchange="handleReceiptScan(event)">
     <input type="file" id="receiptUploadInput" accept="image/*" style="display:none" onchange="handleReceiptScan(event)">
+    <input type="file" id="gradeUpdateIn" accept=".xlsx,.xls" style="display:none" onchange="handleGradeUpdate(event)">
   `;
   if(window.tab==='overview') renderCharts(m);
 };
@@ -593,7 +594,7 @@ function renderTableRow(type, row, i, s) {
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
-  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button>${window.ebayState.appId||window.poketraceState.apiKey?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''}`
+  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openGradeUpdate()">📥 Grade Update</button>${window.ebayState.appId||window.poketraceState.apiKey?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''}`
     :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openEbayCsvImport()">📥 eBay CSV</button>`
     :type==='expenses'?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt('expenses')">📷 Scan Receipt</button>${getReceiptCount()>0?` <button class="btn btn-sm" onclick="exportReceipts()">📦 Export Receipts</button>`:''}`
     :type==='purchases'?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt('purchases')">📷 Scan Receipt</button>`
@@ -617,6 +618,7 @@ function rTable(type,m) {
 
   // Show quick entry mode if active
   if(type==='inventory' && window.quickEntryMode) return rQuickEntry(data, addBtn, quickAddBtn);
+  if(type==='inventory' && window.gradeUpdateState.active) return rGradeUpdate();
   if(type==='sales' && window.quickSalesMode) return rQuickSales(data, addBtn, quickAddBtn);
   if(type==='sales' && window.ebayCsvState.active) return rEbayCsvImport();
 
@@ -5683,6 +5685,349 @@ window.exportReceipts = async function() {
     console.error('Receipt export error:', err);
   }
 };
+
+// ============================================================
+// GRADE UPDATE IMPORTER
+// ============================================================
+window.gradeUpdateState = {
+  rows: [],
+  active: false
+};
+
+window.openGradeUpdate = function() {
+  document.getElementById('gradeUpdateIn').click();
+};
+
+window.handleGradeUpdate = function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const wb = XLSX.read(ev.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      
+      if (!json.length) { showToast('No data found in file'); return; }
+      
+      // Parse each row
+      const rows = [];
+      json.forEach(function(r) {
+        const rawGrade = String(r['PSA Grade'] || '').trim();
+        const certId = String(r['PSA Certification Id'] || '').trim();
+        const rawCard = String(r['Card'] || '').trim();
+        const qty = parseInt(r['Quantity']) || 1;
+        const subId = String(r['PSA Submission Id'] || '').trim();
+        
+        if (!rawGrade || !certId) return; // Skip rows without grade results
+        
+        // Extract numeric grade from PSA text like "MINT 9", "NEAR MINT-MINT 8"
+        var gradeNum = '';
+        var gradeMatch = rawGrade.match(/(\d+\.?\d*)\s*$/);
+        if (gradeMatch) gradeNum = gradeMatch[1];
+        
+        // Convert PSA card name to our format for matching
+        var matchName = convertPsaName(rawCard);
+        
+        for (var q = 0; q < qty; q++) {
+          rows.push({
+            rawCard: rawCard,
+            matchName: matchName,
+            grade: gradeNum,
+            gradeText: rawGrade,
+            certId: certId,
+            subId: subId,
+            _matchedIdx: -1,
+            _matchedCard: null,
+            _confidence: ''
+          });
+        }
+      });
+      
+      if (!rows.length) { showToast('No graded cards found in file (missing PSA Grade or Cert ID)'); return; }
+      
+      // Try to match each row to inventory
+      var usedIndices = new Set();
+      rows.forEach(function(row) {
+        var bestIdx = -1;
+        var bestScore = 0;
+        var bestConfidence = '';
+        
+        D.inventory.forEach(function(card, idx) {
+          if (usedIndices.has(idx)) return;
+          if (card.status !== 'Submitted') return;
+          if ((card.gradingCompany || '').toUpperCase() !== 'PSA') return;
+          
+          var score = 0;
+          var cardNameLower = (card.cardName || '').toLowerCase();
+          var matchLower = (row.matchName || '').toLowerCase();
+          var rawLower = (row.rawCard || '').toLowerCase();
+          
+          // Check if PSA submission ID matches (stored in notes)
+          var notes = (card.notes || '').toLowerCase();
+          if (row.subId && notes.includes(row.subId)) score += 10;
+          
+          // Name similarity
+          if (cardNameLower === matchLower) {
+            score += 20;
+          } else {
+            // Extract key parts for fuzzy matching
+            var cardWords = cardNameLower.replace(/#\d+/g, '').replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(function(w) { return w.length >= 3; });
+            var matchWords = matchLower.replace(/#\d+/g, '').replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(function(w) { return w.length >= 3; });
+            
+            var commonWords = 0;
+            cardWords.forEach(function(w) { if (matchWords.indexOf(w) >= 0) commonWords++; });
+            score += commonWords * 3;
+            
+            // Also check raw PSA name against our card name
+            var rawWords = rawLower.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(function(w) { return w.length >= 3; });
+            rawWords.forEach(function(w) { if (cardNameLower.includes(w)) score += 1; });
+          }
+          
+          // Card number match
+          var ourNum = (card.cardName || '').match(/#(\w+)/);
+          var theirNum = (row.matchName || '').match(/#(\w+)/);
+          if (ourNum && theirNum && ourNum[1] === theirNum[1]) score += 15;
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestIdx = idx;
+            bestConfidence = score >= 30 ? 'high' : score >= 15 ? 'medium' : 'low';
+          }
+        });
+        
+        if (bestIdx >= 0 && bestScore >= 5) {
+          row._matchedIdx = bestIdx;
+          row._matchedCard = D.inventory[bestIdx];
+          row._confidence = bestConfidence;
+          usedIndices.add(bestIdx);
+        }
+      });
+      
+      window.gradeUpdateState.rows = rows;
+      window.gradeUpdateState.active = true;
+      window.tab = 'inventory';
+      render();
+      
+      var matched = rows.filter(function(r) { return r._matchedIdx >= 0; }).length;
+      showToast('Found ' + rows.length + ' graded cards, ' + matched + ' matched to inventory');
+      
+    } catch(err) {
+      showToast('Error reading file: ' + err.message);
+      console.error('Grade update error:', err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+};
+
+function convertPsaName(raw) {
+  if (!raw) return '';
+  var s = String(raw).trim();
+  
+  // Remove year prefix
+  s = s.replace(/^\d{4}\s+/, '');
+  // Remove "POKEMON" prefix
+  s = s.replace(/^POKEMON\s+/i, '');
+  
+  // PSA set name mappings
+  var setMap = {
+    'GAME BASE II': 'Base Set 2',
+    'GAME': 'Base Set',
+    'ROCKET': 'Team Rocket',
+    'FOSSIL': 'Fossil',
+    'JUNGLE': 'Jungle',
+    'GYM CHALLENGE': 'Gym Challenge',
+    'GYM HEROES': 'Gym Heroes',
+    'NEO GENESIS': 'Neo Genesis',
+    'NEO DISCOVERY': 'Neo Discovery',
+    'NEO REVELATION': 'Neo Revelation',
+    'NEO DESTINY': 'Neo Destiny',
+    'LEGENDARY COLLECTION': 'Legendary Collection',
+    'GAME MOVIE': 'Promo'
+  };
+  
+  var setName = '';
+  var remainder = s;
+  // Try longest match first
+  var setKeys = Object.keys(setMap).sort(function(a, b) { return b.length - a.length; });
+  for (var i = 0; i < setKeys.length; i++) {
+    if (s.toUpperCase().startsWith(setKeys[i])) {
+      setName = setMap[setKeys[i]];
+      remainder = s.substring(setKeys[i].length).trim();
+      break;
+    }
+  }
+  
+  // Extract card number (standalone number at start of remainder)
+  var cardNumber = '';
+  var numMatch = remainder.match(/^(\d+)\s+/);
+  if (numMatch) {
+    cardNumber = numMatch[1];
+    remainder = remainder.substring(numMatch[0].length).trim();
+  }
+  
+  // Clean up card name
+  var cardName = remainder
+    .replace(/-HOLO/gi, '')
+    .replace(/\*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // Title case
+  cardName = cardName.split(' ').map(function(w) {
+    if (w.length <= 2) return w.toLowerCase();
+    return w.charAt(0).toUpperCase() + w.substring(1).toLowerCase();
+  }).join(' ');
+  
+  // Handle edition
+  var edition = '';
+  if (/1ST EDITION/i.test(cardName)) {
+    edition = '1st Edition';
+    cardName = cardName.replace(/1st edition/gi, '').trim();
+  }
+  if (/SHADOWLESS/i.test(cardName)) {
+    edition = 'Shadowless';
+    cardName = cardName.replace(/shadowless/gi, '').trim();
+  }
+  
+  // Fix specific names
+  cardName = cardName.replace(/\s+/g, ' ').trim();
+  
+  var formatted = (setName + ' ' + cardName).trim();
+  if (cardNumber) formatted += ' #' + cardNumber;
+  if (edition) formatted += ' ' + edition;
+  
+  return formatted;
+}
+
+window.gradeUpdateApply = function() {
+  var rows = window.gradeUpdateState.rows;
+  var matched = rows.filter(function(r) { return r._matchedIdx >= 0; });
+  if (!matched.length) { showToast('No matched cards to update'); return; }
+  
+  if (!confirm('Update ' + matched.length + ' cards with PSA grades?\n\nThis will change status to Graded and apply the grade.')) return;
+  
+  var updated = 0;
+  matched.forEach(function(row) {
+    var card = D.inventory[row._matchedIdx];
+    if (!card) return;
+    
+    card.status = 'Graded';
+    card.grade = row.grade;
+    card.gradingCompany = 'PSA';
+    // Add cert ID to notes
+    var certNote = 'PSA Cert: ' + row.certId;
+    if (card.notes && card.notes.indexOf(certNote) < 0) {
+      card.notes = (card.notes ? card.notes + ' · ' : '') + certNote;
+    } else if (!card.notes) {
+      card.notes = certNote;
+    }
+    updated++;
+  });
+  
+  saveData();
+  window.gradeUpdateState.active = false;
+  window.gradeUpdateState.rows = [];
+  render();
+  showToast(updated + ' card' + (updated > 1 ? 's' : '') + ' updated with PSA grades & synced!');
+};
+
+window.gradeUpdateCancel = function() {
+  window.gradeUpdateState.active = false;
+  window.gradeUpdateState.rows = [];
+  render();
+};
+
+window.gradeUpdateUnmatch = function(rowIdx) {
+  window.gradeUpdateState.rows[rowIdx]._matchedIdx = -1;
+  window.gradeUpdateState.rows[rowIdx]._matchedCard = null;
+  window.gradeUpdateState.rows[rowIdx]._confidence = '';
+  render();
+};
+
+window.gradeUpdateManualMatch = function(rowIdx, invIdx) {
+  var card = D.inventory[invIdx];
+  var row = window.gradeUpdateState.rows[rowIdx];
+  if (!card || !row) return;
+  row._matchedIdx = invIdx;
+  row._matchedCard = card;
+  row._confidence = 'manual';
+  var resultsEl = document.getElementById('gu-picker-' + rowIdx);
+  if (resultsEl) resultsEl.style.display = 'none';
+  render();
+};
+
+window.gradeUpdateFilterPicker = function(rowIdx, val) {
+  var resultsEl = document.getElementById('gu-picker-' + rowIdx);
+  if (!resultsEl) return;
+  if (!val || val.length < 1) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+  var term = val.toLowerCase();
+  var matches = D.inventory.filter(function(c) {
+    return c.status === 'Submitted' && (
+      (c.cardName || '').toLowerCase().includes(term) || (c.id || '').toLowerCase().includes(term)
+    );
+  }).slice(0, 6);
+  if (!matches.length) { resultsEl.innerHTML = '<div class="picker-item" style="color:var(--text-dim)">No match</div>'; resultsEl.style.display = 'block'; return; }
+  resultsEl.innerHTML = matches.map(function(c) {
+    return '<div class="picker-item" onclick="gradeUpdateManualMatch(' + rowIdx + ',' + D.inventory.indexOf(c) + ')"><strong>' + (c.id || '') + '</strong> — ' + (c.cardName || '') + '</div>';
+  }).join('');
+  resultsEl.style.display = 'block';
+};
+
+function rGradeUpdate() {
+  var rows = window.gradeUpdateState.rows;
+  var matched = rows.filter(function(r) { return r._matchedIdx >= 0; }).length;
+  var unmatched = rows.length - matched;
+  
+  return '<div class="panel">' +
+    '<h3><span>📥 PSA Grade Update</span><span class="right">' +
+      '<button class="btn btn-sm" onclick="gradeUpdateCancel()">✕ Cancel</button> ' +
+      '<button class="btn btn-accent btn-sm" onclick="gradeUpdateApply()">✅ Apply ' + matched + ' Grades</button>' +
+    '</span></h3>' +
+    '<div style="display:flex;gap:16px;margin-bottom:14px;font-size:12px;color:var(--text-dim)">' +
+      '<span>📦 ' + rows.length + ' graded cards</span>' +
+      '<span style="color:var(--green)">✓ ' + matched + ' matched</span>' +
+      (unmatched ? '<span style="color:var(--yellow)">⚠️ ' + unmatched + ' unmatched</span>' : '') +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Review matches below. Unmatched cards can be linked manually using the search box. Cards will be updated to Graded status with the PSA grade.</div>' +
+    '<div style="overflow-x:auto"><table class="qe-table" style="min-width:900px"><thead><tr>' +
+      '<th style="width:30px">#</th>' +
+      '<th style="width:200px">PSA Card Name</th>' +
+      '<th style="width:70px">Grade</th>' +
+      '<th style="width:100px">Cert ID</th>' +
+      '<th style="width:30px">→</th>' +
+      '<th style="width:250px">Matched Inventory Card</th>' +
+      '<th style="width:70px">Confidence</th>' +
+    '</tr></thead><tbody>' +
+    rows.map(function(row, i) {
+      var confColor = row._confidence === 'high' ? 'var(--green)' : row._confidence === 'medium' ? 'var(--yellow)' : row._confidence === 'manual' ? 'var(--cyan)' : 'var(--red)';
+      var confLabel = row._confidence === 'high' ? '✓ High' : row._confidence === 'medium' ? '~ Medium' : row._confidence === 'manual' ? '✓ Manual' : '✗ None';
+      
+      return '<tr style="' + (row._matchedIdx >= 0 ? 'background:rgba(0,214,143,.04)' : '') + '">' +
+        '<td class="mono" style="color:var(--text-dim);font-size:10px">' + (i + 1) + '</td>' +
+        '<td><div style="font-size:11px;font-weight:600">' + (row.rawCard || '').substring(0, 45) + '</div>' +
+          '<div style="font-size:9px;color:var(--text-faint)">Converted: ' + (row.matchName || '') + '</div></td>' +
+        '<td style="font-weight:700;color:var(--yellow);font-size:13px">PSA ' + (row.grade || '?') + '</td>' +
+        '<td class="mono" style="font-size:10px;color:var(--text-dim)">' + (row.certId || '') + '</td>' +
+        '<td style="color:var(--text-faint)">→</td>' +
+        '<td>' + (row._matchedIdx >= 0 ?
+          '<div style="font-size:11px"><span style="color:var(--green)">✓ ' + (row._matchedCard.id || '') + '</span> ' + (row._matchedCard.cardName || '').substring(0, 30) + ' <button class="btn btn-sm" onclick="gradeUpdateUnmatch(' + i + ')" style="font-size:9px;padding:2px 6px">✕</button></div>' :
+          '<div style="position:relative"><input type="text" class="qe-input" placeholder="Search submitted cards..." oninput="gradeUpdateFilterPicker(' + i + ',this.value)" onfocus="gradeUpdateFilterPicker(' + i + ',this.value)" onkeydown="pickerKeyHandler(event,\'gu-picker-' + i + '\')" autocomplete="off" style="font-size:11px">' +
+          '<div id="gu-picker-' + i + '" class="picker-results" style="min-width:320px;z-index:2000"></div></div>'
+        ) + '</td>' +
+        '<td style="font-size:10px;font-weight:600;color:' + confColor + '">' + confLabel + '</td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table></div>' +
+    '<div style="margin-top:12px;display:flex;gap:8px;align-items:center">' +
+      '<span style="flex:1"></span>' +
+      '<button class="btn btn-sm" onclick="gradeUpdateCancel()">Cancel</button> ' +
+      '<button class="btn btn-accent btn-sm" onclick="gradeUpdateApply()">✅ Apply ' + matched + ' Grades</button>' +
+    '</div>' +
+  '</div>';
+}
 
 // ============================================================
 // INIT
