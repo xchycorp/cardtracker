@@ -1787,13 +1787,23 @@ window.modalScanHandle = async function(event) {
 {"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Unlimited or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy"}
 Important: For the number field, use ONLY the card number itself, NOT the set total. For example if the card shows 8/102, return just "8". If it shows 051/193, return just "051".
 
-CRITICAL — Check for these edition/variant indicators very carefully:
-- SHADOWLESS: Look at the RIGHT SIDE of the card art border. If there is NO drop shadow (dark vertical line) on the right edge of the art box, it is Shadowless. Also check the bottom frame — Shadowless cards have no shadow under the card border. Only applies to the original Base Set (1999).
-- 1ST EDITION: Look for a circled "1" stamp with "EDITION" text, usually on the left side of the card below the art.
-- PRE-RELEASE: Look for a "PRERELEASE" or "PRE-RELEASE" stamp, usually in the bottom-right corner of the card art.
-- PROMO: Look for a black star symbol with "PROMO" text, usually where the set symbol would be.
-- BASE SET vs BASE SET 2: Base Set 2 has a "2" inside a Pokeball as its set symbol (right side of card, below art). The original Base Set has no set symbol. Also check copyright — Base Set is 1999, Base Set 2 is 2000.
-- UNLIMITED: If a Base Set card has a shadow on the right side of the art border and NO 1st Edition stamp, it is Unlimited (leave edition as empty string).
+CRITICAL — ALWAYS check the SET SYMBOL on the right side of the card, between the art and the HP. The set symbol determines which set the card belongs to:
+- NO SYMBOL or plain Pokeball = Base Set (check number: /102)
+- POKEBALL WITH "2" = Base Set 2 (check number: /130, copyright 2000)
+- FOSSIL/SKELETON CLAW (looks like a skeletal fist or claw mark) = Fossil (check number: /62)
+- JUNGLE FLOWER (a small flower/plant icon) = Jungle (check number: /64)
+- TEAM ROCKET "R" (a stylized letter R) = Team Rocket (check number: /82)
+- GYM BADGE ICONS = Gym Heroes or Gym Challenge
+- NEO SYMBOLS = Neo Genesis, Neo Discovery, Neo Revelation, Neo Destiny
+The set symbol is the MOST RELIABLE way to identify the set. Do NOT guess based on the Pokemon name alone.
+Also check the card number at the bottom (e.g. 29/62 means Fossil, 14/102 means Base Set).
+
+EDITION/VARIANT indicators:
+- SHADOWLESS: NO drop shadow on the RIGHT edge of the art box border. Only applies to Base Set (1999).
+- 1ST EDITION: Circled "1" stamp with "EDITION" text, left side below the art.
+- PRE-RELEASE: "PRERELEASE" stamp, usually bottom-right of art.
+- PROMO: Black star symbol where the set symbol would be.
+- UNLIMITED: Has shadow on art border + no 1st Edition stamp = leave edition empty.
 
 Include the variant in the edition field. If none apply, leave edition as empty string.
 If not a Pokemon card: {"error":"Not a Pokemon card"}` }
@@ -4164,16 +4174,26 @@ async function scannerIdentify(base64DataUrl) {
 {"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy","language":"English or Japanese etc","notes":"any other notable details"}
 Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
 
-CRITICAL — Check for these edition/variant indicators very carefully:
-- SHADOWLESS: Look at the RIGHT SIDE of the card art border. If there is NO drop shadow (dark vertical line) on the right edge of the art box, it is Shadowless. Also check the bottom frame — no shadow under the card border. Only applies to the original Base Set (1999).
-- 1ST EDITION: Look for a circled "1" stamp with "EDITION" text, usually on the left side below the art.
-- PRE-RELEASE: Look for a "PRERELEASE" or "PRE-RELEASE" stamp, usually in the bottom-right of the card art.
-- PROMO: Look for a black star symbol with "PROMO" text where the set symbol would be.
-- BASE SET vs BASE SET 2: Base Set 2 has a "2" inside a Pokeball as its set symbol. Original Base Set has no set symbol. Copyright: Base Set is 1999, Base Set 2 is 2000.
-- UNLIMITED: If a Base Set card has a shadow on the art border and NO 1st Edition stamp, it is Unlimited (leave edition as empty string).
+CRITICAL — ALWAYS check the SET SYMBOL on the right side of the card, between the art and the HP:
+- NO SYMBOL or plain Pokeball = Base Set (/102)
+- POKEBALL WITH "2" = Base Set 2 (/130, copyright 2000)
+- FOSSIL/SKELETON CLAW = Fossil (/62)
+- JUNGLE FLOWER = Jungle (/64)
+- TEAM ROCKET "R" = Team Rocket (/82)
+- GYM BADGE ICONS = Gym Heroes or Gym Challenge
+- NEO SYMBOLS = Neo Genesis/Discovery/Revelation/Destiny
+The set symbol is the MOST RELIABLE way to identify the set. Do NOT guess based on the Pokemon name alone.
+Also check the card number at the bottom (e.g. 29/62 = Fossil, 14/102 = Base Set).
 
-Include the variant in the edition field. If none apply, leave edition as empty string.
-If this is not a Pokemon card, respond with: {"error":"Not a Pokemon card","notes":"description of what you see"}`
+EDITION/VARIANT indicators:
+- SHADOWLESS: NO drop shadow on RIGHT edge of art box border. Base Set 1999 only.
+- 1ST EDITION: Circled "1" stamp, left side below art.
+- PRE-RELEASE: "PRERELEASE" stamp, bottom-right of art.
+- PROMO: Black star symbol where set symbol would be.
+- UNLIMITED: Has shadow + no 1st Edition stamp = leave edition empty.
+
+Include variant in edition field. If none apply, leave edition as empty string.
+If not a Pokemon card: {"error":"Not a Pokemon card","notes":"description of what you see"}`
             }
           ]
         }]
