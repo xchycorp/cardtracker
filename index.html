@@ -920,15 +920,26 @@ window.refreshAllMarketValues = async function() {
   const hasPT = !!window.poketraceState.apiKey;
   const hasEB = !!window.ebayState.appId;
   if (!hasPT && !hasEB) { showToast('Set PokeTrace or eBay keys in Scanner tab first'); return; }
-  const unsold = D.inventory.filter(c => c.status !== 'Sold');
-  if (!unsold.length) { showToast('No active inventory to refresh'); return; }
-  if (!confirm(`Refresh market values for ${unsold.length} cards?\n\nRaw cards: ${hasPT?'PokeTrace (sold data)':'eBay (active listings)'}\nGraded cards: ${hasEB?'eBay Browse API':'PokeTrace if available'}\n\nThis may take a minute.`)) return;
+  
+  // If a status filter is active, only refresh those cards; otherwise all unsold
+  let cardsToRefresh;
+  let filterLabel;
+  if (window.statusFilter) {
+    cardsToRefresh = D.inventory.filter(c => c.status === window.statusFilter);
+    filterLabel = window.statusFilter;
+  } else {
+    cardsToRefresh = D.inventory.filter(c => c.status !== 'Sold');
+    filterLabel = 'all unsold';
+  }
+  
+  if (!cardsToRefresh.length) { showToast('No cards to refresh in current filter'); return; }
+  if (!confirm(`Refresh market values for ${cardsToRefresh.length} cards (${filterLabel})?\n\nRaw cards: ${hasPT?'PokeTrace (sold data)':'eBay (active listings)'}\nGraded cards: ${hasEB?'eBay Browse API':'PokeTrace if available'}\n\nThis may take a minute.`)) return;
   
   let updated = 0, failed = 0;
-  showToast(`Refreshing prices for ${unsold.length} cards...`);
+  showToast(`Refreshing prices for ${cardsToRefresh.length} cards...`);
   
-  for (let i = 0; i < unsold.length; i++) {
-    const card = unsold[i];
+  for (let i = 0; i < cardsToRefresh.length; i++) {
+    const card = cardsToRefresh[i];
     if (!card.cardName) { failed++; continue; }
     
     try {
@@ -1013,7 +1024,7 @@ window.refreshAllMarketValues = async function() {
       
       // Update progress every 5 cards
       if ((i + 1) % 5 === 0) {
-        showToast(`Progress: ${i + 1}/${unsold.length} cards...`);
+        showToast(`Progress: ${i + 1}/${cardsToRefresh.length} cards...`);
         render();
       }
       
