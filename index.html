@@ -206,6 +206,7 @@ window.searchTerm = '';
 window.sortCol = null;
 window.sortDir = 'asc';
 window.statusFilter = '';
+window.gradingCompanyFilter = '';
 window.quickEntryMode = false;
 window.quickEntryRows = [];
 window.quickSalesMode = false;
@@ -343,7 +344,7 @@ window.render = function render() {
       ${['overview','scanner','research','purchases','sealed','inventory','grading','sales','expenses','capital','financials','analytics'].map(t2=>{
         const labels={overview:'Overview',scanner:'Scanner',research:'Research',inventory:'Inventory',purchases:'Purchases',grading:'Grading',sealed:'Sealed',sales:'Sales',expenses:'Expenses',capital:'Capital',analytics:'Analytics',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
-        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
+        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.gradingCompanyFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
     </div>
     <div id="content">${
@@ -619,10 +620,11 @@ function renderTableRow(type, row, i, s) {
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
-  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openGradeUpdate()">📥 Grade Update</button>`
+  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button>`
     :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openEbayCsvImport()">📥 eBay CSV</button>`
     :type==='expenses'?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt('expenses')">📷 Scan Receipt</button>${getReceiptCount()>0?` <button class="btn btn-sm" onclick="exportReceipts()">📦 Export Receipts</button>`:''}`
     :type==='purchases'?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt('purchases')">📷 Scan Receipt</button>`
+    :type==='grading'?` <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openGradeUpdate()">📥 Grade Update</button>`
     :'';
   // Apply search and sort
   const filtered = filterData(data, type);
@@ -637,13 +639,22 @@ function rTable(type,m) {
       const count = st ? data.filter(r => r.status === st).length : data.length;
       return `<button class="btn btn-sm" style="font-size:10px;padding:4px 10px;${isActive ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : ''}" onclick="window.statusFilter='${st}';render()">${label}<span style="font-size:9px;opacity:.7;margin-left:3px">${count}</span></button>`;
     }).join('')
+  }</div>` : type==='grading' ? `<div style="display:flex;gap:3px;margin-bottom:10px;flex-wrap:wrap">${
+    ['','PSA','CGC','BGS','Other'].map(co => {
+      const isActive = window.gradingCompanyFilter === co;
+      const label = co || 'All';
+      const count = co ? data.filter(r => (r.company || '') === co).length : data.length;
+      if (co && !count) return '';
+      return `<button class="btn btn-sm" style="font-size:10px;padding:4px 10px;${isActive ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : ''}" onclick="window.gradingCompanyFilter='${co}';render()">${label}<span style="font-size:9px;opacity:.7;margin-left:3px">${count}</span></button>`;
+    }).filter(Boolean).join('')
   }</div>` : '';
 
-  const searchBar = `<div class="search-bar"><input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input">${window.searchTerm||window.statusFilter?'<button class="btn btn-sm" onclick="clearSearch()" style="margin-left:6px">✕ Clear</button>':''}<span class="search-count">${window.searchTerm||window.statusFilter?`${sorted.length} of ${data.length}`:''}</span></div>`;
+  const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter;
+  const searchBar = `<div class="search-bar"><input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input">${hasActiveFilter?'<button class="btn btn-sm" onclick="clearSearch()" style="margin-left:6px">✕ Clear</button>':''}<span class="search-count">${hasActiveFilter?`${sorted.length} of ${data.length}`:''}</span></div>`;
 
   // Show quick entry mode if active
   if(type==='inventory' && window.quickEntryMode) return rQuickEntry(data, addBtn, quickAddBtn);
-  if(type==='inventory' && window.gradeUpdateState.active) return rGradeUpdate();
+  if(type==='grading' && window.gradeUpdateState.active) return rGradeUpdate();
   if(type==='sales' && window.quickSalesMode) return rQuickSales(data, addBtn, quickAddBtn);
   if(type==='sales' && window.ebayCsvState.active) return rEbayCsvImport();
 
@@ -2190,13 +2201,17 @@ window.toggleSort = function(col) {
   }
   render();
 };
-window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; render(); };
+window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; render(); };
 
 function filterData(data, type) {
   let result = data;
   // Apply status filter for inventory
   if (type === 'inventory' && window.statusFilter) {
     result = result.filter(row => row.status === window.statusFilter);
+  }
+  // Apply grading company filter for grading tab
+  if (type === 'grading' && window.gradingCompanyFilter) {
+    result = result.filter(row => (row.company || '') === window.gradingCompanyFilter);
   }
   // Apply text search
   if (window.searchTerm) {
@@ -5883,7 +5898,7 @@ window.handleGradeUpdate = function(event) {
       
       window.gradeUpdateState.rows = rows;
       window.gradeUpdateState.active = true;
-      window.tab = 'inventory';
+      window.tab = 'grading';
       render();
       
       var matched = rows.filter(function(r) { return r._matchedIdx >= 0; }).length;
