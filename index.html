@@ -58,11 +58,49 @@ async function loadFromFirebase() {
     firebaseReady = true;
     render();
     showToast('🔄 Connected — data synced from cloud');
+    // Backfill: auto-create grading entries for Submitted cards missing them
+    backfillGradingEntries();
   } catch(e) {
     console.error('Firebase load error:', e);
     firebaseReady = true;
     render();
     showToast('⚠️ Offline mode — using local data');
+  }
+}
+
+function backfillGradingEntries() {
+  let created = 0;
+  D.inventory.forEach(function(card) {
+    if (card.status === 'Submitted' && card.gradingCompany && card.id) {
+      const hasEntry = D.grading.some(function(g) { return g.cardId === card.id; });
+      if (!hasEntry) {
+        D.grading.push({
+          id: nextId('G'),
+          cardName: card.cardName || '',
+          cardId: card.id,
+          company: card.gradingCompany || 'PSA',
+          serviceLevel: '',
+          dateSubmitted: card.dateAdded || '',
+          dateReturned: '',
+          gradingFee: num(card.gradingCost) || 0,
+          shipTo: 0,
+          shipBack: 0,
+          totalCost: num(card.gradingCost) || 0,
+          preCondition: '',
+          gradeReceived: '',
+          preValue: num(card.marketValue) || num(card.costBasis) || 0,
+          postValue: 0,
+          action: 'New Grade',
+          notes: 'Auto-created from backfill'
+        });
+        created++;
+      }
+    }
+  });
+  if (created) {
+    saveData();
+    render();
+    showToast('📋 ' + created + ' grading entries auto-created for Submitted cards');
   }
 }
 
@@ -869,16 +907,23 @@ window.saveModal = async function() {
   }
   else{
     D[window.modal.type][window.editIdx]=row;
-    // Auto-update inventory when grading entry is edited with return date and grade
-    if(window.modal.type==='grading' && row.cardId && row.dateReturned && row.gradeReceived){
+    // Auto-update inventory when grading entry is edited
+    if(window.modal.type==='grading' && row.cardId){
       const card = D.inventory.find(c => c.id === row.cardId);
-      if(card && (card.status === 'Submitted' || card.status === 'Raw')){
-        card.status = 'Graded';
-        card.grade = row.gradeReceived;
+      if(card){
+        // Always sync grading cost back to inventory
         card.gradingCost = num(row.totalCost);
-        card.gradingCompany = row.company || '';
-        if(num(row.postValue)) card.marketValue = num(row.postValue);
-        showToast(`${card.cardName}: → Graded (${card.grade})`);
+        card.gradingCompany = row.company || card.gradingCompany || '';
+        
+        // If grade received and return date filled in, update status to Graded
+        if(row.dateReturned && row.gradeReceived){
+          if(card.status === 'Submitted' || card.status === 'Raw'){
+            card.status = 'Graded';
+            card.grade = row.gradeReceived;
+            if(num(row.postValue)) card.marketValue = num(row.postValue);
+            showToast(`${card.cardName}: → Graded (${card.grade})`);
+          }
+        }
       }
     }
     // Auto-mark inventory as Sold when linking a card to a sale on edit
@@ -4822,7 +4867,41 @@ window.handleImport = function(e) {
         ncRows.forEach(r=>{if(r['Scan Key']&&r['Corrected Name'])D.nameCorrections[r['Scan Key']]=r['Corrected Name'];});
       }
 
-      saveData();showToast(`Import complete! ${tA} added, ${tU} updated — synced to cloud`);render();
+      // Auto-create Grading tab entries for Submitted cards that don't have one
+      let gradingCreated = 0;
+      D.inventory.forEach(function(card) {
+        if (card.status === 'Submitted' && card.gradingCompany && card.id) {
+          // Check if a grading entry already exists for this card
+          const hasEntry = D.grading.some(function(g) { return g.cardId === card.id; });
+          if (!hasEntry) {
+            D.grading.push({
+              id: nextId('G'),
+              cardName: card.cardName || '',
+              cardId: card.id,
+              company: card.gradingCompany || 'PSA',
+              serviceLevel: '',
+              dateSubmitted: card.dateAdded || '',
+              dateReturned: '',
+              gradingFee: num(card.gradingCost) || 0,
+              shipTo: 0,
+              shipBack: 0,
+              totalCost: num(card.gradingCost) || 0,
+              preCondition: '',
+              gradeReceived: '',
+              preValue: num(card.marketValue) || num(card.costBasis) || 0,
+              postValue: 0,
+              action: 'New Grade',
+              notes: 'Auto-created from import'
+            });
+            gradingCreated++;
+          }
+        }
+      });
+
+      let msg = `Import complete! ${tA} added, ${tU} updated`;
+      if (gradingCreated) msg += `, ${gradingCreated} grading entries auto-created`;
+      msg += ' — synced to cloud';
+      saveData();showToast(msg);render();
     }catch(err){alert('Error importing: '+err.message);}
   };
   reader.readAsArrayBuffer(file);e.target.value='';
@@ -5907,23 +5986,39 @@ window.gradeUpdateApply = function() {
   var matched = rows.filter(function(r) { return r._matchedIdx >= 0; });
   if (!matched.length) { showToast('No matched cards to update'); return; }
   
-  if (!confirm('Update ' + matched.length + ' cards with PSA grades?\n\nThis will change status to Graded and apply the grade.')) return;
+  if (!confirm('Update ' + matched.length + ' cards with PSA grades?\n\nThis will change status to Graded and apply the grade in both Inventory and Grading tabs.')) return;
   
   var updated = 0;
+  var gradingUpdated = 0;
   matched.forEach(function(row) {
     var card = D.inventory[row._matchedIdx];
     if (!card) return;
     
+    // Update inventory card
     card.status = 'Graded';
     card.grade = row.grade;
     card.gradingCompany = 'PSA';
-    // Add cert ID to notes
     var certNote = 'PSA Cert: ' + row.certId;
     if (card.notes && card.notes.indexOf(certNote) < 0) {
       card.notes = (card.notes ? card.notes + ' · ' : '') + certNote;
     } else if (!card.notes) {
       card.notes = certNote;
     }
+    
+    // Update linked Grading tab entry
+    var gradingEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+    if (gradingEntry) {
+      gradingEntry.gradeReceived = row.grade;
+      gradingEntry.dateReturned = new Date().toISOString().slice(0, 10);
+      if (row.certId) {
+        var gCertNote = 'PSA Cert: ' + row.certId;
+        if (!gradingEntry.notes || gradingEntry.notes.indexOf(gCertNote) < 0) {
+          gradingEntry.notes = (gradingEntry.notes ? gradingEntry.notes + ' · ' : '') + gCertNote;
+        }
+      }
+      gradingUpdated++;
+    }
+    
     updated++;
   });
   
@@ -5931,7 +6026,7 @@ window.gradeUpdateApply = function() {
   window.gradeUpdateState.active = false;
   window.gradeUpdateState.rows = [];
   render();
-  showToast(updated + ' card' + (updated > 1 ? 's' : '') + ' updated with PSA grades & synced!');
+  showToast(updated + ' card' + (updated > 1 ? 's' : '') + ' updated with PSA grades' + (gradingUpdated ? ', ' + gradingUpdated + ' grading entries synced' : '') + '!');
 };
 
 window.gradeUpdateCancel = function() {
