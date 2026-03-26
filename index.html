@@ -59,7 +59,7 @@ async function loadFromFirebase() {
     render();
     showToast('🔄 Connected — data synced from cloud');
     // Backfill: auto-create grading entries for Submitted cards missing them
-    backfillGradingEntries();
+    try { backfillGradingEntries(); } catch(e) { console.error('Backfill error:', e); }
   } catch(e) {
     console.error('Firebase load error:', e);
     firebaseReady = true;
@@ -114,7 +114,6 @@ function backfillGradingEntries() {
     if (created) msg.push(created + ' grading entries auto-created');
     if (datesFixed) msg.push(datesFixed + ' card dates backfilled');
     showToast('📋 ' + msg.join(', '));
-  }
   }
 }
 
