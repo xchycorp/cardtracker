@@ -4548,7 +4548,17 @@ function rYearEndInventory(m) {
   return '<div class="panel" style="margin-top:14px">' +
     '<h3><span style="color:var(--green)">📦 Year-End Inventory Report</span><span class="right">' +
       '<select onchange="window._yeirYear=parseInt(this.value);render()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:4px 8px;font-size:12px;font-family:\'DM Sans\',sans-serif">' +
-      [2024, 2025, 2026, 2027].map(function(y) { return '<option value="' + y + '"' + (y === year ? ' selected' : '') + '>' + y + '</option>'; }).join('') +
+      (function(){
+        var cy = new Date().getFullYear();
+        var minYear = cy;
+        D.inventory.forEach(function(c) {
+          var d = c.dateAdded || c.datePurchased || '';
+          if (d) { var y = parseInt(d.slice(0,4)); if (y && y < minYear) minYear = y; }
+        });
+        var years = [];
+        for (var y = minYear; y <= cy + 1; y++) years.push(y);
+        return years.map(function(y) { return '<option value="' + y + '"' + (y === year ? ' selected' : '') + '>' + y + '</option>'; }).join('');
+      })() +
       '</select> ' +
       '<button class="btn btn-sm" onclick="exportInventoryReport()" style="font-size:10px">📄 Export PDF</button>' +
     '</span></h3>' +
