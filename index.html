@@ -70,7 +70,17 @@ async function loadFromFirebase() {
 
 function backfillGradingEntries() {
   let created = 0;
+  let datesFixed = 0;
+  const today = new Date().toISOString().slice(0, 10);
+  
   D.inventory.forEach(function(card) {
+    // Backfill dates on cards with no dateAdded
+    if (!card.dateAdded) {
+      card.dateAdded = card.datePurchased || today;
+      datesFixed++;
+    }
+    
+    // Backfill grading entries for Submitted cards
     if (card.status === 'Submitted' && card.gradingCompany && card.id) {
       const hasEntry = D.grading.some(function(g) { return g.cardId === card.id; });
       if (!hasEntry) {
@@ -80,7 +90,7 @@ function backfillGradingEntries() {
           cardId: card.id,
           company: card.gradingCompany || 'PSA',
           serviceLevel: '',
-          dateSubmitted: card.dateAdded || '',
+          dateSubmitted: card.dateAdded || today,
           dateReturned: '',
           gradingFee: num(card.gradingCost) || 0,
           shipTo: 0,
@@ -97,10 +107,14 @@ function backfillGradingEntries() {
       }
     }
   });
-  if (created) {
+  if (created || datesFixed) {
     saveData();
     render();
-    showToast('📋 ' + created + ' grading entries auto-created for Submitted cards');
+    var msg = [];
+    if (created) msg.push(created + ' grading entries auto-created');
+    if (datesFixed) msg.push(datesFixed + ' card dates backfilled');
+    showToast('📋 ' + msg.join(', '));
+  }
   }
 }
 
@@ -422,7 +436,7 @@ const SCHEMAS = {
   inventory: {
     title:'Card Inventory',addLabel:'+ Add Card',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:90,type:'date'},{k:'cardName',l:'Card Name',w:160},
+      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:70,render:v=>{if(!v)return'—';const parts=String(v).split('-');if(parts.length>=2)return parts[1]+'/'+parts[0].slice(2);return v;}},{k:'cardName',l:'Card Name',w:160},
       {k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
       {k:'grade',l:'Grade',w:90,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';return(co||gr)?`<strong style="color:var(--yellow)">${co}${co&&gr?' ':''}${gr}</strong>`:'—';}},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
@@ -4283,6 +4297,7 @@ window.scannerSaveAll = function() {
       cardName: card.cardName || '',
       cardType: card.cardType || 'Pokemon',
       status: 'Raw',
+      dateAdded: new Date().toISOString().slice(0,10),
       datePurchased: new Date().toISOString().slice(0,10),
       costBasis: parseFloat(card.costBasis) || 0,
       marketValue: parseFloat(card.marketValue) || 0,
@@ -4885,8 +4900,13 @@ window.handleImport = function(e) {
       }
 
       // Auto-create Grading tab entries for Submitted cards that don't have one
+      const importToday = new Date().toISOString().slice(0, 10);
       let gradingCreated = 0;
       D.inventory.forEach(function(card) {
+        // Stamp date on any card missing one
+        if (!card.dateAdded) {
+          card.dateAdded = card.datePurchased || importToday;
+        }
         if (card.status === 'Submitted' && card.gradingCompany && card.id) {
           // Check if a grading entry already exists for this card
           const hasEntry = D.grading.some(function(g) { return g.cardId === card.id; });
