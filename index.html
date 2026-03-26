@@ -3933,7 +3933,7 @@ function rScanner(m) {
                 ${card.img?`<img src="${card.img}" style="width:40px;height:56px;object-fit:contain;border-radius:4px">`:''}
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
-                <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" onchange="window.scannerState.queue[${i}].cardName=this.value" style="min-width:200px">
+                <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" onchange="window.scannerState.queue[${i}].cardName=this.value;if(window.scannerState.queue[${i}]._scanKey&&this.value!==window.scannerState.queue[${i}]._originalName){saveNameCorrection(window.scannerState.queue[${i}]._scanKey,window.scannerState.queue[${i}]._originalName,this.value)}" style="min-width:200px">
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
                 <input type="number" class="qe-input" value="${card.costBasis||''}" onchange="window.scannerState.queue[${i}].costBasis=this.value" step="0.01" style="width:80px" placeholder="0.00">
