@@ -890,7 +890,9 @@ window.saveModal = async function() {
         const oldStatus = card.status;
         if(window.modal.type==='grading'){
           card.status = 'Submitted';
-          showToast(`${card.cardName}: ${oldStatus} → Submitted`);
+          card.gradingCompany = row.company || card.gradingCompany || '';
+          card.gradingCost = num(row.totalCost) || card.gradingCost || 0;
+          showToast(`${card.cardName}: ${oldStatus} → Submitted (${card.gradingCompany})`);
         } else if(window.modal.type==='sales'){
           card.status = 'Sold';
           showToast(`${card.cardName}: ${oldStatus} → Sold`);
