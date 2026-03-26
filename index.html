@@ -3913,8 +3913,8 @@ function rScanner(m) {
           <thead><tr>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Image</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Card Name</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Market $</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cost $</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Market $</th>
             <th style="padding:8px;border-bottom:1px solid var(--border)"></th>
           </tr></thead>
           <tbody>
@@ -3926,10 +3926,10 @@ function rScanner(m) {
                 <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" onchange="window.scannerState.queue[${i}].cardName=this.value" style="min-width:200px">
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
-                <input type="number" class="qe-input" value="${card.marketValue||''}" onchange="window.scannerState.queue[${i}].marketValue=this.value" step="0.01" style="width:80px" placeholder="0.00">
+                <input type="number" class="qe-input" value="${card.costBasis||''}" onchange="window.scannerState.queue[${i}].costBasis=this.value" step="0.01" style="width:80px" placeholder="0.00">
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
-                <input type="number" class="qe-input" value="${card.costBasis||''}" onchange="window.scannerState.queue[${i}].costBasis=this.value" step="0.01" style="width:80px" placeholder="0.00">
+                <input type="number" class="qe-input" value="${card.marketValue||''}" onchange="window.scannerState.queue[${i}].marketValue=this.value" step="0.01" style="width:80px" placeholder="0.00">
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
                 <button class="btn btn-sm" onclick="scannerRemoveFromQueue(${i})" title="Remove">✕</button>
