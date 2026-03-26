@@ -1785,8 +1785,17 @@ window.modalScanHandle = async function(event) {
               { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
               { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
 {"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Unlimited or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy"}
-Important: For the number field, use ONLY the card number itself, NOT the set total. For example if the card shows 8/102, return just "8". If it shows 051/193, return just "051". If it shows sv4-6, return just "6".
-Check carefully for edition stamps - look for a 1st Edition symbol (circled 1), Pre-Release stamp, Promo star, or Shadowless indicators. Include any special variant in the edition field.
+Important: For the number field, use ONLY the card number itself, NOT the set total. For example if the card shows 8/102, return just "8". If it shows 051/193, return just "051".
+
+CRITICAL — Check for these edition/variant indicators very carefully:
+- SHADOWLESS: Look at the RIGHT SIDE of the card art border. If there is NO drop shadow (dark vertical line) on the right edge of the art box, it is Shadowless. Also check the bottom frame — Shadowless cards have no shadow under the card border. Only applies to the original Base Set (1999).
+- 1ST EDITION: Look for a circled "1" stamp with "EDITION" text, usually on the left side of the card below the art.
+- PRE-RELEASE: Look for a "PRERELEASE" or "PRE-RELEASE" stamp, usually in the bottom-right corner of the card art.
+- PROMO: Look for a black star symbol with "PROMO" text, usually where the set symbol would be.
+- BASE SET vs BASE SET 2: Base Set 2 has a "2" inside a Pokeball as its set symbol (right side of card, below art). The original Base Set has no set symbol. Also check copyright — Base Set is 1999, Base Set 2 is 2000.
+- UNLIMITED: If a Base Set card has a shadow on the right side of the art border and NO 1st Edition stamp, it is Unlimited (leave edition as empty string).
+
+Include the variant in the edition field. If none apply, leave edition as empty string.
 If not a Pokemon card: {"error":"Not a Pokemon card"}` }
             ]
           }]
@@ -3335,8 +3344,9 @@ window.bulkResearchHandleFile = async function(event) {
           messages: [{ role: 'user', content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
             { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown:
-{"name":"Card Name","set":"Set Name","number":"Card Number"}
+{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or empty string"}
 For the number field, use ONLY the card number, NOT the set total (e.g. 8/102 = just "8").
+Check for: SHADOWLESS (no shadow on right side of art border, Base Set only), 1ST EDITION (circled 1 stamp), PRE-RELEASE stamp, BASE SET 2 (Pokeball with 2 as set symbol, copyright 2000).
 If not a Pokemon card: {"error":"Not a Pokemon card"}` }
           ]}]
         })
@@ -3480,8 +3490,9 @@ window.researchScanHandle = async function(event) {
           messages: [{ role: 'user', content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
             { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown:
-{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Unlimited or Shadowless or Pre-Release or Promo or empty string","rarity":"Rarity"}
-Important: For the number field, use ONLY the card number itself, NOT the set total. For example if the card shows 8/102, return just "8". If it shows 051/193, return just "051".
+{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string","rarity":"Rarity"}
+Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
+CRITICAL — Check for: SHADOWLESS (no shadow on right side of art border, Base Set 1999 only), 1ST EDITION (circled 1 stamp), PRE-RELEASE stamp, PROMO star, BASE SET 2 (Pokeball with 2 as set symbol, copyright 2000 vs 1999).
 If not a Pokemon card: {"error":"Not a Pokemon card"}` }
           ]}]
         })
@@ -4150,9 +4161,18 @@ async function scannerIdentify(base64DataUrl) {
             {
               type: 'text',
               text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
-{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Unlimited or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy","language":"English or Japanese etc","notes":"any other notable details"}
-Important: For the number field, use ONLY the card number itself, NOT the set total. For example if the card shows 8/102, return just "8". If it shows 051/193, return just "051".
-Check carefully for edition stamps - look for a 1st Edition symbol (circled 1), Pre-Release stamp, Promo star, or Shadowless indicators. Include any special variant in the edition field.
+{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy","language":"English or Japanese etc","notes":"any other notable details"}
+Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
+
+CRITICAL — Check for these edition/variant indicators very carefully:
+- SHADOWLESS: Look at the RIGHT SIDE of the card art border. If there is NO drop shadow (dark vertical line) on the right edge of the art box, it is Shadowless. Also check the bottom frame — no shadow under the card border. Only applies to the original Base Set (1999).
+- 1ST EDITION: Look for a circled "1" stamp with "EDITION" text, usually on the left side below the art.
+- PRE-RELEASE: Look for a "PRERELEASE" or "PRE-RELEASE" stamp, usually in the bottom-right of the card art.
+- PROMO: Look for a black star symbol with "PROMO" text where the set symbol would be.
+- BASE SET vs BASE SET 2: Base Set 2 has a "2" inside a Pokeball as its set symbol. Original Base Set has no set symbol. Copyright: Base Set is 1999, Base Set 2 is 2000.
+- UNLIMITED: If a Base Set card has a shadow on the art border and NO 1st Edition stamp, it is Unlimited (leave edition as empty string).
+
+Include the variant in the edition field. If none apply, leave edition as empty string.
 If this is not a Pokemon card, respond with: {"error":"Not a Pokemon card","notes":"description of what you see"}`
             }
           ]
