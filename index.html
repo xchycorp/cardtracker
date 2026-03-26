@@ -4476,10 +4476,16 @@ function rYearEndInventory(m) {
   
   // Get all unsold inventory as of the cutoff date
   // Cards added on or before cutoff AND not sold before cutoff
+  const currentYear = new Date().getFullYear();
   const unsoldAsOf = D.inventory.filter(function(card) {
-    // Include if added on or before cutoff (or no date — assume it existed)
+    // If card has no date, treat it as added in the current year
     const added = card.dateAdded || card.datePurchased || '';
-    if (added && added > cutoffDate) return false;
+    if (!added) {
+      // No date — only include in current year's report
+      if (year !== currentYear) return false;
+    } else if (added > cutoffDate) {
+      return false; // Added after this year's cutoff
+    }
     
     // Exclude if sold on or before cutoff
     if (card.status === 'Sold') {
@@ -5485,7 +5491,8 @@ window.handleReceiptScan = async function(event) {
   event.target.value = '';
   
   const target = window._receiptScanTarget || 'expenses';
-  showToast('📸 Reading receipt...');
+  showToast('📸 Reading receipt (' + target + ')...');
+  dbg('Receipt', 'Scanning receipt for ' + target);
   
   const reader = new FileReader();
   reader.onload = async function(e) {
@@ -5592,6 +5599,7 @@ If you cannot read the receipt clearly: {"error":"Cannot read receipt","notes":"
             shipping: receiptInfo.shipping || 0,
             tax: receiptInfo.tax || 0,
             payMethod: receiptInfo.payMethod || '',
+            receipt: 'Yes',
             notes: items.length > 1 ? 'Items: ' + items.map(function(it) { return it.name + (it.qty > 1 ? ' x' + it.qty : '') + ' $' + Number(it.price).toFixed(2); }).join(', ') : '',
             _receiptImg: storageImg,
             _receiptScanned: true
@@ -5676,15 +5684,43 @@ window.viewReceipt = function(recId) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-bg';
   overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
-  overlay.innerHTML = '<div class="modal" style="max-width:500px;text-align:center">' +
-    '<h2 style="display:flex;justify-content:space-between;align-items:center"><span>🧾 Receipt: ' + title + '</span><button class="close" onclick="this.closest(\'.modal-bg\').remove()">&times;</button></h2>' +
-    '<img src="' + img + '" style="max-width:100%;max-height:70vh;border-radius:8px;border:1px solid var(--border)">' +
-    '<div class="form-actions" style="margin-top:12px">' +
-      '<button class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this receipt image?\')){deleteReceiptImage(\'' + recId + '\');this.closest(\'.modal-bg\').remove();showToast(\'Receipt image deleted\')}">🗑 Delete Image</button>' +
-      '<button class="btn" onclick="this.closest(\'.modal-bg\').remove()">Close</button>' +
-      '<a class="btn btn-accent" href="' + img + '" download="Receipt_' + recId + '.jpg" style="text-decoration:none">💾 Download</a>' +
-    '</div>' +
-  '</div>';
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.style.cssText = 'max-width:500px;text-align:center';
+  
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'close';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.onclick = function() { overlay.remove(); };
+  
+  var h2 = document.createElement('h2');
+  h2.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+  h2.appendChild(document.createTextNode('🧾 Receipt: ' + title));
+  h2.appendChild(closeBtn);
+  
+  var imgEl = document.createElement('img');
+  imgEl.src = img;
+  imgEl.style.cssText = 'max-width:100%;max-height:70vh;border-radius:8px;border:1px solid var(--border)';
+  
+  var actions = document.createElement('div');
+  actions.className = 'form-actions';
+  actions.style.marginTop = '12px';
+  actions.innerHTML = '<button class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this receipt image?\')){deleteReceiptImage(\'' + recId + '\');this.closest(\'.modal-bg\').remove();render();showToast(\'Receipt image deleted\')}">🗑 Delete Image</button>' +
+    '<button class="btn" onclick="this.closest(\'.modal-bg\').remove()">Close</button>';
+  
+  var dlLink = document.createElement('a');
+  dlLink.className = 'btn btn-accent';
+  dlLink.href = img;
+  dlLink.download = 'Receipt_' + recId + '.jpg';
+  dlLink.style.textDecoration = 'none';
+  dlLink.textContent = '💾 Download';
+  actions.appendChild(dlLink);
+  
+  modal.appendChild(h2);
+  modal.appendChild(imgEl);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
   document.getElementById('app').appendChild(overlay);
 };
 
