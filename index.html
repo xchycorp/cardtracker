@@ -340,7 +340,7 @@ window.render = function render() {
       </div>
     </div>
     <div class="tabs">
-      ${['overview','scanner','research','inventory','purchases','grading','sealed','sales','expenses','capital','analytics','financials'].map(t2=>{
+      ${['overview','scanner','research','purchases','sealed','inventory','grading','sales','expenses','capital','financials','analytics'].map(t2=>{
         const labels={overview:'Overview',scanner:'Scanner',research:'Research',inventory:'Inventory',purchases:'Purchases',grading:'Grading',sealed:'Sealed',sales:'Sales',expenses:'Expenses',capital:'Capital',analytics:'Analytics',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
         return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
@@ -619,7 +619,7 @@ function renderTableRow(type, row, i, s) {
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
-  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openGradeUpdate()">📥 Grade Update</button>${window.ebayState.appId||window.poketraceState.apiKey?` <button class="btn btn-sm" onclick="refreshAllMarketValues()">💰 Refresh Prices</button>`:''}`
+  const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openGradeUpdate()">📥 Grade Update</button>`
     :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openEbayCsvImport()">📥 eBay CSV</button>`
     :type==='expenses'?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt('expenses')">📷 Scan Receipt</button>${getReceiptCount()>0?` <button class="btn btn-sm" onclick="exportReceipts()">📦 Export Receipts</button>`:''}`
     :type==='purchases'?` <button class="btn btn-sm" style="background:var(--cyan);color:#fff" onclick="scanReceipt('purchases')">📷 Scan Receipt</button>`
@@ -671,9 +671,16 @@ function rTable(type,m) {
       </div>
     </div>` : '';
 
+  const refreshBar = type==='inventory' && (window.ebayState.appId||window.poketraceState.apiKey) ?
+    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <button class="btn btn-sm" onclick="refreshAllMarketValues()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">💰 Refresh Prices${window.statusFilter ? ' (' + window.statusFilter + ')' : ''}</button>
+      <span style="font-size:10px;color:var(--text-faint)">Updates market values${window.statusFilter ? ' for ' + window.statusFilter.toLowerCase() + ' cards only' : ' for all unsold cards'}</span>
+    </div>` : '';
+
   return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
     ${gradingToolbar}
     ${statusFilterBar}
+    ${refreshBar}
     ${searchBar}
     <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
     <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&window.gradingSelectMode?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
