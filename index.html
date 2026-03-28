@@ -2420,8 +2420,8 @@ function rResearchBulk(rs) {
       <button class="btn btn-accent" onclick="bulkResearchScan()" ${!hasKey||rs.bulkScanning?'disabled':''}>
         ${rs.bulkScanning?'Scanning...':'📷 Scan Card'}
       </button>
-      <button class="btn" onclick="bulkResearchUpload()" ${!hasKey?'disabled':''}>📁 Upload</button>
       <button class="btn" style="background:${rs.bulkBatchMode?'var(--green)':'var(--purple)'};color:#fff" onclick="toggleBulkBatchMode()" ${!hasKey?'disabled':''}>${rs.bulkBatchMode?'✓ Batch ON':'📸 Batch'}</button>
+      <button class="btn" onclick="bulkResearchUpload()" ${!hasKey?'disabled':''}>📁 Upload</button>
       ${rs.bulkCards.length?`<button class="btn" onclick="bulkResearchClear()">🗑 Clear All</button>`:''}
       ${!hasKey?'<span style="font-size:10px;color:var(--text-faint);align-self:center">Set API key in Scanner tab first</span>':''}
     </div>
@@ -2431,7 +2431,7 @@ function rResearchBulk(rs) {
     ${rs.bulkBatchMode?`
     <div style="margin-bottom:16px;padding:12px;background:var(--bg);border:2px solid var(--purple);border-radius:var(--radius-sm)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:12px;font-weight:600;color:var(--purple)">📸 Batch Capture — ${rs.bulkBatchPending.length} photos</span>
+        <span style="font-size:12px;font-weight:600;color:var(--purple)">📸 Batch — ${rs.bulkBatchPending.length} photos</span>
         <div style="display:flex;gap:6px">
           ${rs.bulkBatchPending.length&&!rs.bulkBatchProcessing?`<button class="btn btn-accent btn-sm" onclick="bulkBatchProcess()">▶ Process All (${rs.bulkBatchPending.length})</button>`:''}
           ${rs.bulkBatchProcessing?`<span style="font-size:11px;color:var(--yellow)">⏳ Processing ${rs.bulkBatchPending.filter(p=>p.status==='done'||p.status==='error').length}/${rs.bulkBatchPending.length}...</span>`:''}
@@ -3954,68 +3954,77 @@ function poketraceAllPrices(card) {
 function rScanner(m) {
   const ss = window.scannerState;
   const hasKey = !!ss.apiKey;
+  const hasEbay = !!window.ebayState.appId;
+  const hasPT = !!window.poketraceState.apiKey;
   return `
   <div class="panel">
     <h3 style="color:var(--cyan)">📸 Card Scanner</h3>
-    <div style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Take a photo of a card to auto-identify it using AI. Works best with the front of the card clearly visible.</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">Scan cards to identify and log to inventory. Works best with a clear front-facing photo.</div>
     
     ${!hasKey?`
-    <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:8px">🔑 Enter your Anthropic API Key</div>
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Your key stays in your browser only — never saved to code or server. Get one at <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent)">console.anthropic.com</a></div>
-      <div style="display:flex;gap:8px">
-        <input type="password" id="scanner_api_key" class="search-input" style="flex:1" placeholder="sk-ant-api03-..." autocomplete="off">
-        <button class="btn btn-accent" onclick="scannerSaveKey()">Save Key</button>
-      </div>
-    </div>
-    `:`
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-      <span style="font-size:11px;color:var(--green)">🔑 API key set</span>
-      <button class="btn btn-sm" onclick="scannerClearKey()" style="font-size:10px">Change Key</button>
-    </div>
-    `}
-    
-    <div style="margin-bottom:16px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">
-      <div style="font-size:12px;font-weight:600;margin-bottom:8px">🛒 eBay API (for pricing data)</div>
-      ${!window.ebayState.appId?`
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Enter your eBay App ID and Cert ID from <a href="https://developer.ebay.com/my/keys" target="_blank" style="color:var(--accent)">developer.ebay.com</a></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <input type="text" id="ebay_app_id" class="search-input" style="flex:1;min-width:150px" placeholder="App ID / Client ID" autocomplete="off">
-        <input type="password" id="ebay_cert_id" class="search-input" style="flex:1;min-width:150px" placeholder="Cert ID / Client Secret" autocomplete="off">
-        <button class="btn btn-accent" onclick="saveEbayKeys()">Save</button>
-      </div>
-      `:`
-      <div style="display:flex;gap:8px;align-items:center">
-        <span style="font-size:11px;color:var(--green)">✓ eBay connected</span>
-        <span style="font-size:10px;color:var(--text-faint)">${window.ebayState.appId.substring(0,20)}...</span>
-        <button class="btn btn-sm" onclick="clearEbayKeys()" style="font-size:10px">Change</button>
-      </div>
-      `}
-    </div>
-    
-    <div style="margin-bottom:16px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">
-      <div style="font-size:12px;font-weight:600;margin-bottom:8px">📊 PokeTrace API (sold prices for raw cards)</div>
-      ${!window.poketraceState.apiKey?`
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Enter your PokeTrace API key from <a href="https://poketrace.com" target="_blank" style="color:var(--accent)">poketrace.com</a>. Free tier: 250 requests/day, raw condition prices.</div>
+    <div style="padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">🔑 Anthropic API Key</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">Required for card scanning. Get one at <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent)">console.anthropic.com</a></div>
       <div style="display:flex;gap:6px">
-        <input type="password" id="poketrace_key" class="search-input" style="flex:1" placeholder="PokeTrace API Key" autocomplete="off">
-        <button class="btn btn-accent" onclick="savePoketraceKey()">Save</button>
+        <input type="password" id="scanner_api_key" class="search-input" style="flex:1;font-size:11px" placeholder="sk-ant-api03-..." autocomplete="off">
+        <button class="btn btn-accent btn-sm" onclick="scannerSaveKey()">Save</button>
       </div>
-      `:`
-      <div style="display:flex;gap:8px;align-items:center">
-        <span style="font-size:11px;color:var(--green)">✓ PokeTrace connected</span>
-        <span style="font-size:10px;color:var(--text-faint)">${window.poketraceState.apiKey.substring(0,16)}...</span>
-        <button class="btn btn-sm" onclick="clearPoketraceKey()" style="font-size:10px">Change</button>
-      </div>
-      `}
     </div>
+    `:''}
+    
+    <details style="margin-bottom:12px" ${!hasKey||(!hasEbay&&!hasPT)?'open':''}>
+      <summary style="font-size:11px;color:var(--text-faint);cursor:pointer;padding:6px 0;user-select:none">
+        🔑 API Keys: Anthropic ${hasKey?'✅':'❌'} · eBay ${hasEbay?'✅':'❌'} · PokeTrace ${hasPT?'✅':'❌'}
+      </summary>
+      <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);margin-top:4px">
+        ${hasKey?`
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <span style="font-size:10px;color:var(--green)">🔑 Anthropic set</span>
+          <button class="btn btn-sm" onclick="scannerClearKey()" style="font-size:9px;padding:2px 8px">Change</button>
+        </div>
+        `:''}
+        
+        ${!hasEbay?`
+        <div style="margin-bottom:8px">
+          <div style="font-size:10px;font-weight:600;margin-bottom:4px">🛒 eBay API — <a href="https://developer.ebay.com/my/keys" target="_blank" style="color:var(--accent);font-weight:400">developer.ebay.com</a></div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <input type="text" id="ebay_app_id" class="search-input" style="flex:1;min-width:120px;font-size:10px;padding:6px" placeholder="App ID" autocomplete="off">
+            <input type="password" id="ebay_cert_id" class="search-input" style="flex:1;min-width:120px;font-size:10px;padding:6px" placeholder="Cert ID" autocomplete="off">
+            <button class="btn btn-sm" onclick="saveEbayKeys()" style="font-size:9px">Save</button>
+          </div>
+        </div>
+        `:`
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <span style="font-size:10px;color:var(--green)">✓ eBay connected</span>
+          <span style="font-size:9px;color:var(--text-faint)">${window.ebayState.appId.substring(0,16)}...</span>
+          <button class="btn btn-sm" onclick="clearEbayKeys()" style="font-size:9px;padding:2px 8px">Change</button>
+        </div>
+        `}
+        
+        ${!hasPT?`
+        <div>
+          <div style="font-size:10px;font-weight:600;margin-bottom:4px">📊 PokeTrace API — <a href="https://poketrace.com" target="_blank" style="color:var(--accent);font-weight:400">poketrace.com</a></div>
+          <div style="display:flex;gap:4px">
+            <input type="password" id="poketrace_key" class="search-input" style="flex:1;font-size:10px;padding:6px" placeholder="PokeTrace API Key" autocomplete="off">
+            <button class="btn btn-sm" onclick="savePoketraceKey()" style="font-size:9px">Save</button>
+          </div>
+        </div>
+        `:`
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:10px;color:var(--green)">✓ PokeTrace connected</span>
+          <span style="font-size:9px;color:var(--text-faint)">${window.poketraceState.apiKey.substring(0,12)}...</span>
+          <button class="btn btn-sm" onclick="clearPoketraceKey()" style="font-size:9px;padding:2px 8px">Change</button>
+        </div>
+        `}
+      </div>
+    </details>
     
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
       <div style="flex:1;min-width:280px">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <button class="btn btn-accent" onclick="scannerCapture()" ${ss.scanning||!hasKey?'disabled':''}>${ss.scanning?'⏳ Identifying...':'📷 Scan Card'}</button>
+          <button class="btn" style="background:${ss.batchMode?'var(--green)':'var(--purple)'};color:#fff" onclick="toggleBatchMode()" ${!hasKey?'disabled':''}>${ss.batchMode?'✓ Batch ON':'📸 Batch'}</button>
           <button class="btn" onclick="scannerUpload()" ${!hasKey?'disabled':''}>📁 Upload</button>
-          <button class="btn" style="background:${ss.batchMode?'var(--green)':'var(--purple)'};color:#fff" onclick="toggleBatchMode()" ${!hasKey?'disabled':''}>${ss.batchMode?'✓ Batch Mode ON':'📸 Batch Mode'}</button>
         </div>
         <input type="file" id="scannerFileInput" accept="image/*" capture="environment" style="display:none" onchange="scannerHandleFile(event)">
         <input type="file" id="scannerUploadInput" accept="image/*" style="display:none" onchange="scannerHandleFile(event)">
@@ -4023,7 +4032,7 @@ function rScanner(m) {
         ${ss.batchMode?`
         <div style="margin-bottom:16px;padding:12px;background:var(--bg);border:2px solid var(--purple);border-radius:var(--radius-sm)">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <span style="font-size:12px;font-weight:600;color:var(--purple)">📸 Batch Capture — ${ss.batchPending.length} photos</span>
+            <span style="font-size:12px;font-weight:600;color:var(--purple)">📸 Batch — ${ss.batchPending.length} photos</span>
             <div style="display:flex;gap:6px">
               ${ss.batchPending.length&&!ss.batchProcessing?`<button class="btn btn-accent btn-sm" onclick="batchProcess()">▶ Process All (${ss.batchPending.length})</button>`:''}
               ${ss.batchProcessing?`<span style="font-size:11px;color:var(--yellow)">⏳ Processing ${ss.batchPending.filter(function(p){return p.status==='done'||p.status==='error'}).length}/${ss.batchPending.length}...</span>`:''}
