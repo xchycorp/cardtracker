@@ -187,6 +187,8 @@ function buildScannedName(cardInfo) {
   const edition = cardInfo.edition || '';
   const key = scanKey(setName, cardName, number);
   
+  dbg('Corrections', 'Lookup key: "' + key + '" — ' + (D.nameCorrections && D.nameCorrections[key] ? 'FOUND: ' + D.nameCorrections[key] : 'not found'));
+  
   // Check if we have a user correction for this exact AI identification
   if (D.nameCorrections && D.nameCorrections[key]) {
     return { formatted: D.nameCorrections[key], corrected: true, _scanKey: key };
@@ -201,14 +203,16 @@ function buildScannedName(cardInfo) {
 
 // Save a correction if the user changed the name from what the AI identified
 function saveNameCorrection(scanKeyStr, originalFormatted, finalName) {
-  if (!scanKeyStr || !finalName) return;
+  if (!scanKeyStr || !finalName) { dbg('Corrections', 'Save skipped — missing key or name'); return; }
   const trimmedFinal = finalName.trim();
   const trimmedOrig = (originalFormatted || '').trim();
+  dbg('Corrections', 'Save check — key: "' + scanKeyStr + '" orig: "' + trimmedOrig + '" final: "' + trimmedFinal + '" changed: ' + (trimmedFinal !== trimmedOrig));
   // Only save if the name actually changed
   if (trimmedFinal && trimmedFinal !== trimmedOrig) {
     if (!D.nameCorrections) D.nameCorrections = {};
     D.nameCorrections[scanKeyStr] = trimmedFinal;
     saveData();
+    dbg('Corrections', '✅ Saved: "' + scanKeyStr + '" → "' + trimmedFinal + '"');
     console.log('Name correction saved:', scanKeyStr, '→', trimmedFinal);
   }
 }
@@ -3558,7 +3562,10 @@ window.scannerState = {
   queue: [],
   scanning: false,
   lastImg: '',
-  error: ''
+  error: '',
+  batchMode: false,
+  batchPending: [],
+  batchProcessing: false
 };
 try { window.scannerState.apiKey = window.localStorage?.getItem('_ctApiKey') || ''; } catch(e) {}
 
@@ -3888,14 +3895,42 @@ function rScanner(m) {
     
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
       <div style="flex:1;min-width:280px">
-        <div style="display:flex;gap:8px;margin-bottom:12px">
-          <button class="btn btn-accent" onclick="scannerCapture()" ${ss.scanning||!hasKey?'disabled':''}>${ss.scanning?'⏳ Identifying...':'📷 Take Photo'}</button>
-          <button class="btn" onclick="scannerUpload()" ${!hasKey?'disabled':''}>📁 Upload Image</button>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <button class="btn btn-accent" onclick="scannerCapture()" ${ss.scanning||!hasKey?'disabled':''}>${ss.scanning?'⏳ Identifying...':'📷 Scan Card'}</button>
+          <button class="btn" onclick="scannerUpload()" ${!hasKey?'disabled':''}>📁 Upload</button>
+          <button class="btn" style="background:${ss.batchMode?'var(--green)':'var(--purple)'};color:#fff" onclick="toggleBatchMode()" ${!hasKey?'disabled':''}>${ss.batchMode?'✓ Batch Mode ON':'📸 Batch Mode'}</button>
         </div>
         <input type="file" id="scannerFileInput" accept="image/*" capture="environment" style="display:none" onchange="scannerHandleFile(event)">
         <input type="file" id="scannerUploadInput" accept="image/*" style="display:none" onchange="scannerHandleFile(event)">
         
-        ${ss.lastImg?`
+        ${ss.batchMode?`
+        <div style="margin-bottom:16px;padding:12px;background:var(--bg);border:2px solid var(--purple);border-radius:var(--radius-sm)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:var(--purple)">📸 Batch Capture — ${ss.batchPending.length} photos</span>
+            <div style="display:flex;gap:6px">
+              ${ss.batchPending.length&&!ss.batchProcessing?`<button class="btn btn-accent btn-sm" onclick="batchProcess()">▶ Process All (${ss.batchPending.length})</button>`:''}
+              ${ss.batchProcessing?`<span style="font-size:11px;color:var(--yellow)">⏳ Processing ${ss.batchPending.filter(function(p){return p.status==='done'||p.status==='error'}).length}/${ss.batchPending.length}...</span>`:''}
+              ${ss.batchPending.length&&!ss.batchProcessing?`<button class="btn btn-sm" onclick="batchClear()">🗑</button>`:''}
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">Tap "Scan Card" repeatedly to capture photos quickly. Then hit "Process All" to identify them.</div>
+          ${ss.batchPending.length?`
+          <div style="display:flex;gap:6px;flex-wrap:wrap;max-height:200px;overflow-y:auto">
+            ${ss.batchPending.map((p, idx) => {
+              const borderColor = p.status==='done'?'var(--green)':p.status==='processing'?'var(--yellow)':p.status==='error'?'var(--red)':'var(--border)';
+              const label = p.status==='done'?'✓':p.status==='processing'?'⏳':p.status==='error'?'✗':String(idx+1);
+              return `<div style="position:relative;width:50px;height:70px;border:2px solid ${borderColor};border-radius:6px;overflow:hidden;flex-shrink:0">
+                <img src="${p.img}" style="width:100%;height:100%;object-fit:cover">
+                <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.7);color:white;font-size:9px;text-align:center;padding:1px">${label}</div>
+                ${!ss.batchProcessing?`<button onclick="batchRemove(${idx})" style="position:absolute;top:1px;right:1px;background:rgba(0,0,0,.6);color:white;border:none;border-radius:50%;width:14px;height:14px;font-size:8px;cursor:pointer;line-height:14px;padding:0">✕</button>`:''}
+              </div>`;
+            }).join('')}
+          </div>
+          `:'<div style="text-align:center;color:var(--text-faint);font-size:11px;padding:12px">No photos captured yet. Tap "Scan Card" to start.</div>'}
+        </div>
+        `:''}
+        
+        ${!ss.batchMode&&ss.lastImg?`
           <div style="position:relative;display:inline-block;margin-bottom:12px">
             <img src="${ss.lastImg}" style="max-width:250px;max-height:350px;border-radius:8px;border:2px solid var(--border)">
             ${ss.scanning?'<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.7);padding:12px 20px;border-radius:8px;color:white;font-size:13px">Identifying card...</div>':''}
@@ -3923,17 +3958,21 @@ function rScanner(m) {
           <thead><tr>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Image</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Card Name</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Grade</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cost $</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Market $</th>
             <th style="padding:8px;border-bottom:1px solid var(--border)"></th>
           </tr></thead>
           <tbody>
-            ${ss.queue.map((card, i) => `<tr>
+            ${ss.queue.map((card, i) => `<tr${card.isGraded?' style="background:rgba(168,85,247,.06)"':''}>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
                 ${card.img?`<img src="${card.img}" style="width:40px;height:56px;object-fit:contain;border-radius:4px">`:''}
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
-                <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" onchange="window.scannerState.queue[${i}].cardName=this.value;if(window.scannerState.queue[${i}]._scanKey&&this.value!==window.scannerState.queue[${i}]._originalName){saveNameCorrection(window.scannerState.queue[${i}]._scanKey,window.scannerState.queue[${i}]._originalName,this.value)}" style="min-width:200px">
+                <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" oninput="window.scannerState.queue[${i}].cardName=this.value" onblur="(function(idx,val){var q=window.scannerState.queue[idx];if(q&&q._scanKey&&val!==q._originalName){saveNameCorrection(q._scanKey,q._originalName,val);dbg('Corrections','Saved: '+q._scanKey+' → '+val);render();}})(${i},this.value)" style="min-width:200px">
+              </td>
+              <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
+                ${card.isGraded?`<span style="font-weight:700;color:var(--yellow);font-size:12px">${card.gradingCompany} ${card.grade}</span>`:'<span style="font-size:10px;color:var(--text-faint)">Raw</span>'}
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
                 <input type="number" class="qe-input" value="${card.costBasis||''}" onchange="window.scannerState.queue[${i}].costBasis=this.value" step="0.01" style="width:80px" placeholder="0.00">
@@ -4110,6 +4149,63 @@ window.clearPoketraceKey = function() {
   render();
 };
 
+// Batch scan functions
+window.toggleBatchMode = function() {
+  window.scannerState.batchMode = !window.scannerState.batchMode;
+  if (!window.scannerState.batchMode) {
+    // Exiting batch mode — don't clear pending, user might want to process later
+  }
+  render();
+};
+
+window.batchClear = function() {
+  if (window.scannerState.batchPending.length && !confirm('Clear all ' + window.scannerState.batchPending.length + ' captured photos?')) return;
+  window.scannerState.batchPending = [];
+  render();
+};
+
+window.batchRemove = function(idx) {
+  window.scannerState.batchPending.splice(idx, 1);
+  render();
+};
+
+window.batchProcess = async function() {
+  const ss = window.scannerState;
+  if (!ss.batchPending.length || ss.batchProcessing) return;
+  
+  ss.batchProcessing = true;
+  render();
+  
+  let processed = 0;
+  let errors = 0;
+  
+  for (let i = 0; i < ss.batchPending.length; i++) {
+    const pending = ss.batchPending[i];
+    if (pending.status === 'done') continue;
+    
+    pending.status = 'processing';
+    render();
+    showToast('Processing ' + (i + 1) + '/' + ss.batchPending.length + '...');
+    
+    try {
+      await scannerIdentify(pending.img);
+      pending.status = 'done';
+      processed++;
+    } catch(e) {
+      pending.status = 'error';
+      pending.cardName = e.message;
+      errors++;
+      dbg('Batch', 'Error on photo ' + (i + 1) + ': ' + e.message);
+    }
+    render();
+  }
+  
+  ss.batchProcessing = false;
+  ss.batchPending = [];
+  render();
+  showToast('Batch complete! ' + processed + ' cards identified' + (errors ? ', ' + errors + ' errors' : ''));
+};
+
 window.scannerCapture = function() {
   document.getElementById('scannerFileInput').click();
 };
@@ -4124,11 +4220,21 @@ window.scannerHandleFile = function(event) {
   const reader = new FileReader();
   reader.onload = function(e) {
     const base64 = e.target.result;
-    window.scannerState.lastImg = base64;
-    window.scannerState.scanning = true;
-    window.scannerState.error = '';
-    render();
-    scannerIdentify(base64);
+    const ss = window.scannerState;
+    
+    if (ss.batchMode) {
+      // Batch mode: just add photo to pending, no processing
+      ss.batchPending.push({ img: base64, status: 'pending', cardName: '' });
+      render();
+      showToast('📸 Photo ' + ss.batchPending.length + ' captured');
+    } else {
+      // Normal mode: process immediately
+      ss.lastImg = base64;
+      ss.scanning = true;
+      ss.error = '';
+      render();
+      scannerIdentify(base64);
+    }
   };
   reader.readAsDataURL(file);
   event.target.value = '';
@@ -4171,8 +4277,15 @@ async function scannerIdentify(base64DataUrl) {
             {
               type: 'text',
               text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
-{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy","language":"English or Japanese etc","notes":"any other notable details"}
+{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy","language":"English or Japanese etc","graded":false,"gradingCompany":"","grade":"","certId":"","notes":"any other notable details"}
 Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
+
+GRADED CARD DETECTION:
+If the card is inside a grading slab (hard plastic case with a label), set "graded":true and fill in:
+- "gradingCompany": "PSA", "CGC", "BGS", or "SGC" — read from the label
+- "grade": the numeric grade from the label (e.g. "10", "9", "8.5", "7"). For CGC Pristine use "10" and add "Pristine" to notes. For BGS Black Label use "10" and add "Black Label" to notes.
+- "certId": the certification number from the label if visible (long number, usually 8-10 digits)
+If the card is NOT in a slab (raw card), set "graded":false and leave gradingCompany, grade, certId as empty strings.
 
 CRITICAL — ALWAYS check the SET SYMBOL on the right side of the card, between the art and the HP:
 - NO SYMBOL or plain Pokeball = Base Set (/102)
@@ -4231,6 +4344,10 @@ If not a Pokemon card: {"error":"Not a Pokemon card","notes":"description of wha
     const cardName = cardInfo.name || '';
     const number = cardInfo.number || '';
     const edition = cardInfo.edition || '';
+    const isGraded = cardInfo.graded === true;
+    const gradingCompany = cardInfo.gradingCompany || '';
+    const grade = cardInfo.grade || '';
+    const certId = cardInfo.certId || '';
     if (scanResult.corrected) {
       showToast(`✅ Auto-corrected: ${formatted}`);
     }
@@ -4268,11 +4385,36 @@ If not a Pokemon card: {"error":"Not a Pokemon card","notes":"description of wha
             const detail = await detailResp.json();
             tcgImg = detail.image ? detail.image + '/low.webp' : '';
             tcgdexId = detail.id || '';
-            const tp = detail.pricing?.tcgplayer || {};
-            marketValue = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
+            if (!isGraded) {
+              const tp = detail.pricing?.tcgplayer || {};
+              marketValue = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
+            }
           }
       }
     } catch(e) { /* TCGdex lookup failed, continue without */ }
+    
+    // For graded cards, fetch eBay pricing
+    if (isGraded && gradingCompany && grade && window.ebayState.appId) {
+      try {
+        const company = gradingCompany.toUpperCase();
+        let gradeQuery = '';
+        if (company === 'CGC' && (grade === '10' && (cardInfo.notes || '').toLowerCase().includes('pristine'))) {
+          gradeQuery = 'CGC Pristine 10';
+        } else {
+          gradeQuery = company + ' ' + grade;
+        }
+        const ebayQuery = formatted.replace(/#\d+/, '').trim() + ' ' + (number ? number + ' ' : '') + gradeQuery + ' -lot -bundle -mystery -repack';
+        dbg('Scanner', 'Graded eBay search: ' + ebayQuery);
+        const results = await ebaySearch(ebayQuery.trim(), 15);
+        const summary = ebayPricingSummary(results);
+        if (summary && summary.median) {
+          marketValue = summary.median.toFixed(2);
+          dbg('Scanner', 'Graded price: $' + marketValue + ' (median of ' + summary.count + ' listings)');
+        }
+      } catch(e) {
+        dbg('Scanner', 'Graded eBay search failed: ' + e.message);
+      }
+    }
     
     // Add to queue
     ss.queue.push({
@@ -4291,7 +4433,11 @@ If not a Pokemon card: {"error":"Not a Pokemon card","notes":"description of wha
       tcgdexId: tcgdexId,
       marketValue: marketValue ? Number(marketValue).toFixed(2) : '',
       costBasis: '',
-      confirmed: false
+      confirmed: false,
+      isGraded: isGraded,
+      gradingCompany: gradingCompany,
+      grade: grade,
+      certId: certId
     });
     
     ss.scanning = false;
@@ -4335,16 +4481,16 @@ window.scannerSaveAll = function() {
       id: nextId('C'),
       cardName: card.cardName || '',
       cardType: card.cardType || 'Pokemon',
-      status: 'Raw',
+      status: card.isGraded ? 'Graded' : 'Raw',
       dateAdded: new Date().toISOString().slice(0,10),
       datePurchased: new Date().toISOString().slice(0,10),
       costBasis: parseFloat(card.costBasis) || 0,
       marketValue: parseFloat(card.marketValue) || 0,
       platform: '',
-      gradingCompany: '',
-      grade: '',
+      gradingCompany: card.gradingCompany || '',
+      grade: card.grade || '',
       gradingCost: 0,
-      notes: '',
+      notes: card.certId ? (card.gradingCompany || 'PSA') + ' Cert: ' + card.certId : '',
       _pokemonRarity: card.rarity || '',
       _tcgdexId: card.tcgdexId || ''
     };
