@@ -2391,7 +2391,7 @@ function rAnalytics(m) {
 // ============================================================
 // RESEARCH TAB
 // ============================================================
-window.researchState = {cardName:'', results:[], selectedCard:null, prices:{}, loading:false, gradingFee:20, currentGrade:'', currentCompany:'PSA', targetGrade:'', targetCompany:'CGC', buyPrice:'', mode:'single', bulkCards:[], bulkScanning:false, includeEbayFee:false, crackCandidates:[], _poketraceData:null, _poketraceError:''};
+window.researchState = {cardName:'', results:[], selectedCard:null, prices:{}, loading:false, gradingFee:20, currentGrade:'', currentCompany:'PSA', targetGrade:'', targetCompany:'CGC', buyPrice:'', mode:'single', bulkCards:[], bulkScanning:false, includeEbayFee:false, crackCandidates:[], _poketraceData:null, _poketraceError:'', bulkBatchMode:false, bulkBatchPending:[], bulkBatchProcessing:false};
 
 // Sync crackCandidates from Firebase after data loads
 function syncCrackList() { window.researchState.crackCandidates = D.crackList || []; }
@@ -2421,11 +2421,40 @@ function rResearchBulk(rs) {
         ${rs.bulkScanning?'Scanning...':'📷 Scan Card'}
       </button>
       <button class="btn" onclick="bulkResearchUpload()" ${!hasKey?'disabled':''}>📁 Upload</button>
+      <button class="btn" style="background:${rs.bulkBatchMode?'var(--green)':'var(--purple)'};color:#fff" onclick="toggleBulkBatchMode()" ${!hasKey?'disabled':''}>${rs.bulkBatchMode?'✓ Batch ON':'📸 Batch'}</button>
       ${rs.bulkCards.length?`<button class="btn" onclick="bulkResearchClear()">🗑 Clear All</button>`:''}
       ${!hasKey?'<span style="font-size:10px;color:var(--text-faint);align-self:center">Set API key in Scanner tab first</span>':''}
     </div>
     <input type="file" id="bulkResearchFileInput" accept="image/*" capture="environment" style="display:none" onchange="bulkResearchHandleFile(event)">
     <input type="file" id="bulkResearchUploadInput" accept="image/*" style="display:none" onchange="bulkResearchHandleFile(event)">
+    
+    ${rs.bulkBatchMode?`
+    <div style="margin-bottom:16px;padding:12px;background:var(--bg);border:2px solid var(--purple);border-radius:var(--radius-sm)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:600;color:var(--purple)">📸 Batch Capture — ${rs.bulkBatchPending.length} photos</span>
+        <div style="display:flex;gap:6px">
+          ${rs.bulkBatchPending.length&&!rs.bulkBatchProcessing?`<button class="btn btn-accent btn-sm" onclick="bulkBatchProcess()">▶ Process All (${rs.bulkBatchPending.length})</button>`:''}
+          ${rs.bulkBatchProcessing?`<span style="font-size:11px;color:var(--yellow)">⏳ Processing ${rs.bulkBatchPending.filter(p=>p.status==='done'||p.status==='error').length}/${rs.bulkBatchPending.length}...</span>`:''}
+          ${rs.bulkBatchPending.length&&!rs.bulkBatchProcessing?`<button class="btn btn-sm" onclick="bulkBatchClear()">🗑</button>`:''}
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">Snap photos quickly, then hit Process All to identify and price them.</div>
+      ${rs.bulkBatchPending.length?`
+      <div style="display:flex;gap:6px;flex-wrap:wrap;max-height:200px;overflow-y:auto">
+        ${rs.bulkBatchPending.map((p, idx) => {
+          const borderColor = p.status==='done'?'var(--green)':p.status==='processing'?'var(--yellow)':p.status==='error'?'var(--red)':'var(--border)';
+          const label = p.status==='done'?'✓':p.status==='processing'?'⏳':p.status==='error'?'✗':String(idx+1);
+          return `<div style="position:relative;width:50px;height:70px;border:2px solid ${borderColor};border-radius:6px;overflow:hidden;flex-shrink:0">
+            <img src="${p.img}" style="width:100%;height:100%;object-fit:cover">
+            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.7);color:white;font-size:9px;text-align:center;padding:1px">${label}</div>
+            ${!rs.bulkBatchProcessing?`<button onclick="bulkBatchRemove(${idx})" style="position:absolute;top:1px;right:1px;background:rgba(0,0,0,.6);color:white;border:none;border-radius:50%;width:14px;height:14px;font-size:8px;cursor:pointer;line-height:14px;padding:0">✕</button>`:''}
+          </div>`;
+        }).join('')}
+      </div>
+      `:'<div style="text-align:center;color:var(--text-faint);font-size:11px;padding:12px">Tap Scan Card to start capturing.</div>'}
+    </div>
+    `:''}
+    
     ${rs.bulkCards.length?`
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
       ${rs.bulkCards.map((card, i) => `
@@ -2434,6 +2463,7 @@ function rResearchBulk(rs) {
             ${card.img?`<img src="${card.img}" style="width:50px;height:70px;object-fit:contain;border-radius:4px;flex-shrink:0">`:''}
             <div style="flex:1;min-width:0">
               <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${card.cardName||'Identifying...'}</div>
+              ${card.isGraded?`<div style="font-size:11px;font-weight:700;color:var(--yellow);margin-top:2px">${card.gradingCompany} ${card.grade}</div>`:''}
               <div style="font-size:20px;font-weight:700;margin-top:4px;${card.marketPrice?'color:var(--green)':'color:var(--text-faint)'}">${card.marketPrice?'$'+Number(card.marketPrice).toFixed(2):'No price'}</div>
               ${card.priceSource?`<div style="font-size:9px;color:var(--text-faint)">${card.priceSource}</div>`:''}
               ${card.setName?`<div style="font-size:10px;color:var(--text-dim);margin-top:2px">${card.setName}</div>`:''}
@@ -3327,134 +3357,27 @@ window.bulkResearchHandleFile = async function(event) {
   if (!file) return;
   event.target.value = '';
   const rs = window.researchState;
+  
+  if (rs.bulkBatchMode) {
+    // Batch mode: just capture photo
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      rs.bulkBatchPending.push({ img: e.target.result, status: 'pending' });
+      render();
+      showToast('📸 Photo ' + rs.bulkBatchPending.length + ' captured');
+    };
+    reader.readAsDataURL(file);
+    return;
+  }
+  
+  // Normal mode: process immediately
   rs.bulkScanning = true;
   render();
   
   const reader = new FileReader();
   reader.onload = async function(e) {
     try {
-      const base64DataUrl = e.target.result;
-      const match = base64DataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
-      if (!match) throw new Error('Invalid image');
-      
-      let imgData = match[2], mediaType = match[1];
-      if (imgData.length > 500000) {
-        const compressed = await compressImage(base64DataUrl, 800);
-        const cMatch = compressed.match(/^data:(image\/\w+);base64,(.+)$/);
-        if (cMatch) { mediaType = cMatch[1]; imgData = cMatch[2]; }
-      }
-      
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': window.scannerState.apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 500,
-          messages: [{ role: 'user', content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
-            { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown:
-{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or empty string"}
-For the number field, use ONLY the card number, NOT the set total (e.g. 8/102 = just "8").
-Check for: SHADOWLESS (no shadow on right side of art border, Base Set only), 1ST EDITION (circled 1 stamp), PRE-RELEASE stamp, BASE SET 2 (Pokeball with 2 as set symbol, copyright 2000).
-If not a Pokemon card: {"error":"Not a Pokemon card"}` }
-          ]}]
-        })
-      });
-      
-      if (!response.ok) { const err = await response.json().catch(()=>({})); throw new Error(err.error?.message || 'API error'); }
-      const data = await response.json();
-      const cleaned = (data.content?.[0]?.text||'').replace(/```json\s*|```/g,'').trim();
-      const cardInfo = JSON.parse(cleaned);
-      
-      if (cardInfo.error) { showToast(cardInfo.error); rs.bulkScanning = false; render(); return; }
-      
-      const setName = cardInfo.set || '';
-      const cardName = cardInfo.name || '';
-      const number = (cardInfo.number||'').replace('#','').split('/')[0].trim();
-      const scanResult = buildScannedName({set: setName, name: cardName, number: number, edition: ''});
-      let formatted = scanResult.formatted;
-      if (scanResult.corrected) showToast(`Auto-corrected: ${formatted}`);
-      
-      // Try TCGdex for image + pricing
-      let tcgImg = '', marketPrice = '', priceSource = '';
-      try {
-        let tcgCards = [];
-        let params = [`name=like:${encodeURIComponent(cardName)}`];
-        if (number) params.push(`localId=${encodeURIComponent(number)}`);
-        params.push('pagination:itemsPerPage=1');
-        let tcgResp = await fetch(`https://api.tcgdex.net/v2/en/cards?${params.join('&')}`);
-        if (tcgResp.ok) tcgCards = await tcgResp.json();
-        if (tcgCards.length) {
-          const detailResp = await fetch(`https://api.tcgdex.net/v2/en/cards/${tcgCards[0].id}`);
-          if (detailResp.ok) {
-            const detail = await detailResp.json();
-            tcgImg = detail.image ? detail.image + '/low.webp' : '';
-            const tp = detail.pricing?.tcgplayer || {};
-            marketPrice = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
-            if (marketPrice) priceSource = 'TCGPlayer';
-            dbg('Bulk', 'TCGdex: ' + (tcgImg ? 'img found' : 'no img') + ', price: ' + (marketPrice || 'none'));
-          }
-        } else {
-          dbg('Bulk', 'TCGdex: no card match for ' + cardName);
-        }
-      } catch(e) { dbg('Bulk', 'TCGdex error: ' + e.message); }
-      
-      // Try PokeTrace for sold data (primary for raw cards)
-      if (window.poketraceState.apiKey && cardName) {
-        try {
-          const ptData = await poketraceSearch(formatted || cardName);
-          const best = pokectraceBestMatch(ptData, formatted || cardName);
-          const nmPrice = poketraceNMPrice(best);
-          if (nmPrice && nmPrice.avg) {
-            marketPrice = nmPrice.avg;
-            priceSource = 'PokeTrace (sold)';
-            dbg('Bulk', 'PokeTrace price: $' + Number(nmPrice.avg).toFixed(2));
-          } else {
-            dbg('Bulk', 'PokeTrace: no NM price for ' + (formatted || cardName));
-          }
-        } catch(e) { dbg('Bulk', 'PokeTrace error: ' + e.message); }
-      } else if (!window.poketraceState.apiKey) {
-        dbg('Bulk', 'PokeTrace: skipped (no key)');
-      }
-      
-      // Fallback to eBay if still no price
-      if (!marketPrice && window.ebayState.appId && cardName) {
-        try {
-          const setShort = setName.split(' ').slice(0,2).join(' ').replace(/[^a-zA-Z0-9\s]/g,'').trim();
-          const ebayQuery = `${setShort} ${cardName} ${number} -PSA -CGC -BGS -SGC -graded -slab`.trim();
-          const ebayResults = await ebaySearch(ebayQuery, 10);
-          const ebaySummary = ebayPricingSummary(ebayResults);
-          if (ebaySummary) {
-            marketPrice = ebaySummary.median;
-            priceSource = 'eBay (listings)';
-            dbg('Bulk', 'eBay price: $' + Number(ebaySummary.median).toFixed(2));
-          } else {
-            dbg('Bulk', 'eBay: no results for query');
-          }
-        } catch(e) { dbg('Bulk', 'eBay fallback error: ' + e.message); }
-      } else if (!marketPrice) {
-        dbg('Bulk', 'eBay: skipped (' + (!window.ebayState.appId ? 'no key' : 'no card name') + ')');
-      }
-      
-      if (!marketPrice) dbg('Bulk', '⚠️ NO PRICE from any source for: ' + formatted);
-      
-      rs.bulkCards.push({
-        img: tcgImg || base64DataUrl,
-        cardName: formatted,
-        setName: setName,
-        marketPrice: marketPrice,
-        priceSource: priceSource,
-        decision: ''
-      });
-      
-      rs.bulkScanning = false;
-      render();
-      showToast(`Added: ${formatted}`);
+      await bulkResearchProcess(e.target.result);
     } catch(err) {
       rs.bulkScanning = false;
       showToast('Scan error: ' + err.message);
@@ -3462,6 +3385,200 @@ If not a Pokemon card: {"error":"Not a Pokemon card"}` }
     }
   };
   reader.readAsDataURL(file);
+};
+
+// Core processing function for a single bulk research card
+async function bulkResearchProcess(base64DataUrl) {
+  const rs = window.researchState;
+  const match = base64DataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!match) throw new Error('Invalid image');
+  
+  let imgData = match[2], mediaType = match[1];
+  if (imgData.length > 500000) {
+    const compressed = await compressImage(base64DataUrl, 800);
+    const cMatch = compressed.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (cMatch) { mediaType = cMatch[1]; imgData = cMatch[2]; }
+  }
+  
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': window.scannerState.apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 500,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
+        { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown:
+{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or empty string","graded":false,"gradingCompany":"","grade":""}
+For the number field, use ONLY the card number, NOT the set total (e.g. 8/102 = just "8").
+GRADED DETECTION: If the card is in a grading slab (hard plastic case with label), set "graded":true and read "gradingCompany" (PSA/CGC/BGS/SGC) and "grade" (numeric) from the label.
+SET SYMBOLS: Check the set symbol on the right side of the card to identify the set. Fossil = skeleton claw, Jungle = flower, Team Rocket = "R", Base Set = no symbol, Base Set 2 = Pokeball with "2".
+EDITIONS: SHADOWLESS (no shadow on right art border, Base Set only), 1ST EDITION (circled 1 stamp), PRE-RELEASE stamp.
+If not a Pokemon card: {"error":"Not a Pokemon card"}` }
+      ]}]
+    })
+  });
+  
+  if (!response.ok) { const err = await response.json().catch(()=>({})); throw new Error(err.error?.message || 'API error'); }
+  const data = await response.json();
+  const cleaned = (data.content?.[0]?.text||'').replace(/```json\s*|```/g,'').trim();
+  const cardInfo = JSON.parse(cleaned);
+  
+  if (cardInfo.error) { showToast(cardInfo.error); rs.bulkScanning = false; render(); return; }
+  
+  const setName = cardInfo.set || '';
+  const cardName = cardInfo.name || '';
+  const number = (cardInfo.number||'').replace('#','').split('/')[0].trim();
+  const isGraded = cardInfo.graded === true;
+  const gradingCompany = cardInfo.gradingCompany || '';
+  const grade = cardInfo.grade || '';
+  const scanResult = buildScannedName({set: setName, name: cardName, number: number, edition: cardInfo.edition || ''});
+  let formatted = scanResult.formatted;
+  if (scanResult.corrected) showToast(`Auto-corrected: ${formatted}`);
+  
+  // Try TCGdex for image
+  let tcgImg = '', marketPrice = '', priceSource = '';
+  try {
+    let tcgCards = [];
+    let params = [`name=like:${encodeURIComponent(cardName)}`];
+    if (number) params.push(`localId=${encodeURIComponent(number)}`);
+    params.push('pagination:itemsPerPage=1');
+    let tcgResp = await fetch(`https://api.tcgdex.net/v2/en/cards?${params.join('&')}`);
+    if (tcgResp.ok) tcgCards = await tcgResp.json();
+    if (tcgCards.length) {
+      const detailResp = await fetch(`https://api.tcgdex.net/v2/en/cards/${tcgCards[0].id}`);
+      if (detailResp.ok) {
+        const detail = await detailResp.json();
+        tcgImg = detail.image ? detail.image + '/low.webp' : '';
+        if (!isGraded) {
+          const tp = detail.pricing?.tcgplayer || {};
+          marketPrice = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
+          if (marketPrice) priceSource = 'TCGPlayer';
+        }
+      }
+    }
+  } catch(e) { dbg('Bulk', 'TCGdex error: ' + e.message); }
+  
+  // For graded cards, fetch eBay median price
+  if (isGraded && gradingCompany && grade && window.ebayState.appId) {
+    try {
+      const company = gradingCompany.toUpperCase();
+      const gradeQuery = company + ' ' + grade;
+      const setShort = setName.split(' ').slice(0,2).join(' ').replace(/[^a-zA-Z0-9\s]/g,'').trim();
+      const ebayQuery = `${setShort} ${cardName} ${number} ${gradeQuery} -lot -bundle -mystery -repack`.trim();
+      dbg('Bulk', 'Graded eBay search: ' + ebayQuery);
+      const results = await ebaySearch(ebayQuery, 15);
+      const summary = ebayPricingSummary(results);
+      if (summary && summary.median) {
+        marketPrice = summary.median;
+        priceSource = 'eBay median (' + company + ' ' + grade + ')';
+        dbg('Bulk', 'Graded price: $' + Number(summary.median).toFixed(2));
+      }
+    } catch(e) { dbg('Bulk', 'Graded eBay error: ' + e.message); }
+  }
+  
+  // For raw cards, try PokeTrace for sold data
+  if (!isGraded && !marketPrice && window.poketraceState.apiKey && cardName) {
+    try {
+      const ptData = await poketraceSearch(formatted || cardName);
+      const best = pokectraceBestMatch(ptData, formatted || cardName);
+      const nmPrice = poketraceNMPrice(best);
+      if (nmPrice && nmPrice.avg) {
+        marketPrice = nmPrice.avg;
+        priceSource = nmPrice.source || 'PokeTrace (sold)';
+        dbg('Bulk', 'PokeTrace price: $' + Number(nmPrice.avg).toFixed(2));
+      }
+    } catch(e) { dbg('Bulk', 'PokeTrace error: ' + e.message); }
+  }
+  
+  // Fallback to eBay for raw cards
+  if (!isGraded && !marketPrice && window.ebayState.appId && cardName) {
+    try {
+      const setShort = setName.split(' ').slice(0,2).join(' ').replace(/[^a-zA-Z0-9\s]/g,'').trim();
+      const ebayQuery = `${setShort} ${cardName} ${number} -PSA -CGC -BGS -SGC -graded -slab`.trim();
+      const ebayResults = await ebaySearch(ebayQuery, 10);
+      const ebaySummary = ebayPricingSummary(ebayResults);
+      if (ebaySummary) {
+        marketPrice = ebaySummary.median;
+        priceSource = 'eBay (listings)';
+      }
+    } catch(e) { dbg('Bulk', 'eBay fallback error: ' + e.message); }
+  }
+  
+  if (!marketPrice) dbg('Bulk', '⚠️ NO PRICE from any source for: ' + formatted);
+  
+  rs.bulkCards.push({
+    img: tcgImg || base64DataUrl,
+    cardName: formatted,
+    setName: setName,
+    marketPrice: marketPrice,
+    priceSource: priceSource,
+    isGraded: isGraded,
+    gradingCompany: gradingCompany,
+    grade: grade,
+    decision: ''
+  });
+  
+  rs.bulkScanning = false;
+  render();
+  showToast(`Added: ${formatted}${isGraded ? ' (' + gradingCompany + ' ' + grade + ')' : ''}`);
+}
+
+// Batch mode controls for bulk research
+window.toggleBulkBatchMode = function() {
+  window.researchState.bulkBatchMode = !window.researchState.bulkBatchMode;
+  render();
+};
+
+window.bulkBatchClear = function() {
+  if (window.researchState.bulkBatchPending.length && !confirm('Clear all captured photos?')) return;
+  window.researchState.bulkBatchPending = [];
+  render();
+};
+
+window.bulkBatchRemove = function(idx) {
+  window.researchState.bulkBatchPending.splice(idx, 1);
+  render();
+};
+
+window.bulkBatchProcess = async function() {
+  const rs = window.researchState;
+  if (!rs.bulkBatchPending.length || rs.bulkBatchProcessing) return;
+  
+  rs.bulkBatchProcessing = true;
+  render();
+  
+  let processed = 0, errors = 0;
+  for (let i = 0; i < rs.bulkBatchPending.length; i++) {
+    const pending = rs.bulkBatchPending[i];
+    if (pending.status === 'done') continue;
+    
+    pending.status = 'processing';
+    render();
+    showToast('Processing ' + (i + 1) + '/' + rs.bulkBatchPending.length + '...');
+    
+    try {
+      rs.bulkScanning = false; // Don't block UI
+      await bulkResearchProcess(pending.img);
+      pending.status = 'done';
+      processed++;
+    } catch(e) {
+      pending.status = 'error';
+      errors++;
+      dbg('Batch', 'Error on photo ' + (i + 1) + ': ' + e.message);
+    }
+    render();
+  }
+  
+  rs.bulkBatchProcessing = false;
+  rs.bulkBatchPending = [];
+  render();
+  showToast('Batch complete! ' + processed + ' cards priced' + (errors ? ', ' + errors + ' errors' : ''));
 };
 
 window.researchScanCard = function() {
@@ -4385,38 +4502,11 @@ If not a Pokemon card: {"error":"Not a Pokemon card","notes":"description of wha
             const detail = await detailResp.json();
             tcgImg = detail.image ? detail.image + '/low.webp' : '';
             tcgdexId = detail.id || '';
-            if (!isGraded) {
-              const tp = detail.pricing?.tcgplayer || {};
-              marketValue = tp.holo?.marketPrice || tp.normal?.marketPrice || tp.reverse?.marketPrice || tp.holofoil?.marketPrice || tp.holo?.midPrice || tp.normal?.midPrice || '';
-            }
           }
       }
     } catch(e) { /* TCGdex lookup failed, continue without */ }
     
-    // For graded cards, fetch eBay pricing
-    if (isGraded && gradingCompany && grade && window.ebayState.appId) {
-      try {
-        const company = gradingCompany.toUpperCase();
-        let gradeQuery = '';
-        if (company === 'CGC' && (grade === '10' && (cardInfo.notes || '').toLowerCase().includes('pristine'))) {
-          gradeQuery = 'CGC Pristine 10';
-        } else {
-          gradeQuery = company + ' ' + grade;
-        }
-        const ebayQuery = formatted.replace(/#\d+/, '').trim() + ' ' + (number ? number + ' ' : '') + gradeQuery + ' -lot -bundle -mystery -repack';
-        dbg('Scanner', 'Graded eBay search: ' + ebayQuery);
-        const results = await ebaySearch(ebayQuery.trim(), 15);
-        const summary = ebayPricingSummary(results);
-        if (summary && summary.median) {
-          marketValue = summary.median.toFixed(2);
-          dbg('Scanner', 'Graded price: $' + marketValue + ' (median of ' + summary.count + ' listings)');
-        }
-      } catch(e) {
-        dbg('Scanner', 'Graded eBay search failed: ' + e.message);
-      }
-    }
-    
-    // Add to queue
+    // Add to queue (no pricing at scan time — use Refresh Prices in inventory later)
     ss.queue.push({
       img: tcgImg || base64DataUrl,
       cardName: formatted,
