@@ -698,6 +698,11 @@ function rTable(type,m) {
     :type==='grading'?` <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openGradeUpdate()">📥 Grade Update</button>`
     :'';
   // Apply search and sort
+  // Default sort by date (ascending) for tabs that have dates, if no sort selected
+  if (!window.sortCol && (type === 'purchases' || type === 'sales' || type === 'expenses' || type === 'grading')) {
+    const dateCol = type === 'grading' ? 'dateSubmitted' : 'date';
+    data = [...data].sort((a, b) => String(a[dateCol]||'').localeCompare(String(b[dateCol]||'')));
+  }
   const filtered = filterData(data, type);
   const sorted = sortData(filtered, s.cols);
   // Build original index map so edit/delete still work on the right record
@@ -2421,6 +2426,12 @@ function sortData(data, cols) {
     let va = a[col.k], vb = b[col.k];
     // For computed columns, compute the value
     if (col.sortVal) { va = col.sortVal(a); vb = col.sortVal(b); }
+    // Date columns — sort as strings (YYYY-MM-DD sorts correctly)
+    else if (col.k === 'date' || col.k === 'dateAdded' || col.k === 'datePurchased' || col.k === 'dateSubmitted' || col.k === 'saleDate' || col.type === 'date') {
+      va = String(va || '');
+      vb = String(vb || '');
+      return window.sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
     else { va = num(va) || va; vb = num(vb) || vb; }
     if (typeof va === 'number' && typeof vb === 'number') {
       return window.sortDir === 'asc' ? va - vb : vb - va;
