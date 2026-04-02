@@ -1787,30 +1787,23 @@ window.modalScanHandle = async function(event) {
             role: 'user',
             content: [
               { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
-              { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
-{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Unlimited or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy"}
-Important: For the number field, use ONLY the card number itself, NOT the set total. For example if the card shows 8/102, return just "8". If it shows 051/193, return just "051".
+              { type: 'text', text: `Identify this trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
+{"name":"Card/Player Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Sports or Other TCG","sport":"baseball or basketball or football or hockey or soccer or empty if not sports","brand":"Topps or Panini or Upper Deck or empty if not sports"}
+Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
 
-CRITICAL — ALWAYS check the SET SYMBOL on the right side of the card, between the art and the HP. The set symbol determines which set the card belongs to:
-- NO SYMBOL or plain Pokeball = Base Set (check number: /102)
-- POKEBALL WITH "2" = Base Set 2 (check number: /130, copyright 2000)
-- FOSSIL/SKELETON CLAW (looks like a skeletal fist or claw mark) = Fossil (check number: /62)
-- JUNGLE FLOWER (a small flower/plant icon) = Jungle (check number: /64)
-- TEAM ROCKET "R" (a stylized letter R) = Team Rocket (check number: /82)
-- GYM BADGE ICONS = Gym Heroes or Gym Challenge
-- NEO SYMBOLS = Neo Genesis, Neo Discovery, Neo Revelation, Neo Destiny
-The set symbol is the MOST RELIABLE way to identify the set. Do NOT guess based on the Pokemon name alone.
-Also check the card number at the bottom (e.g. 29/62 means Fossil, 14/102 means Base Set).
+CARD TYPE DETECTION:
+- POKEMON: Has Pokemon characters, HP, attacks, weakness/resistance. Set "cardType":"Pokemon".
+- SPORTS: Has a real athlete photo, team logo, stats. Set "cardType":"Sports" and fill in "sport" and "brand" fields. For "name" use the player's name. For "set" use the product name (e.g. "Topps Chrome", "Prizm", "Bowman 1st").
+- OTHER TCG: Magic, Yu-Gi-Oh, etc. Set "cardType":"Other TCG".
 
-EDITION/VARIANT indicators:
-- SHADOWLESS: NO drop shadow on the RIGHT edge of the art box border. Only applies to Base Set (1999).
-- 1ST EDITION: Circled "1" stamp with "EDITION" text, left side below the art.
-- PRE-RELEASE: "PRERELEASE" stamp, usually bottom-right of art.
-- PROMO: Black star symbol where the set symbol would be.
-- UNLIMITED: Has shadow on art border + no 1st Edition stamp = leave edition empty.
+FOR POKEMON CARDS — check SET SYMBOL on right side between art and HP:
+- NO SYMBOL/Pokeball = Base Set, POKEBALL WITH "2" = Base Set 2, FOSSIL/SKELETON CLAW = Fossil, JUNGLE FLOWER = Jungle, TEAM ROCKET "R" = Team Rocket, GYM BADGE = Gym Heroes/Challenge, NEO SYMBOLS = Neo sets.
+The set symbol is the MOST RELIABLE way to identify the set. Also check card number (29/62 = Fossil, 14/102 = Base Set).
 
-Include the variant in the edition field. If none apply, leave edition as empty string.
-If not a Pokemon card: {"error":"Not a Pokemon card"}` }
+EDITION/VARIANT (Pokemon): SHADOWLESS (no shadow on right art border, Base Set 1999 only), 1ST EDITION (circled 1 stamp), PRE-RELEASE stamp, PROMO star.
+VARIANT (Sports): Rookie Card (RC), Refractor, Prizm, Auto, Patch, Numbered (/25, /50, etc.) — include in edition field.
+
+If not a recognizable trading card: {"error":"Not a trading card"}` }
             ]
           }]
         })
@@ -3413,13 +3406,14 @@ async function bulkResearchProcess(base64DataUrl) {
       max_tokens: 500,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
-        { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown:
-{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or empty string","graded":false,"gradingCompany":"","grade":""}
+        { type: 'text', text: `Identify this trading card. Respond ONLY with a JSON object, no other text or markdown:
+{"name":"Card/Player Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Rookie or Refractor or empty string","cardType":"Pokemon or Sports or Other TCG","sport":"","brand":"","graded":false,"gradingCompany":"","grade":""}
 For the number field, use ONLY the card number, NOT the set total (e.g. 8/102 = just "8").
-GRADED DETECTION: If the card is in a grading slab (hard plastic case with label), set "graded":true and read "gradingCompany" (PSA/CGC/BGS/SGC) and "grade" (numeric) from the label.
-SET SYMBOLS: Check the set symbol on the right side of the card to identify the set. Fossil = skeleton claw, Jungle = flower, Team Rocket = "R", Base Set = no symbol, Base Set 2 = Pokeball with "2".
-EDITIONS: SHADOWLESS (no shadow on right art border, Base Set only), 1ST EDITION (circled 1 stamp), PRE-RELEASE stamp.
-If not a Pokemon card: {"error":"Not a Pokemon card"}` }
+CARD TYPE: Pokemon (characters, HP, attacks) = "Pokemon". Sports (athlete photo, team) = "Sports" + fill sport/brand. Other TCG = "Other TCG".
+For Sports: "name" = player name, "set" = product (Topps Chrome, Prizm, etc), "brand" = Topps/Panini/Upper Deck, "sport" = baseball/basketball/football/hockey. Include RC/Refractor/Auto/Patch/numbered in edition.
+GRADED: If in a slab, set "graded":true, read "gradingCompany" (PSA/CGC/BGS/SGC) and "grade" from label.
+For Pokemon: check set symbol (Fossil=claw, Jungle=flower, Rocket="R", Base Set=no symbol, Base Set 2=Pokeball+2). SHADOWLESS=no shadow on right art border. 1ST EDITION=circled 1 stamp.
+If not a trading card: {"error":"Not a trading card"}` }
       ]}]
     })
   });
@@ -3620,11 +3614,12 @@ window.researchScanHandle = async function(event) {
           max_tokens: 500,
           messages: [{ role: 'user', content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
-            { type: 'text', text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown:
-{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string","rarity":"Rarity"}
-Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
-CRITICAL — Check for: SHADOWLESS (no shadow on right side of art border, Base Set 1999 only), 1ST EDITION (circled 1 stamp), PRE-RELEASE stamp, PROMO star, BASE SET 2 (Pokeball with 2 as set symbol, copyright 2000 vs 1999).
-If not a Pokemon card: {"error":"Not a Pokemon card"}` }
+            { type: 'text', text: `Identify this trading card. Respond ONLY with a JSON object, no other text or markdown:
+{"name":"Card/Player Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Rookie or empty string","cardType":"Pokemon or Sports or Other TCG","rarity":"Rarity"}
+For the number field, use ONLY the card number, NOT the set total (e.g. 8/102 = just "8").
+Pokemon: check set symbol (Fossil=claw, Jungle=flower, Rocket="R", Base Set=no symbol, Base Set 2=Pokeball+2). SHADOWLESS=no shadow on right art border. 1ST EDITION=circled 1. PRE-RELEASE stamp. PROMO star.
+Sports: "name"=player, "set"=product name, include RC/Refractor/Auto in edition.
+If not a trading card: {"error":"Not a trading card"}` }
           ]}]
         })
       });
@@ -4402,37 +4397,29 @@ async function scannerIdentify(base64DataUrl) {
             },
             {
               type: 'text',
-              text: `Identify this Pokemon trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
-{"name":"Card Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string if none","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Trainer or Energy","language":"English or Japanese etc","graded":false,"gradingCompany":"","grade":"","certId":"","notes":"any other notable details"}
+              text: `Identify this trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
+{"name":"Card/Player Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Rookie or Refractor or empty string","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Sports or Other TCG","sport":"baseball or basketball or football or hockey or empty","brand":"Topps or Panini or Upper Deck or empty","language":"English or Japanese etc","graded":false,"gradingCompany":"","grade":"","certId":"","notes":"any other notable details"}
 Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
 
+CARD TYPE DETECTION:
+- POKEMON: Has Pokemon characters, HP, attacks. Set "cardType":"Pokemon".
+- SPORTS: Has athlete photo, team logo. Set "cardType":"Sports", fill "sport" and "brand". "name"=player name, "set"=product (Topps Chrome, Prizm, Bowman 1st, etc). Include RC/Refractor/Auto/Patch/numbered in edition.
+- OTHER TCG: Magic, Yu-Gi-Oh, etc. Set "cardType":"Other TCG".
+
 GRADED CARD DETECTION:
-If the card is inside a grading slab (hard plastic case with a label), set "graded":true and fill in:
-- "gradingCompany": "PSA", "CGC", "BGS", or "SGC" — read from the label
-- "grade": the numeric grade from the label (e.g. "10", "9", "8.5", "7"). For CGC Pristine use "10" and add "Pristine" to notes. For BGS Black Label use "10" and add "Black Label" to notes.
-- "certId": the certification number from the label if visible (long number, usually 8-10 digits)
-If the card is NOT in a slab (raw card), set "graded":false and leave gradingCompany, grade, certId as empty strings.
+If in a grading slab (hard plastic case with label), set "graded":true and fill in:
+- "gradingCompany": "PSA", "CGC", "BGS", or "SGC" from the label
+- "grade": numeric grade (e.g. "10", "9", "8.5"). CGC Pristine = "10" + "Pristine" in notes. BGS Black Label = "10" + "Black Label" in notes.
+- "certId": certification number if visible
+If NOT in a slab, set "graded":false and leave gradingCompany, grade, certId empty.
 
-CRITICAL — ALWAYS check the SET SYMBOL on the right side of the card, between the art and the HP:
-- NO SYMBOL or plain Pokeball = Base Set (/102)
-- POKEBALL WITH "2" = Base Set 2 (/130, copyright 2000)
-- FOSSIL/SKELETON CLAW = Fossil (/62)
-- JUNGLE FLOWER = Jungle (/64)
-- TEAM ROCKET "R" = Team Rocket (/82)
-- GYM BADGE ICONS = Gym Heroes or Gym Challenge
-- NEO SYMBOLS = Neo Genesis/Discovery/Revelation/Destiny
-The set symbol is the MOST RELIABLE way to identify the set. Do NOT guess based on the Pokemon name alone.
-Also check the card number at the bottom (e.g. 29/62 = Fossil, 14/102 = Base Set).
+FOR POKEMON — check SET SYMBOL on right side of card:
+- NO SYMBOL/Pokeball = Base Set, POKEBALL+"2" = Base Set 2, SKELETON CLAW = Fossil, FLOWER = Jungle, "R" = Team Rocket, GYM BADGE = Gym sets, NEO SYMBOLS = Neo sets.
+Do NOT guess set by Pokemon name alone. Check card number (29/62=Fossil, 14/102=Base Set).
 
-EDITION/VARIANT indicators:
-- SHADOWLESS: NO drop shadow on RIGHT edge of art box border. Base Set 1999 only.
-- 1ST EDITION: Circled "1" stamp, left side below art.
-- PRE-RELEASE: "PRERELEASE" stamp, bottom-right of art.
-- PROMO: Black star symbol where set symbol would be.
-- UNLIMITED: Has shadow + no 1st Edition stamp = leave edition empty.
+EDITION/VARIANT (Pokemon): SHADOWLESS (no shadow on right art border, Base Set 1999 only), 1ST EDITION (circled 1 stamp), PRE-RELEASE, PROMO star.
 
-Include variant in edition field. If none apply, leave edition as empty string.
-If not a Pokemon card: {"error":"Not a Pokemon card","notes":"description of what you see"}`
+If not a trading card: {"error":"Not a trading card","notes":"description of what you see"}`
             }
           ]
         }]
