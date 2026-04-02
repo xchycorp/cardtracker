@@ -731,31 +731,33 @@ function rTable(type,m) {
 
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const monthFilterBar = (type==='purchases'||type==='expenses'||type==='sales') ? (function() {
-    // Find which months have data
     const months = {};
     data.forEach(function(r) {
       const d = r.date || '';
       if (d && d.length >= 7) {
-        const ym = d.slice(0, 7); // "2026-03"
+        const ym = d.slice(0, 7);
         if (!months[ym]) months[ym] = 0;
         months[ym]++;
       }
     });
     const sortedMonths = Object.keys(months).sort();
     if (!sortedMonths.length) return '';
-    return `<div style="display:flex;gap:3px;margin-bottom:10px;flex-wrap:wrap">${
-      [''].concat(sortedMonths).map(function(ym) {
-        const isActive = window.monthFilter === ym;
-        let label, count;
-        if (!ym) { label = 'All'; count = data.length; }
-        else {
-          const parts = ym.split('-');
-          label = monthNames[parseInt(parts[1])-1] + ' ' + parts[0].slice(2);
-          count = months[ym];
-        }
-        return `<button class="btn btn-sm" style="font-size:10px;padding:4px 10px;${isActive ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : ''}" onclick="window.monthFilter='${ym}';render()">${label}<span style="font-size:9px;opacity:.7;margin-left:3px">${count}</span></button>`;
-      }).join('')
-    }</div>`;
+    const activeLabel = window.monthFilter ? (function() {
+      const p = window.monthFilter.split('-');
+      return monthNames[parseInt(p[1])-1] + ' ' + p[0].slice(2) + ' (' + (months[window.monthFilter]||0) + ')';
+    })() : '';
+    return `<div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
+      <button class="btn btn-sm" style="font-size:10px;padding:4px 10px;${!window.monthFilter?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.monthFilter='';render()">All<span style="font-size:9px;opacity:.7;margin-left:3px">${data.length}</span></button>
+      <select onchange="window.monthFilter=this.value;render()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:4px 8px;font-size:11px;font-family:'DM Sans',sans-serif">
+        <option value="">Month...</option>
+        ${sortedMonths.map(function(ym) {
+          const p = ym.split('-');
+          const label = monthNames[parseInt(p[1])-1] + ' ' + p[0].slice(2);
+          return '<option value="' + ym + '"' + (window.monthFilter===ym?' selected':'') + '>' + label + ' (' + months[ym] + ')</option>';
+        }).join('')}
+      </select>
+      ${window.monthFilter?'<span style="font-size:10px;color:var(--text-dim)">Showing: '+activeLabel+'</span>':''}
+    </div>`;
   })() : '';
 
   const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter || window.monthFilter;
