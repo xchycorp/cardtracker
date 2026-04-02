@@ -176,16 +176,54 @@ let D = emptyData();
 // ============================================================
 // Builds a key from AI identification for the corrections dictionary
 function scanKey(set, name, number) {
-  return [set||'', name||'', (number||'').replace(/[^\d]/g,'')].join('|').toLowerCase().trim();
+  // Extract just the card number (before any slash), strip non-digits
+  const cleanNum = (number||'').split('/')[0].replace(/[^\d]/g,'');
+  return [set||'', name||'', cleanNum].join('|').toLowerCase().trim();
 }
 
 // Build formatted name from AI response, checking corrections first
+// Override set name based on card number denominator (WOTC era)
+function overrideSetByDenominator(cardInfo) {
+  const number = cardInfo.number || '';
+  const denomMatch = number.match(/\/(\d+)/);
+  if (!denomMatch) return; // No denominator, can't override
+  
+  const denom = parseInt(denomMatch[1]);
+  const setMap = {
+    102: 'Base Set',
+    130: 'Base Set 2',
+    62: 'Fossil',
+    64: 'Jungle',
+    82: 'Team Rocket',
+    132: 'Gym Heroes',
+    111: 'Neo Genesis',
+    75: 'Neo Discovery',
+    66: 'Neo Revelation',
+    113: 'Neo Destiny',
+    110: 'Legendary Collection',
+    165: 'Scarlet & Violet 151'
+  };
+  
+  // Gym Challenge is also /132, so check current set name
+  if (denom === 132 && (cardInfo.set || '').toLowerCase().includes('challenge')) return;
+  
+  const correctSet = setMap[denom];
+  if (correctSet && cardInfo.set !== correctSet) {
+    dbg('Scanner', 'Set override: "' + cardInfo.set + '" → "' + correctSet + '" (based on /' + denom + ')');
+    cardInfo.set = correctSet;
+  }
+}
+
 function buildScannedName(cardInfo) {
+  // Apply set override based on card number denominator before building name
+  overrideSetByDenominator(cardInfo);
+  
   const setName = cardInfo.set || '';
   const cardName = cardInfo.name || '';
   const number = cardInfo.number || '';
   const edition = cardInfo.edition || '';
-  const key = scanKey(setName, cardName, number);
+  const cleanNum = number.replace('#','').split('/')[0].trim();
+  const key = scanKey(setName, cardName, cleanNum);
   
   dbg('Corrections', 'Lookup key: "' + key + '" — ' + (D.nameCorrections && D.nameCorrections[key] ? 'FOUND: ' + D.nameCorrections[key] : 'not found'));
   
@@ -196,7 +234,7 @@ function buildScannedName(cardInfo) {
   
   // Build the default formatted name
   let formatted = `${setName} ${cardName}`.trim();
-  if (number) formatted += ` #${number.replace('#','').split('/')[0].trim()}`;
+  if (cleanNum) formatted += ` #${cleanNum}`;
   if (edition && edition !== 'Unlimited' && edition !== '') formatted += ` ${edition}`;
   return { formatted, corrected: false, _scanKey: key };
 }
@@ -233,6 +271,8 @@ window.gradingSelectMode = false;
 window.gradingSelectedCards = new Set();
 window.gradingDeclaredValue = '';
 window.gradingCompanyChoice = 'PSA';
+window.refreshSelectMode = false;
+window.refreshSelectedCards = new Set();
 let toast = null;
 let charts = {};
 let debugLog = [];
@@ -406,7 +446,7 @@ function rOverview(m) {
       <div class="mc" style="border-left-color:var(--accent)"><div class="lbl">Total Capital In</div><div class="val">${fmt(totalCapital)}</div><div class="sub" style="color:var(--text-dim)">${fmt(m.startingCash)} starting + ${fmt(m.totalContributions)} added</div></div>
       <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Cash on Hand</div><div class="val">${fmt(m.cashBalance)}</div><div class="sub" style="color:${m.cashBalance>=0?'var(--green)':'var(--red)'}">Available cash</div></div>
       <div class="mc" style="border-left-color:var(--purple)"><div class="lbl">Inventory (Cost)</div><div class="val">${fmt(m.invCost)}</div><div class="sub" style="color:var(--text-dim)">${m.ac} cards</div></div>
-      <div class="mc" style="border-left-color:${m.invMkt>m.invCost?'var(--green)':'var(--red)'}"><div class="lbl">Inventory (Market)</div><div class="val">${fmt(m.invMkt)}</div><div class="sub" style="color:${m.invMkt>m.invCost?'var(--green)':'var(--red)'}">${m.invMkt>m.invCost?'+':''}${fmt(m.invMkt-m.invCost)} unrealized</div></div>
+      <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Inventory (Market)</div><div class="val">${fmt(m.invMkt)}</div><div class="sub" style="color:var(--text-dim);font-size:10px">${['Raw','Submitted','Graded','Listed','Hold'].filter(st=>m.statusCounts[st]).map(st=>m.statusCounts[st]+' '+st.toLowerCase()).join(' · ')}</div></div>
     </div>
     <div class="charts-grid">
       <div class="panel chart-card"><h3>Revenue & Profit by Platform</h3><div class="chart-wrap"><canvas id="ch1"></canvas></div></div>
@@ -594,6 +634,9 @@ function renderTableRow(type, row, i, s) {
   if (type === 'inventory' && window.gradingSelectMode && window.gradingSelectedCards.has(i)) {
     html += ' style="background:rgba(168,85,247,.08)"';
   }
+  if (type === 'inventory' && window.refreshSelectMode && window.refreshSelectedCards.has(i)) {
+    html += ' style="background:rgba(0,214,143,.08)"';
+  }
   html += '>';
   
   // Grading checkbox column
@@ -604,6 +647,17 @@ function renderTableRow(type, row, i, s) {
       html += '<td style="text-align:center"><input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="toggleGradingCard(' + i + ')" style="width:18px;height:18px;cursor:pointer;accent-color:var(--purple)"></td>';
     } else {
       html += '<td style="text-align:center"><span style="color:var(--text-faint);font-size:10px" title="' + (row.status || '') + '">—</span></td>';
+    }
+  }
+  
+  // Refresh select checkbox column
+  if (type === 'inventory' && window.refreshSelectMode) {
+    const isEligible = row.status !== 'Sold';
+    const isChecked = window.refreshSelectedCards.has(i);
+    if (isEligible) {
+      html += '<td style="text-align:center"><input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="toggleRefreshCard(' + i + ')" style="width:18px;height:18px;cursor:pointer;accent-color:var(--green)"></td>';
+    } else {
+      html += '<td style="text-align:center"><span style="color:var(--text-faint);font-size:10px">—</span></td>';
     }
   }
   
@@ -700,18 +754,27 @@ function rTable(type,m) {
     </div>` : '';
 
   const refreshBar = type==='inventory' && (window.ebayState.appId||window.poketraceState.apiKey) ?
+    (window.refreshSelectMode ?
+    `<div style="background:linear-gradient(135deg,rgba(0,214,143,.1),rgba(78,124,255,.06));border:1px solid var(--green);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:600;color:var(--green)">💰 ${window.refreshSelectedCards.size} selected</span>
+      <button class="btn btn-sm" onclick="refreshSelectAll()" style="font-size:10px">☑ All</button>
+      <button class="btn btn-sm" onclick="refreshDeselectAll()" style="font-size:10px">☐ None</button>
+      <button class="btn btn-accent btn-sm" onclick="refreshSelectedPrices()" style="font-size:10px" ${!window.refreshSelectedCards.size?'disabled':''}>💰 Refresh ${window.refreshSelectedCards.size} Cards</button>
+      <button class="btn btn-sm" onclick="cancelRefreshSelect()" style="font-size:10px">✕ Cancel</button>
+    </div>` :
     `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <button class="btn btn-sm" onclick="refreshAllMarketValues()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">💰 Refresh Prices${window.statusFilter ? ' (' + window.statusFilter + ')' : ''}</button>
-      <span style="font-size:10px;color:var(--text-faint)">Updates market values${window.statusFilter ? ' for ' + window.statusFilter.toLowerCase() + ' cards only' : ' for all unsold cards'}</span>
-    </div>` : '';
+      <button class="btn btn-sm" onclick="refreshAllMarketValues()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">💰 Refresh${window.statusFilter ? ' (' + window.statusFilter + ')' : ' All'}</button>
+      <button class="btn btn-sm" onclick="startRefreshSelect()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">☑ Select</button>
+      <span style="font-size:10px;color:var(--text-faint)">Refresh all${window.statusFilter ? ' ' + window.statusFilter.toLowerCase() : ' unsold'} or select specific cards</span>
+    </div>`) : '';
 
   return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
     ${refreshBar}
     ${gradingToolbar}
     ${statusFilterBar}
     ${searchBar}
-    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
-    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&window.gradingSelectMode?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
+    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.refreshSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
+    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.refreshSelectMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
     </tbody></table></div>`;
 }
 
@@ -987,6 +1050,104 @@ window.delRow = function(type,idx) {
 };
 
 // Refresh all inventory market values from eBay
+// Refresh select mode
+window.startRefreshSelect = function() {
+  window.refreshSelectMode = true;
+  window.refreshSelectedCards = new Set();
+  render();
+};
+
+window.cancelRefreshSelect = function() {
+  window.refreshSelectMode = false;
+  window.refreshSelectedCards = new Set();
+  render();
+};
+
+window.toggleRefreshCard = function(idx) {
+  if (window.refreshSelectedCards.has(idx)) {
+    window.refreshSelectedCards.delete(idx);
+  } else {
+    window.refreshSelectedCards.add(idx);
+  }
+  render();
+};
+
+window.refreshSelectAll = function() {
+  D.inventory.forEach(function(card, i) {
+    if (card.status !== 'Sold') {
+      // Respect status filter
+      if (!window.statusFilter || card.status === window.statusFilter) {
+        window.refreshSelectedCards.add(i);
+      }
+    }
+  });
+  render();
+};
+
+window.refreshDeselectAll = function() {
+  window.refreshSelectedCards = new Set();
+  render();
+};
+
+window.refreshSelectedPrices = async function() {
+  const indices = Array.from(window.refreshSelectedCards);
+  if (!indices.length) { showToast('No cards selected'); return; }
+  
+  const hasPT = !!window.poketraceState.apiKey;
+  const hasEB = !!window.ebayState.appId;
+  if (!hasPT && !hasEB) { showToast('Set PokeTrace or eBay keys first'); return; }
+  if (!confirm('Refresh prices for ' + indices.length + ' selected cards?')) return;
+  
+  showToast('Refreshing ' + indices.length + ' cards...');
+  let updated = 0, failed = 0;
+  
+  for (let n = 0; n < indices.length; n++) {
+    const card = D.inventory[indices[n]];
+    if (!card || !card.cardName) { failed++; continue; }
+    
+    try {
+      const hasGrade = card.grade && card.gradingCompany;
+      let gotPrice = false;
+      
+      if (hasGrade && hasEB) {
+        const company = card.gradingCompany.toUpperCase();
+        let query = company === 'CGC' && (card.grade === '10.1' || card.grade === '11') ?
+          card.cardName + ' CGC Pristine 10' : card.cardName + ' ' + company + ' ' + card.grade;
+        const results = await ebaySearch(query.trim(), 15);
+        const summary = ebayPricingSummary(results);
+        if (summary && summary.median) { card.marketValue = Number(summary.median.toFixed(2)); gotPrice = true; }
+      } else if (!hasGrade && hasPT) {
+        try {
+          const ptData = await poketraceSearch(card.cardName);
+          const best = pokectraceBestMatch(ptData, card.cardName);
+          const nmPrice = poketraceNMPrice(best);
+          if (nmPrice && nmPrice.avg) { card.marketValue = Number(nmPrice.avg.toFixed(2)); gotPrice = true; }
+        } catch(e) {}
+        if (!gotPrice && hasEB) {
+          const query = card.cardName + ' -PSA -CGC -BGS -SGC -graded -slab';
+          const results = await ebaySearch(query.trim(), 15);
+          const summary = ebayPricingSummary(results);
+          if (summary && summary.median) { card.marketValue = Number(summary.median.toFixed(2)); gotPrice = true; }
+        }
+      } else if (!hasGrade && hasEB) {
+        const query = card.cardName + ' -PSA -CGC -BGS -SGC -graded -slab';
+        const results = await ebaySearch(query.trim(), 15);
+        const summary = ebayPricingSummary(results);
+        if (summary && summary.median) { card.marketValue = Number(summary.median.toFixed(2)); gotPrice = true; }
+      }
+      
+      if (gotPrice) updated++; else failed++;
+      if ((n + 1) % 5 === 0) showToast('Progress: ' + (n + 1) + '/' + indices.length + '...');
+    } catch(e) { failed++; }
+  }
+  
+  saveData();
+  window.refreshSelectMode = false;
+  window.refreshSelectedCards = new Set();
+  render();
+  showToast('Done! ' + updated + ' prices updated' + (failed ? ', ' + failed + ' not found' : ''));
+};
+
 window.refreshAllMarketValues = async function() {
   const hasPT = !!window.poketraceState.apiKey;
   const hasEB = !!window.ebayState.appId;
@@ -1789,7 +1950,7 @@ window.modalScanHandle = async function(event) {
               { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
               { type: 'text', text: `Identify this trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
 {"name":"Card/Player Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Promo or empty string","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Sports or Other TCG","sport":"baseball or basketball or football or hockey or soccer or empty if not sports","brand":"Topps or Panini or Upper Deck or empty if not sports"}
-Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
+Important: For the number field, return the FULL number as shown on the card including the set total if present (e.g. "8/102", "29/62", "14/64"). The set total helps identify which set the card belongs to.
 
 CARD TYPE DETECTION:
 - POKEMON: Has Pokemon characters, HP, attacks, weakness/resistance. Set "cardType":"Pokemon".
@@ -3408,7 +3569,7 @@ async function bulkResearchProcess(base64DataUrl) {
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
         { type: 'text', text: `Identify this trading card. Respond ONLY with a JSON object, no other text or markdown:
 {"name":"Card/Player Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Rookie or Refractor or empty string","cardType":"Pokemon or Sports or Other TCG","sport":"","brand":"","graded":false,"gradingCompany":"","grade":""}
-For the number field, use ONLY the card number, NOT the set total (e.g. 8/102 = just "8").
+For the number field, return the FULL number as shown on the card including the set total if present (e.g. "8/102", "29/62", "14/64"). The set total helps identify which set the card belongs to.
 CARD TYPE: Pokemon (characters, HP, attacks) = "Pokemon". Sports (athlete photo, team) = "Sports" + fill sport/brand. Other TCG = "Other TCG".
 For Sports: "name" = player name, "set" = product (Topps Chrome, Prizm, etc), "brand" = Topps/Panini/Upper Deck, "sport" = baseball/basketball/football/hockey. Include RC/Refractor/Auto/Patch/numbered in edition.
 GRADED: If in a slab, set "graded":true, read "gradingCompany" (PSA/CGC/BGS/SGC) and "grade" from label.
@@ -3616,7 +3777,7 @@ window.researchScanHandle = async function(event) {
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
             { type: 'text', text: `Identify this trading card. Respond ONLY with a JSON object, no other text or markdown:
 {"name":"Card/Player Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Rookie or empty string","cardType":"Pokemon or Sports or Other TCG","rarity":"Rarity"}
-For the number field, use ONLY the card number, NOT the set total (e.g. 8/102 = just "8").
+For the number field, return the FULL number as shown on the card including the set total if present (e.g. "8/102", "29/62", "14/64"). The set total helps identify which set the card belongs to.
 Pokemon: check set symbol (Fossil=claw, Jungle=flower, Rocket="R", Base Set=no symbol, Base Set 2=Pokeball+2). SHADOWLESS=no shadow on right art border. 1ST EDITION=circled 1. PRE-RELEASE stamp. PROMO star.
 Sports: "name"=player, "set"=product name, include RC/Refractor/Auto in edition.
 If not a trading card: {"error":"Not a trading card"}` }
@@ -4421,7 +4582,7 @@ async function scannerIdentify(base64DataUrl) {
               type: 'text',
               text: `Identify this trading card. Respond ONLY with a JSON object, no other text or markdown. Use this exact format:
 {"name":"Card/Player Name","set":"Set Name","number":"Card Number","edition":"1st Edition or Shadowless or Pre-Release or Rookie or Refractor or empty string","rarity":"Rarity","holo":true/false,"cardType":"Pokemon or Sports or Other TCG","sport":"baseball or basketball or football or hockey or empty","brand":"Topps or Panini or Upper Deck or empty","language":"English or Japanese etc","graded":false,"gradingCompany":"","grade":"","certId":"","notes":"any other notable details"}
-Important: For the number field, use ONLY the card number itself, NOT the set total (e.g. 8/102 = just "8").
+Important: For the number field, return the FULL number as shown on the card including the set total if present (e.g. "8/102", "29/62", "14/64"). The set total helps identify which set the card belongs to.
 
 CARD TYPE DETECTION:
 - POKEMON: Has Pokemon characters, HP, attacks. Set "cardType":"Pokemon".
