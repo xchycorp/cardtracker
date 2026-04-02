@@ -3980,15 +3980,38 @@ function ebayPricingSummary(results) {
 // ============================================================
 // POKETRACE API
 // ============================================================
+window._poketraceLastCall = 0;
+
 async function poketraceSearch(cardName) {
   const pt = window.poketraceState;
   if (!pt.apiKey) { dbg('PokeTrace', 'No API key set'); return null; }
+  
+  // Rate limit: minimum 2 seconds between calls
+  const now = Date.now();
+  const elapsed = now - window._poketraceLastCall;
+  if (elapsed < 2000) {
+    await new Promise(r => setTimeout(r, 2000 - elapsed));
+  }
+  window._poketraceLastCall = Date.now();
+  
   try {
     const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(cardName)}&market=US`;
     dbg('PokeTrace', 'Searching: ' + cardName);
     const resp = await fetch(url, {
       headers: { 'X-API-Key': pt.apiKey }
     });
+    if (resp.status === 429) {
+      // Rate limited — wait and retry once
+      const retryAfter = 3;
+      dbg('PokeTrace', 'Rate limited, waiting ' + retryAfter + 's...');
+      await new Promise(r => setTimeout(r, retryAfter * 1000));
+      window._poketraceLastCall = Date.now();
+      const resp2 = await fetch(url, { headers: { 'X-API-Key': pt.apiKey } });
+      if (!resp2.ok) { dbg('PokeTrace', 'Retry failed: ' + resp2.status); return null; }
+      const data2 = await resp2.json();
+      dbg('PokeTrace', 'Found ' + (data2.data?.length || 0) + ' results for: ' + cardName + ' (after retry)');
+      return data2;
+    }
     if (!resp.ok) {
       const errBody = await resp.text().catch(() => '');
       dbg('PokeTrace', 'Error ' + resp.status, errBody.substring(0, 150));
