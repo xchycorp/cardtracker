@@ -4090,7 +4090,7 @@ function rScanner(m) {
                 ${card.img?`<img src="${card.img}" style="width:40px;height:56px;object-fit:contain;border-radius:4px">`:''}
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
-                <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" oninput="window.scannerState.queue[${i}].cardName=this.value" onblur="(function(idx,val){var q=window.scannerState.queue[idx];if(q&&q._scanKey&&val!==q._originalName){saveNameCorrection(q._scanKey,q._originalName,val);dbg('Corrections','Saved: '+q._scanKey+' → '+val);render();}})(${i},this.value)" style="min-width:200px">
+                <input type="text" class="qe-input" value="${(card.cardName||'').replace(/"/g,'&quot;')}" oninput="(function(idx,el){window.scannerState.queue[idx].cardName=el.value;clearTimeout(window._corrTimer);window._corrTimer=setTimeout(function(){var q=window.scannerState.queue[idx];if(q&&q._scanKey&&el.value!==q._originalName){saveNameCorrection(q._scanKey,q._originalName,el.value);dbg('Corrections','Saved: '+q._scanKey+' → '+el.value);}},800);})(${i},this)" style="min-width:200px">
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid var(--border)">
                 ${card.isGraded?`<span style="font-weight:700;color:var(--yellow);font-size:12px">${card.gradingCompany} ${card.grade}</span>`:'<span style="font-size:10px;color:var(--text-faint)">Raw</span>'}
