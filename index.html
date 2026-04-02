@@ -273,6 +273,7 @@ window.gradingDeclaredValue = '';
 window.gradingCompanyChoice = 'PSA';
 window.refreshSelectMode = false;
 window.refreshSelectedCards = new Set();
+window.monthFilter = '';
 let toast = null;
 let charts = {};
 let debugLog = [];
@@ -401,7 +402,7 @@ window.render = function render() {
       ${['overview','scanner','research','purchases','sealed','inventory','grading','sales','expenses','capital','financials','analytics'].map(t2=>{
         const labels={overview:'Overview',scanner:'Scanner',research:'Research',inventory:'Inventory',purchases:'Purchases',grading:'Grading',sealed:'Sealed',sales:'Sales',expenses:'Expenses',capital:'Capital',analytics:'Analytics',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
-        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.gradingCompanyFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
+        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.gradingCompanyFilter='';window.monthFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
     </div>
     <div id="content">${
@@ -698,10 +699,13 @@ function rTable(type,m) {
     :type==='grading'?` <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openGradeUpdate()">📥 Grade Update</button>`
     :'';
   // Apply search and sort
-  // Default sort by date (ascending) for tabs that have dates, if no sort selected
-  if (!window.sortCol && (type === 'purchases' || type === 'sales' || type === 'expenses' || type === 'grading')) {
-    const dateCol = type === 'grading' ? 'dateSubmitted' : 'date';
-    data = [...data].sort((a, b) => String(a[dateCol]||'').localeCompare(String(b[dateCol]||'')));
+  // Default sort by date (ascending/oldest first) when no sort selected
+  if (!window.sortCol) {
+    const dateFields = {inventory:'dateAdded', sales:'date', purchases:'date', grading:'dateSubmitted', sealed:'dateAcquired', expenses:'date', capital:'date'};
+    const dateCol = dateFields[type];
+    if (dateCol) {
+      data = [...data].sort((a, b) => String(a[dateCol]||'').localeCompare(String(b[dateCol]||'')));
+    }
   }
   const filtered = filterData(data, type);
   const sorted = sortData(filtered, s.cols);
@@ -725,7 +729,36 @@ function rTable(type,m) {
     }).filter(Boolean).join('')
   }</div>` : '';
 
-  const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter;
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthFilterBar = (type==='purchases'||type==='expenses'||type==='sales') ? (function() {
+    // Find which months have data
+    const months = {};
+    data.forEach(function(r) {
+      const d = r.date || '';
+      if (d && d.length >= 7) {
+        const ym = d.slice(0, 7); // "2026-03"
+        if (!months[ym]) months[ym] = 0;
+        months[ym]++;
+      }
+    });
+    const sortedMonths = Object.keys(months).sort();
+    if (!sortedMonths.length) return '';
+    return `<div style="display:flex;gap:3px;margin-bottom:10px;flex-wrap:wrap">${
+      [''].concat(sortedMonths).map(function(ym) {
+        const isActive = window.monthFilter === ym;
+        let label, count;
+        if (!ym) { label = 'All'; count = data.length; }
+        else {
+          const parts = ym.split('-');
+          label = monthNames[parseInt(parts[1])-1] + ' ' + parts[0].slice(2);
+          count = months[ym];
+        }
+        return `<button class="btn btn-sm" style="font-size:10px;padding:4px 10px;${isActive ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : ''}" onclick="window.monthFilter='${ym}';render()">${label}<span style="font-size:9px;opacity:.7;margin-left:3px">${count}</span></button>`;
+      }).join('')
+    }</div>`;
+  })() : '';
+
+  const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter || window.monthFilter;
   const searchBar = `<div class="search-bar"><input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input">${hasActiveFilter?'<button class="btn btn-sm" onclick="clearSearch()" style="margin-left:6px">✕ Clear</button>':''}<span class="search-count">${hasActiveFilter?`${sorted.length} of ${data.length}`:''}</span></div>`;
 
   // Show quick entry mode if active
@@ -777,6 +810,7 @@ function rTable(type,m) {
     ${refreshBar}
     ${gradingToolbar}
     ${statusFilterBar}
+    ${monthFilterBar}
     ${searchBar}
     <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.refreshSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
     <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.refreshSelectMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
@@ -2396,7 +2430,7 @@ window.toggleSort = function(col) {
   }
   render();
 };
-window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; render(); };
+window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; window.monthFilter = ''; render(); };
 
 function filterData(data, type) {
   let result = data;
@@ -2407,6 +2441,10 @@ function filterData(data, type) {
   // Apply grading company filter for grading tab
   if (type === 'grading' && window.gradingCompanyFilter) {
     result = result.filter(row => (row.company || '') === window.gradingCompanyFilter);
+  }
+  // Apply month filter for purchases, expenses, sales
+  if ((type === 'purchases' || type === 'expenses' || type === 'sales') && window.monthFilter) {
+    result = result.filter(row => (row.date || '').startsWith(window.monthFilter));
   }
   // Apply text search
   if (window.searchTerm) {
