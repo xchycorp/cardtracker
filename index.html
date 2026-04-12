@@ -2628,10 +2628,14 @@ function rAnalytics(m) {
   const totalSold = inv.filter(function(c) { return c.status === 'Sold'; }).length;
   const sellThrough = totalEverOwned ? (totalSold / totalEverOwned) * 100 : 0;
   
-  // Inventory turnover (annualized): COGS / avg inventory
+  // Inventory turnover (annualized): COGS / current inventory
+  // Overall turnover includes everything unsold
   const currentInvCost = inv.filter(function(c) { return c.status !== 'Sold'; }).reduce(function(s, c) { return s + num(c.costBasis) + num(c.gradingCost); }, 0);
+  // Active turnover excludes Submitted cards (stuck in grading limbo)
+  const activeInvCost = inv.filter(function(c) { return c.status !== 'Sold' && c.status !== 'Submitted'; }).reduce(function(s, c) { return s + num(c.costBasis) + num(c.gradingCost); }, 0);
   const ttmCOGS = ttm.reduce(function(s, r) { return s + num(r.costBasis); }, 0);
   const invTurnover = currentInvCost ? ttmCOGS / currentInvCost : 0;
+  const activeInvTurnover = activeInvCost ? ttmCOGS / activeInvCost : 0;
   
   // Projections — based on trailing 30-day average
   const t30DailyRev = t30Rev / 30;
@@ -2740,9 +2744,14 @@ function rAnalytics(m) {
           <div style="font-size:10px;color:var(--text-faint);margin-top:4px">${totalSold} of ${totalEverOwned} cards sold</div>
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
-          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Inventory Turnover</div>
+          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Overall Turnover</div>
           <div style="font-size:18px;font-weight:700">${invTurnover.toFixed(2)}x</div>
-          <div style="font-size:10px;color:var(--text-faint);margin-top:4px">COGS / current inv (annual)</div>
+          <div style="font-size:10px;color:var(--text-faint);margin-top:4px">Includes submitted cards</div>
+        </div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
+          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Active Turnover</div>
+          <div style="font-size:18px;font-weight:700;color:var(--green)">${activeInvTurnover.toFixed(2)}x</div>
+          <div style="font-size:10px;color:var(--text-faint);margin-top:4px">Excludes grading limbo</div>
         </div>
       </div>
     </div>
@@ -2837,39 +2846,12 @@ function rAnalytics(m) {
       `:''}
     </div>
 
-    <div class="charts-grid" style="margin-top:14px">
-      <div class="panel">
-        <h3 style="color:var(--cyan)">💎 Top Inventory by Market Value</h3>
-        <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Your most valuable unsold cards</div>
-        ${unsold.length?`<table><thead><tr><th>Card</th><th>Status</th><th class="r">Cost</th><th class="r">Market</th><th class="r">Upside</th></tr></thead><tbody>
-          ${unsold.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${badge(r.status)}</td><td class="r mono">${fmt(num(r.costBasis)+num(r.gradingCost))}</td><td class="r mono">${fmt(num(r.marketValue))}</td><td class="r mono ${r._upside>=0?'pos':'neg'}"><strong>${fmt(r._upside)}</strong></td></tr>`).join('')}
-        </tbody></table>`:'<div class="empty">Add market values to inventory to see opportunities</div>'}
-      </div>
-      <div class="panel">
-        <h3 style="color:var(--yellow)">🏆 Top Grading ROI</h3>
-        <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Cards that gained the most value from grading</div>
-        ${(function(){
-          const graded = inv.filter(function(c) {
-            return c.gradingCompany && c.grade && num(c.marketValue) > 0 && (num(c.costBasis) + num(c.gradingCost)) > 0;
-          }).map(function(c) {
-            const totalCost = num(c.costBasis) + num(c.gradingCost);
-            const mv = num(c.marketValue);
-            const gain = mv - totalCost;
-            const roi = totalCost ? (gain / totalCost) * 100 : 0;
-            return Object.assign({}, c, {_gain: gain, _roi: roi, _totalCost: totalCost});
-          }).sort(function(a, b) { return b._gain - a._gain; }).slice(0, 10);
-          if (!graded.length) return '<div class="empty">No graded cards with market value yet</div>';
-          return '<table><thead><tr><th>Card</th><th>Grade</th><th class="r">Total Cost</th><th class="r">Market</th><th class="r">Gain</th><th class="r">ROI</th></tr></thead><tbody>' +
-            graded.map(function(r, i) {
-              return '<tr><td>' + (i+1) + '. <strong>' + (r.cardName||'') + '</strong></td>' +
-                '<td><span style="color:var(--yellow);font-weight:600">' + (r.gradingCompany||'') + ' ' + (r.grade||'') + '</span></td>' +
-                '<td class="r mono">' + fmt(r._totalCost) + '</td>' +
-                '<td class="r mono">' + fmt(num(r.marketValue)) + '</td>' +
-                '<td class="r mono ' + (r._gain>=0?'pos':'neg') + '"><strong>' + fmt(r._gain) + '</strong></td>' +
-                '<td class="r mono ' + (r._roi>=0?'pos':'neg') + '">' + r._roi.toFixed(1) + '%</td></tr>';
-            }).join('') + '</tbody></table>';
-        })()}
-      </div>
+    <div class="panel" style="margin-top:14px">
+      <h3 style="color:var(--cyan)">💎 Top Inventory by Market Value</h3>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Your most valuable unsold cards</div>
+      ${unsold.length?`<table><thead><tr><th>Card</th><th>Status</th><th class="r">Cost</th><th class="r">Market</th><th class="r">Upside</th></tr></thead><tbody>
+        ${unsold.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${badge(r.status)}</td><td class="r mono">${fmt(num(r.costBasis)+num(r.gradingCost))}</td><td class="r mono">${fmt(num(r.marketValue))}</td><td class="r mono ${r._upside>=0?'pos':'neg'}"><strong>${fmt(r._upside)}</strong></td></tr>`).join('')}
+      </tbody></table>`:'<div class="empty">Add market values to inventory to see opportunities</div>'}
     </div>`;
 }
 
