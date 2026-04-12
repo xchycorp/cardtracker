@@ -71,6 +71,7 @@ async function loadFromFirebase() {
 function backfillGradingEntries() {
   let created = 0;
   let datesFixed = 0;
+  let companiesFixed = 0;
   const today = new Date().toISOString().slice(0, 10);
   
   D.inventory.forEach(function(card) {
@@ -78,6 +79,15 @@ function backfillGradingEntries() {
     if (!card.dateAdded) {
       card.dateAdded = card.datePurchased || today;
       datesFixed++;
+    }
+    
+    // Backfill gradingCompany on Submitted cards by looking up linked grading entry
+    if (card.status === 'Submitted' && !card.gradingCompany && card.id) {
+      const gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+      if (gEntry && gEntry.company) {
+        card.gradingCompany = gEntry.company;
+        companiesFixed++;
+      }
     }
     
     // Backfill grading entries for Submitted cards
@@ -107,12 +117,13 @@ function backfillGradingEntries() {
       }
     }
   });
-  if (created || datesFixed) {
+  if (created || datesFixed || companiesFixed) {
     saveData();
     render();
     var msg = [];
     if (created) msg.push(created + ' grading entries auto-created');
     if (datesFixed) msg.push(datesFixed + ' card dates backfilled');
+    if (companiesFixed) msg.push(companiesFixed + ' grading companies backfilled');
     showToast('📋 ' + msg.join(', '));
   }
 }
