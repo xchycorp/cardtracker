@@ -429,6 +429,7 @@ window.render = function render() {
     <input type="file" id="gradeUpdateIn" accept=".xlsx,.xls" style="display:none" onchange="handleGradeUpdate(event)">
   `;
   if(window.tab==='overview') renderCharts(m);
+  if(window.tab==='analytics') renderAnalyticsCharts(m);
 };
 
 // ============================================================
@@ -457,6 +458,38 @@ function rOverview(m) {
       <div class="panel chart-card"><h3>Monthly Sales Trend</h3><div class="chart-wrap"><canvas id="ch3"></canvas></div></div>
       <div class="panel chart-card"><h3>Inventory by Card Type</h3><div class="chart-wrap"><canvas id="ch4"></canvas></div></div>
     </div>`;
+}
+
+function renderAnalyticsCharts(m) {
+  destroyCharts();
+  // Build monthly data from sales
+  const monthlyRev = {}, monthlyProf = {};
+  D.sales.forEach(function(r) {
+    const d = r.date || '';
+    if (!d || d.length < 7) return;
+    const ym = d.slice(0, 7);
+    const rev = num(r.salePrice);
+    const prof = rev - num(r.platformFee) - num(r.consignFee) - num(r.shipCost) - num(r.costBasis);
+    monthlyRev[ym] = (monthlyRev[ym] || 0) + rev;
+    monthlyProf[ym] = (monthlyProf[ym] || 0) + prof;
+  });
+  const months = Object.keys(monthlyRev).sort().slice(-12);
+  if (!months.length) return;
+  const monthNames2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const labels = months.map(function(ym) { const p = ym.split('-'); return monthNames2[parseInt(p[1])-1] + ' ' + p[0].slice(2); });
+  const canvas = document.getElementById('chAnalyticsMonthly');
+  if (!canvas) return;
+  charts.cAnalytics = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Revenue', data: months.map(function(ym) { return monthlyRev[ym]; }), backgroundColor: '#4E7CFF', borderRadius: 6 },
+        { label: 'Profit', data: months.map(function(ym) { return monthlyProf[ym]; }), backgroundColor: '#00D68F', borderRadius: 6 }
+      ]
+    },
+    options: cOpts()
+  });
 }
 
 function renderCharts(m) {
@@ -2494,47 +2527,6 @@ function rAnalytics(m) {
     const roi = cost ? profit/cost : 0;
     return {...r, _profit: profit, _roi: roi};
   });
-  const topProfit = [...salesWithProfit].sort((a,b) => b._profit - a._profit).slice(0,10);
-  const topROI = [...salesWithProfit].filter(r => num(r.costBasis) > 0).sort((a,b) => b._roi - a._roi).slice(0,10);
-  const worstROI = [...salesWithProfit].filter(r => num(r.costBasis) > 0).sort((a,b) => a._roi - b._roi).slice(0,10);
-
-  // Performance by card name (group duplicates)
-  const byName = {};
-  salesWithProfit.forEach(r => {
-    const name = (r.cardName||'').toLowerCase().trim();
-    if (!name) return;
-    if (!byName[name]) byName[name] = { name: r.cardName, count: 0, totalProfit: 0, totalRevenue: 0, totalCost: 0 };
-    byName[name].count++;
-    byName[name].totalProfit += r._profit;
-    byName[name].totalRevenue += num(r.salePrice);
-    byName[name].totalCost += num(r.costBasis);
-  });
-  const namePerf = Object.values(byName).sort((a,b) => b.totalProfit - a.totalProfit);
-
-  // Performance by card type
-  const byType = {};
-  salesWithProfit.forEach(r => {
-    const t = r.cardType || 'Unknown';
-    if (!byType[t]) byType[t] = { type: t, count: 0, totalProfit: 0, totalRevenue: 0, totalCost: 0 };
-    byType[t].count++;
-    byType[t].totalProfit += r._profit;
-    byType[t].totalRevenue += num(r.salePrice);
-    byType[t].totalCost += num(r.costBasis);
-  });
-  const typePerf = Object.values(byType).sort((a,b) => b.totalProfit - a.totalProfit);
-
-  // Performance by platform
-  const byPlatPerf = {};
-  salesWithProfit.forEach(r => {
-    const p = r.platform || 'Unknown';
-    if (!byPlatPerf[p]) byPlatPerf[p] = { platform: p, count: 0, totalProfit: 0, totalRevenue: 0, totalCost: 0, totalFees: 0 };
-    byPlatPerf[p].count++;
-    byPlatPerf[p].totalProfit += r._profit;
-    byPlatPerf[p].totalRevenue += num(r.salePrice);
-    byPlatPerf[p].totalCost += num(r.costBasis);
-    byPlatPerf[p].totalFees += num(r.platformFee) + num(r.consignFee);
-  });
-  const platPerf = Object.values(byPlatPerf).sort((a,b) => b.totalProfit - a.totalProfit);
 
   // Unsold inventory by value (biggest opportunities)
   const unsold = inv.filter(c => c.status !== 'Sold' && num(c.marketValue) > 0).map(c => {
@@ -2808,47 +2800,75 @@ function rAnalytics(m) {
       </div>
     </div>
 
-    <div class="charts-grid">
-      <div class="panel">
-        <h3 style="color:var(--green)">🏆 Top 10 Most Profitable Sales</h3>
-        ${topProfit.length?`<table><thead><tr><th>Card</th><th>Platform</th><th class="r">Sale</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
-          ${topProfit.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${r.platform||''}</td><td class="r mono">${fmt(num(r.salePrice))}</td><td class="r mono">${fmt(num(r.costBasis))}</td><td class="r mono pos"><strong>${fmt(r._profit)}</strong></td><td class="r mono pos">${pct(r._roi)}</td></tr>`).join('')}
-        </tbody></table>`:'<div class="empty">No sales data yet</div>'}
+    <div class="panel" style="margin-top:14px">
+      <h3 style="color:var(--blue)">📊 Monthly Revenue & Profit</h3>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Track month-over-month performance</div>
+      <div style="height:280px;position:relative"><canvas id="chAnalyticsMonthly"></canvas></div>
+      ${sortedMonths.length?`
+      <div style="margin-top:14px;overflow-x:auto">
+        <table style="width:100%;font-size:11px">
+          <thead><tr><th style="text-align:left">Month</th><th class="r">Revenue</th><th class="r">Profit</th><th class="r">Margin</th><th class="r">Units</th><th class="r">MoM Rev</th></tr></thead>
+          <tbody>
+            ${sortedMonths.slice(-12).reverse().map(function(ym, idx, arr) {
+              const p = ym.split('-');
+              const label = monthNames[parseInt(p[1])-1] + ' ' + p[0];
+              const rev = monthlyRev[ym] || 0;
+              const prof = monthlyProf[ym] || 0;
+              const units = monthlyUnits[ym] || 0;
+              const margin = rev ? (prof/rev) : 0;
+              // Previous month in real chronological order
+              const ymIdx = sortedMonths.indexOf(ym);
+              const prevYmKey = ymIdx > 0 ? sortedMonths[ymIdx-1] : null;
+              const prevRevVal = prevYmKey ? (monthlyRev[prevYmKey] || 0) : 0;
+              const momChange = prevYmKey && prevRevVal ? ((rev - prevRevVal)/prevRevVal)*100 : null;
+              const momStr = momChange === null ? '—' : (momChange >= 0 ? '+' : '') + momChange.toFixed(1) + '%';
+              const momColor = momChange === null ? 'var(--text-faint)' : (momChange >= 0 ? 'var(--green)' : 'var(--red)');
+              return '<tr><td><strong>' + label + '</strong></td>' +
+                '<td class="r mono">' + fmt(rev) + '</td>' +
+                '<td class="r mono ' + (prof>=0?'pos':'neg') + '">' + fmt(prof) + '</td>' +
+                '<td class="r mono">' + (rev?pct(margin):'—') + '</td>' +
+                '<td class="r mono">' + units + '</td>' +
+                '<td class="r mono" style="color:' + momColor + '">' + momStr + '</td></tr>';
+            }).join('')}
+          </tbody>
+        </table>
       </div>
-      <div class="panel">
-        <h3 style="color:var(--accent)">🎯 Top 10 Best ROI Sales</h3>
-        ${topROI.length?`<table><thead><tr><th>Card</th><th>Platform</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
-          ${topROI.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${r.platform||''}</td><td class="r mono">${fmt(num(r.costBasis))}</td><td class="r mono ${r._profit>=0?'pos':'neg'}">${fmt(r._profit)}</td><td class="r mono ${r._roi>=0?'pos':'neg'}"><strong>${pct(r._roi)}</strong></td></tr>`).join('')}
-        </tbody></table>`:'<div class="empty">No sales data yet</div>'}
-      </div>
+      `:''}
     </div>
-    <div class="charts-grid">
+
+    <div class="charts-grid" style="margin-top:14px">
       <div class="panel">
-        <h3 style="color:var(--red)">📉 Worst ROI Sales (Learn From These)</h3>
-        ${worstROI.length?`<table><thead><tr><th>Card</th><th>Platform</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
-          ${worstROI.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${r.platform||''}</td><td class="r mono">${fmt(num(r.costBasis))}</td><td class="r mono ${r._profit>=0?'pos':'neg'}">${fmt(r._profit)}</td><td class="r mono ${r._roi>=0?'pos':'neg'}"><strong>${pct(r._roi)}</strong></td></tr>`).join('')}
-        </tbody></table>`:'<div class="empty">No sales data yet</div>'}
-      </div>
-      <div class="panel">
-        <h3 style="color:var(--cyan)">💎 Biggest Unrealized Upside (Inventory)</h3>
-        ${unsold.length?`<table><thead><tr><th>Card</th><th>Status</th><th class="r">Cost</th><th class="r">Market</th><th class="r">Upside</th><th class="r">ROI</th></tr></thead><tbody>
-          ${unsold.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${badge(r.status)}</td><td class="r mono">${fmt(num(r.costBasis)+num(r.gradingCost))}</td><td class="r mono">${fmt(num(r.marketValue))}</td><td class="r mono ${r._upside>=0?'pos':'neg'}"><strong>${fmt(r._upside)}</strong></td><td class="r mono ${r._roi>=0?'pos':'neg'}">${pct(r._roi)}</td></tr>`).join('')}
+        <h3 style="color:var(--cyan)">💎 Top Inventory by Market Value</h3>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Your most valuable unsold cards</div>
+        ${unsold.length?`<table><thead><tr><th>Card</th><th>Status</th><th class="r">Cost</th><th class="r">Market</th><th class="r">Upside</th></tr></thead><tbody>
+          ${unsold.map((r,i)=>`<tr><td>${i+1}. <strong>${r.cardName||''}</strong></td><td>${badge(r.status)}</td><td class="r mono">${fmt(num(r.costBasis)+num(r.gradingCost))}</td><td class="r mono">${fmt(num(r.marketValue))}</td><td class="r mono ${r._upside>=0?'pos':'neg'}"><strong>${fmt(r._upside)}</strong></td></tr>`).join('')}
         </tbody></table>`:'<div class="empty">Add market values to inventory to see opportunities</div>'}
       </div>
-    </div>
-    <div class="charts-grid">
-      ${typePerf.length?`<div class="panel">
-        <h3 style="color:var(--purple)">🃏 Performance by Card Type</h3>
-        <table><thead><tr><th>Type</th><th class="r">Sold</th><th class="r">Revenue</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
-          ${typePerf.map(r=>`<tr><td><strong>${r.type}</strong></td><td class="r mono">${r.count}</td><td class="r mono">${fmt(r.totalRevenue)}</td><td class="r mono ${r.totalProfit>=0?'pos':'neg'}"><strong>${fmt(r.totalProfit)}</strong></td><td class="r mono ${r.totalCost?(r.totalProfit/r.totalCost>=0?'pos':'neg'):''}">${r.totalCost?pct(r.totalProfit/r.totalCost):'—'}</td></tr>`).join('')}
-        </tbody></table>
-      </div>`:''}
-      ${platPerf.length?`<div class="panel">
-        <h3 style="color:var(--yellow)">🏪 Performance by Platform</h3>
-        <table><thead><tr><th>Platform</th><th class="r">Sold</th><th class="r">Revenue</th><th class="r">Fees</th><th class="r">Profit</th><th class="r">ROI</th></tr></thead><tbody>
-          ${platPerf.map(r=>`<tr><td><strong>${r.platform}</strong></td><td class="r mono">${r.count}</td><td class="r mono">${fmt(r.totalRevenue)}</td><td class="r mono neg">${fmt(r.totalFees)}</td><td class="r mono ${r.totalProfit>=0?'pos':'neg'}"><strong>${fmt(r.totalProfit)}</strong></td><td class="r mono ${r.totalCost?(r.totalProfit/r.totalCost>=0?'pos':'neg'):''}">${r.totalCost?pct(r.totalProfit/r.totalCost):'—'}</td></tr>`).join('')}
-        </tbody></table>
-      </div>`:''}
+      <div class="panel">
+        <h3 style="color:var(--yellow)">🏆 Top Grading ROI</h3>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">Cards that gained the most value from grading</div>
+        ${(function(){
+          const graded = inv.filter(function(c) {
+            return c.gradingCompany && c.grade && num(c.marketValue) > 0 && (num(c.costBasis) + num(c.gradingCost)) > 0;
+          }).map(function(c) {
+            const totalCost = num(c.costBasis) + num(c.gradingCost);
+            const mv = num(c.marketValue);
+            const gain = mv - totalCost;
+            const roi = totalCost ? (gain / totalCost) * 100 : 0;
+            return Object.assign({}, c, {_gain: gain, _roi: roi, _totalCost: totalCost});
+          }).sort(function(a, b) { return b._gain - a._gain; }).slice(0, 10);
+          if (!graded.length) return '<div class="empty">No graded cards with market value yet</div>';
+          return '<table><thead><tr><th>Card</th><th>Grade</th><th class="r">Total Cost</th><th class="r">Market</th><th class="r">Gain</th><th class="r">ROI</th></tr></thead><tbody>' +
+            graded.map(function(r, i) {
+              return '<tr><td>' + (i+1) + '. <strong>' + (r.cardName||'') + '</strong></td>' +
+                '<td><span style="color:var(--yellow);font-weight:600">' + (r.gradingCompany||'') + ' ' + (r.grade||'') + '</span></td>' +
+                '<td class="r mono">' + fmt(r._totalCost) + '</td>' +
+                '<td class="r mono">' + fmt(num(r.marketValue)) + '</td>' +
+                '<td class="r mono ' + (r._gain>=0?'pos':'neg') + '"><strong>' + fmt(r._gain) + '</strong></td>' +
+                '<td class="r mono ' + (r._roi>=0?'pos':'neg') + '">' + r._roi.toFixed(1) + '%</td></tr>';
+            }).join('') + '</tbody></table>';
+        })()}
+      </div>
     </div>`;
 }
 
