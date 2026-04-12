@@ -5352,9 +5352,6 @@ function rYearEndInventory(m) {
     byType[t].grading += num(c.gradingCost);
     byType[t].market += num(c.marketValue);
   });
-  
-  // Top 10 most valuable cards by cost basis
-  var topCards = unsoldAsOf.slice().sort(function(a, b) { return (num(b.costBasis) + num(b.gradingCost)) - (num(a.costBasis) + num(a.gradingCost)); }).slice(0, 10);
 
   return '<div class="panel" style="margin-top:14px">' +
     '<h3><span style="color:var(--green)">📦 Year-End Inventory Report</span><span class="right">' +
@@ -5395,10 +5392,6 @@ function rYearEndInventory(m) {
         '</tbody></table>' +
       '</div>' +
     '</div>' +
-    (topCards.length ? '<div style="margin-top:14px"><div style="font-size:11px;color:var(--text-faint);font-weight:600;margin-bottom:8px">TOP 10 HIGHEST COST BASIS CARDS</div>' +
-      '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">#</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Card</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Status</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Cost</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Grade $</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Total</th><th class="r" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">Market</th></tr></thead><tbody>' +
-      topCards.map(function(c, i) { var total = num(c.costBasis) + num(c.gradingCost); return '<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text-dim)">' + (i + 1) + '</td><td style="padding:4px 8px;border-bottom:1px solid var(--border);font-weight:600">' + (c.cardName || '') + (c.gradingCompany ? ' <span style="color:var(--yellow)">' + c.gradingCompany + ' ' + (c.grade || '') + '</span>' : '') + '</td><td style="padding:4px 8px;border-bottom:1px solid var(--border)">' + (c.status || '') + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(num(c.costBasis)) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border)">' + fmtD(num(c.gradingCost)) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border);font-weight:700">' + fmtD(total) + '</td><td class="r mono" style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--green)">' + (num(c.marketValue) ? fmtD(num(c.marketValue)) : '—') + '</td></tr>'; }).join('') +
-      '</tbody></table></div>' : '') +
     '<div style="margin-top:12px;padding:10px 14px;background:var(--bg);border-radius:var(--radius-sm);font-size:11px;color:var(--text-dim)">' +
       '<strong>For your accountant:</strong> The "Total Cost Basis" figure is your ending inventory value for tax purposes. This represents what you paid to acquire cards that remained unsold as of 12/31/' + year + '. Grading costs are a separate deductible expense. Export this as a PDF for your records.' +
     '</div>' +
