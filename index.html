@@ -733,6 +733,7 @@ function rTable(type,m) {
     :'';
   // Apply search and sort
   // Default sort by date (ascending/oldest first) when no sort selected
+  const originalData = D[type]; // Keep reference to original for correct idxMap
   if (!window.sortCol) {
     const dateFields = {inventory:'dateAdded', sales:'date', purchases:'date', grading:'dateSubmitted', sealed:'dateAcquired', expenses:'date', capital:'date'};
     const dateCol = dateFields[type];
@@ -742,8 +743,8 @@ function rTable(type,m) {
   }
   const filtered = filterData(data, type);
   const sorted = sortData(filtered, s.cols);
-  // Build original index map so edit/delete still work on the right record
-  const idxMap = sorted.map(row => data.indexOf(row));
+  // Build original index map — MUST reference D[type], not sorted copy
+  const idxMap = sorted.map(row => originalData.indexOf(row));
 
   const statusFilterBar = type==='inventory' ? `<div style="display:flex;gap:3px;margin-bottom:10px;flex-wrap:wrap">${
     ['','Raw','Submitted','Graded','Listed','Hold','Cracked','Sold'].map(st => {
@@ -1088,8 +1089,10 @@ window.saveModal = async function() {
       }
     }
     // Auto-mark inventory as Sold when linking a card to a sale on edit
-    if(window.modal.type==='sales' && window.modal.data._linkedInvIdx !== undefined){
-      const card = D.inventory[window.modal.data._linkedInvIdx];
+    if(window.modal.type==='sales'){
+      // Find card by ID (safer than index which can shift)
+      const cardId = window.modal.data.cardId || '';
+      const card = cardId ? D.inventory.find(function(c) { return c.id === cardId; }) : (window.modal.data._linkedInvIdx !== undefined ? D.inventory[window.modal.data._linkedInvIdx] : null);
       if(card){
         // Update card name to inventory name (replaces eBay auction title)
         if(card.cardName) row.cardName = card.cardName;
@@ -2117,7 +2120,7 @@ window.filterCardPicker = function(val) {
   if (!resultsEl) return;
   if (!val || val.length < 1) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
   const term = val.toLowerCase();
-  const matches = D.inventory.filter(c => c.status !== 'Sold' && (
+  const matches = D.inventory.filter(c => (
     (c.cardName||'').toLowerCase().includes(term) || (c.id||'').toLowerCase().includes(term) ||
     (c.grade||'').toLowerCase().includes(term) || (c.gradingCompany||'').toLowerCase().includes(term)
   )).slice(0, 8);
@@ -2355,9 +2358,10 @@ window.generateGradingSubmission = function() {
     const card = D.inventory[idx];
     if (!card) return;
     
-    // Update inventory card status to Submitted
+    // Update inventory card status to Submitted and set grading company
     const oldStatus = card.status;
     card.status = 'Submitted';
+    card.gradingCompany = company;
     
     // Create grading entry linked to this inventory card
     const gradingEntry = {
@@ -2377,7 +2381,7 @@ window.generateGradingSubmission = function() {
       preValue: declaredVal || num(card.marketValue) || num(card.costBasis) || 0,
       postValue: 0,
       action: 'New Grade',
-      notes: 'Auto-created from PSA batch submission'
+      notes: 'Auto-created from ' + company + ' batch submission'
     };
     D.grading.push(gradingEntry);
     gradingCount++;
@@ -6108,9 +6112,9 @@ window.ebayCsvSaveAll = function() {
       ebayTax: row.ebayTax
     };
     
-    // Copy grade info from linked inventory card
-    if (row._linkedInvIdx !== undefined) {
-      const card = D.inventory[row._linkedInvIdx];
+    // Copy grade info from linked inventory card (look up by cardId, not by index — safer)
+    if (row._cardId) {
+      const card = D.inventory.find(function(c) { return c.id === row._cardId; });
       if (card) {
         sale.gradingCompany = card.gradingCompany || '';
         sale.grade = card.grade || '';
