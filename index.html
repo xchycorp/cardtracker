@@ -2538,6 +2538,7 @@ function rAnalytics(m) {
   if (!sales.length && !inv.length) return '<div class="panel"><div class="empty"><div class="icon">📊</div>Add some inventory and sales data to unlock analytics.</div></div>';
 
   // ===== PERFORMANCE METRICS =====
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   const daysBetween = function(d1, d2) { return Math.floor((new Date(d2) - new Date(d1)) / 86400000); };
