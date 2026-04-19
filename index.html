@@ -501,6 +501,73 @@ function renderAnalyticsCharts(m) {
     },
     options: cOpts()
   });
+  
+  // Spending by category stacked bar chart
+  var spendByMonth = {};
+  D.purchases.forEach(function(r) {
+    var d = r.date || '';
+    if (!d || d.length < 7) return;
+    var ym = d.slice(0, 7);
+    if (!spendByMonth[ym]) spendByMonth[ym] = {};
+    var cat = 'Card Purchases';
+    spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.grandTotal || (num(r.qty) * num(r.unitCost) + num(r.shipping) + num(r.tax)));
+  });
+  D.expenses.forEach(function(r) {
+    var d = r.date || '';
+    if (!d || d.length < 7) return;
+    var ym = d.slice(0, 7);
+    if (!spendByMonth[ym]) spendByMonth[ym] = {};
+    var cat = r.category || 'Other';
+    spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.amount);
+  });
+  D.grading.forEach(function(r) {
+    var d = r.dateSubmitted || '';
+    if (!d || d.length < 7) return;
+    var ym = d.slice(0, 7);
+    if (!spendByMonth[ym]) spendByMonth[ym] = {};
+    var cat = 'Grading Fees';
+    spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.totalCost);
+  });
+  var spendMonths = Object.keys(spendByMonth).sort().slice(-12);
+  var spendCanvas = document.getElementById('chAnalyticsSpending');
+  if (spendCanvas && spendMonths.length) {
+    var allCats = {};
+    spendMonths.forEach(function(ym) { Object.keys(spendByMonth[ym]).forEach(function(c) { allCats[c] = true; }); });
+    var catList = Object.keys(allCats).sort();
+    var catColors = ['#FF3366', '#4E7CFF', '#00D68F', '#FFBE0B', '#A855F7', '#06D6A0', '#FF6B6B', '#48DBFB', '#FFA502', '#7C4DFF'];
+    var spendLabels = spendMonths.map(function(ym) { var p = ym.split('-'); return monthNames2[parseInt(p[1])-1] + ' ' + p[0].slice(2); });
+    var datasets = catList.map(function(cat, ci) {
+      return {
+        label: cat,
+        data: spendMonths.map(function(ym) { return spendByMonth[ym][cat] || 0; }),
+        backgroundColor: catColors[ci % catColors.length],
+        borderRadius: 4
+      };
+    });
+    charts.cSpending = new Chart(spendCanvas, {
+      type: 'bar',
+      data: { labels: spendLabels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#E4E4F0', font: { family: "'DM Sans',sans-serif", size: 10 } } },
+          tooltip: {
+            callbacks: {
+              footer: function(items) {
+                var total = items.reduce(function(s, it) { return s + it.raw; }, 0);
+                return 'Total: $' + total.toFixed(2);
+              }
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true, ticks: { color: '#7878A0', font: { family: "'DM Sans',sans-serif", size: 10 } }, grid: { color: '#252545' } },
+          y: { stacked: true, ticks: { color: '#7878A0', callback: function(v) { return '$' + v.toLocaleString(); }, font: { family: "'DM Sans',sans-serif", size: 10 } }, grid: { color: '#252545' } }
+        }
+      }
+    });
+  }
 }
 
 function renderCharts(m) {
@@ -2859,6 +2926,62 @@ function rAnalytics(m) {
         </table>
       </div>
       `:''}
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <h3 style="color:var(--yellow)">💸 Monthly Spending by Category</h3>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Hover over bars to see category breakdown</div>
+      <div style="height:280px;position:relative"><canvas id="chAnalyticsSpending"></canvas></div>
+      ${(function() {
+        // Build monthly spending data from purchases and expenses
+        var spendByMonth = {};
+        D.purchases.forEach(function(r) {
+          var d = r.date || '';
+          if (!d || d.length < 7) return;
+          var ym = d.slice(0, 7);
+          if (!spendByMonth[ym]) spendByMonth[ym] = {};
+          var cat = 'Card Purchases';
+          spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.grandTotal || (num(r.qty) * num(r.unitCost) + num(r.shipping) + num(r.tax)));
+        });
+        D.expenses.forEach(function(r) {
+          var d = r.date || '';
+          if (!d || d.length < 7) return;
+          var ym = d.slice(0, 7);
+          if (!spendByMonth[ym]) spendByMonth[ym] = {};
+          var cat = r.category || 'Other';
+          spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.amount);
+        });
+        // Add grading costs by month
+        D.grading.forEach(function(r) {
+          var d = r.dateSubmitted || '';
+          if (!d || d.length < 7) return;
+          var ym = d.slice(0, 7);
+          if (!spendByMonth[ym]) spendByMonth[ym] = {};
+          var cat = 'Grading Fees';
+          spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.totalCost);
+        });
+        var spendMonths = Object.keys(spendByMonth).sort().slice(-12);
+        if (!spendMonths.length) return '';
+        // Build table
+        var allCats = {};
+        spendMonths.forEach(function(ym) { Object.keys(spendByMonth[ym]).forEach(function(c) { allCats[c] = true; }); });
+        var catList = Object.keys(allCats).sort();
+        return '<div style="margin-top:14px;overflow-x:auto"><table style="width:100%;font-size:11px"><thead><tr><th style="text-align:left">Month</th>' +
+          catList.map(function(c) { return '<th class="r">' + c + '</th>'; }).join('') +
+          '<th class="r" style="font-weight:700">Total</th></tr></thead><tbody>' +
+          spendMonths.slice().reverse().map(function(ym) {
+            var p2 = ym.split('-');
+            var label = monthNames[parseInt(p2[1])-1] + ' ' + p2[0];
+            var total = 0;
+            var cells = catList.map(function(c) {
+              var val = spendByMonth[ym][c] || 0;
+              total += val;
+              return '<td class="r mono">' + (val ? fmt(val) : '—') + '</td>';
+            }).join('');
+            return '<tr><td><strong>' + label + '</strong></td>' + cells + '<td class="r mono" style="font-weight:700">' + fmt(total) + '</td></tr>';
+          }).join('') +
+          '</tbody></table></div>';
+      })()}
     </div>
 
     <div class="panel" style="margin-top:14px">
