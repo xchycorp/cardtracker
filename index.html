@@ -72,6 +72,7 @@ function backfillGradingEntries() {
   let created = 0;
   let datesFixed = 0;
   let companiesFixed = 0;
+  let gradingFixed = 0;
   const today = new Date().toISOString().slice(0, 10);
   
   D.inventory.forEach(function(card) {
@@ -117,13 +118,30 @@ function backfillGradingEntries() {
       }
     }
   });
-  if (created || datesFixed || companiesFixed) {
+  
+  // One-time fix: CGC entries from 2026-04-12 with $0 fees → $15, fix notes
+  D.grading.forEach(function(g) {
+    if (g.company === 'CGC' && g.dateSubmitted === '2026-04-12' && !num(g.totalCost)) {
+      g.gradingFee = 15;
+      g.totalCost = 15;
+      if (g.notes && g.notes.includes('PSA batch')) g.notes = g.notes.replace('PSA batch', 'CGC batch');
+      // Also update linked inventory card's gradingCost
+      if (g.cardId) {
+        var card = D.inventory.find(function(c) { return c.id === g.cardId; });
+        if (card && !num(card.gradingCost)) card.gradingCost = 15;
+      }
+      gradingFixed++;
+    }
+  });
+  
+  if (created || datesFixed || companiesFixed || gradingFixed) {
     saveData();
     render();
     var msg = [];
     if (created) msg.push(created + ' grading entries auto-created');
     if (datesFixed) msg.push(datesFixed + ' card dates backfilled');
     if (companiesFixed) msg.push(companiesFixed + ' grading companies backfilled');
+    if (gradingFixed) msg.push(gradingFixed + ' CGC grading fees fixed ($15)');
     showToast('📋 ' + msg.join(', '));
   }
 }
@@ -282,6 +300,7 @@ window.gradingSelectMode = false;
 window.gradingSelectedCards = new Set();
 window.gradingDeclaredValue = '';
 window.gradingCompanyChoice = 'PSA';
+window.gradingFeePerCard = '';
 window.refreshSelectMode = false;
 window.refreshSelectedCards = new Set();
 window.monthFilter = '';
@@ -905,9 +924,11 @@ function rTable(type,m) {
           <div style="font-size:11px;color:var(--text-dim)">${window.gradingSelectedCards.size} card${window.gradingSelectedCards.size!==1?'s':''} selected</div>
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+      <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap">
+        <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">Grading Fee ($)</label>
+        <input type="number" id="grading_fee_per_card" class="search-input" style="width:80px;font-size:12px" step="0.01" placeholder="e.g. 15" value="${window.gradingFeePerCard||''}" oninput="window.gradingFeePerCard=this.value">
         <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">Declared Value ($)</label>
-        <input type="number" id="grading_declared_value" class="search-input" style="width:100px;font-size:12px" step="0.01" placeholder="e.g. 50" value="${window.gradingDeclaredValue}" oninput="window.gradingDeclaredValue=this.value">
+        <input type="number" id="grading_declared_value" class="search-input" style="width:80px;font-size:12px" step="0.01" placeholder="e.g. 50" value="${window.gradingDeclaredValue}" oninput="window.gradingDeclaredValue=this.value">
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="gradingSelectAll()" style="font-size:11px">☑ Select All</button>
@@ -2440,6 +2461,7 @@ window.generateGradingSubmission = function() {
   if (declaredVal) lines.push(`Blanket Declared Value: $${declaredVal.toFixed(2)} per card`);
   lines.push(`Total Declared Value: $${(declaredVal ? declaredVal * cards.length : cards.reduce((s, c) => s + num(c.marketValue), 0)).toFixed(2)}`);
   
+  const gradingFee = window.gradingFeePerCard ? parseFloat(window.gradingFeePerCard) : 0;
   const submissionText = lines.join('\n');
   
   // Create grading entries and update inventory status
@@ -2448,10 +2470,11 @@ window.generateGradingSubmission = function() {
     const card = D.inventory[idx];
     if (!card) return;
     
-    // Update inventory card status to Submitted and set grading company
+    // Update inventory card status to Submitted and set grading company + cost
     const oldStatus = card.status;
     card.status = 'Submitted';
     card.gradingCompany = company;
+    if (gradingFee) card.gradingCost = gradingFee;
     
     // Create grading entry linked to this inventory card
     const gradingEntry = {
@@ -2462,10 +2485,10 @@ window.generateGradingSubmission = function() {
       serviceLevel: '',
       dateSubmitted: today,
       dateReturned: '',
-      gradingFee: 0,
+      gradingFee: gradingFee,
       shipTo: 0,
       shipBack: 0,
-      totalCost: 0,
+      totalCost: gradingFee,
       preCondition: '',
       gradeReceived: '',
       preValue: declaredVal || num(card.marketValue) || num(card.costBasis) || 0,
@@ -2483,6 +2506,7 @@ window.generateGradingSubmission = function() {
   window.gradingSelectMode = false;
   window.gradingSelectedCards = new Set();
   window.gradingDeclaredValue = '';
+  window.gradingFeePerCard = '';
   
   // Use a special modal to show the copyable text
   render();
