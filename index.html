@@ -520,13 +520,20 @@ function renderAnalyticsCharts(m) {
     var cat = r.category || 'Other';
     spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.amount);
   });
+  // Grading fees — use inventory gradingCost linked via grading entries for dates
   D.grading.forEach(function(r) {
     var d = r.dateSubmitted || '';
     if (!d || d.length < 7) return;
     var ym = d.slice(0, 7);
     if (!spendByMonth[ym]) spendByMonth[ym] = {};
     var cat = 'Grading Fees';
-    spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.totalCost);
+    // Use totalCost from grading entry, but fallback to linked inventory card's gradingCost
+    var fee = num(r.totalCost);
+    if (!fee && r.cardId) {
+      var linked = D.inventory.find(function(c) { return c.id === r.cardId; });
+      if (linked) fee = num(linked.gradingCost);
+    }
+    spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + fee;
   });
   var spendMonths = Object.keys(spendByMonth).sort().slice(-12);
   var spendCanvas = document.getElementById('chAnalyticsSpending');
@@ -2958,7 +2965,12 @@ function rAnalytics(m) {
           var ym = d.slice(0, 7);
           if (!spendByMonth[ym]) spendByMonth[ym] = {};
           var cat = 'Grading Fees';
-          spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.totalCost);
+          var fee = num(r.totalCost);
+          if (!fee && r.cardId) {
+            var linked = D.inventory.find(function(c) { return c.id === r.cardId; });
+            if (linked) fee = num(linked.gradingCost);
+          }
+          spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + fee;
         });
         var spendMonths = Object.keys(spendByMonth).sort().slice(-12);
         if (!spendMonths.length) return '';
