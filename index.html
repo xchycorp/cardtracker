@@ -4746,8 +4746,11 @@ function poketraceGradedPrice(card, company, grade) {
   // Log all available keys on first call
   if (!window._ptGradedKeysLogged) {
     const allKeys = Object.keys(ebay);
-    dbg('PokeTrace', 'Available eBay price keys: ' + (allKeys.length ? allKeys.join(', ') : 'NONE'));
+    dbg('PokeTrace', 'All eBay price keys: ' + (allKeys.length ? allKeys.join(', ') : 'NONE'));
     dbg('PokeTrace', 'hasGraded: ' + card.hasGraded + ', gradedOptions: ' + JSON.stringify(card.gradedOptions || []));
+    // Check for any CGC Pristine variants
+    const cgcKeys = allKeys.filter(k => k.startsWith('CGC'));
+    if (cgcKeys.length) dbg('PokeTrace', 'CGC keys specifically: ' + cgcKeys.join(', '));
     window._ptGradedKeysLogged = true;
   }
   
@@ -4760,6 +4763,21 @@ function poketraceGradedPrice(card, company, grade) {
     const d = ebay[tierKey];
     dbg('PokeTrace', 'Graded price found: ' + tierKey + ' avg=$' + d.avg + ' (' + (d.saleCount||0) + ' sales)');
     return { avg: d.avg, low: d.low, high: d.high, saleCount: d.saleCount || 0, avg7d: d.avg7d, avg30d: d.avg30d, source: 'PokeTrace (eBay sold · ' + companyUpper + ' ' + grade + ')', tier: tierKey };
+  }
+  
+  // Try alternate key formats for special grades like CGC Pristine
+  const altKeys = [
+    companyUpper + '_PRISTINE_' + gradeStr,    // CGC_PRISTINE_10
+    companyUpper + '_' + gradeStr + '_PRISTINE', // CGC_10_PRISTINE
+    companyUpper + gradeStr,                     // CGC10
+    companyUpper + '_' + grade                   // CGC_9.5 (without underscore conversion)
+  ];
+  for (const alt of altKeys) {
+    if (ebay[alt] && ebay[alt].avg) {
+      const d = ebay[alt];
+      dbg('PokeTrace', 'Graded price found (alt key): ' + alt + ' avg=$' + d.avg);
+      return { avg: d.avg, low: d.low, high: d.high, saleCount: d.saleCount || 0, avg7d: d.avg7d, avg30d: d.avg30d, source: 'PokeTrace (eBay sold · ' + companyUpper + ' ' + grade + ')', tier: alt };
+    }
   }
   
   return null;
