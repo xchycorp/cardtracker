@@ -3604,13 +3604,15 @@ window.selectResearchCard = function(idx) {
   const resultsEl = document.getElementById('research-search-results');
   if (resultsEl) resultsEl.style.display = 'none';
   render();
-  // Auto-trigger eBay lookup if connected
-  if (window.ebayState.appId) {
-    setTimeout(() => researchEbayLookup(), 100);
-  }
-  // Auto-trigger PokeTrace lookup if connected
+  // Auto-trigger PokeTrace lookup first (graded data), then eBay
   if (window.poketraceState.apiKey) {
-    setTimeout(() => researchPokertraceLookup(), 200);
+    setTimeout(async () => {
+      await researchPokertraceLookup();
+      // Then trigger eBay lookup which will use PokeTrace data for graded matrix
+      if (window.ebayState.appId) researchEbayLookup();
+    }, 100);
+  } else if (window.ebayState.appId) {
+    setTimeout(() => researchEbayLookup(), 100);
   }
 };
 
@@ -3906,12 +3908,15 @@ window.researchEbayLookup = async function() {
         dbg('Research', 'PokeTrace filled ' + Object.keys(rs.prices).length + ' graded prices');
       }
     }
-    // If no PokeTrace data yet, try fetching it now
-    if (window.poketraceState.apiKey && !rs._poketraceData) {
+    // If no PokeTrace data yet, try fetching it now (with card number for accurate match)
+    if (window.poketraceState.apiKey && !rs._poketraceData && !Object.keys(rs.prices).length) {
       try {
-        const searchName = rs.selectedCard?.name || rs.cardName || '';
-        const ptData = await poketraceSearch(searchName);
-        const best = pokectraceBestMatch(ptData, searchName);
+        const cardName = rs.selectedCard?.name || rs.cardName || '';
+        const cardNumber = rs.selectedCard?.localId || '';
+        const searchWithNum = cardNumber ? cardName + ' ' + cardNumber : cardName;
+        dbg('Research', 'PokeTrace fallback search: ' + searchWithNum);
+        const ptData = await poketraceSearch(searchWithNum);
+        const best = pokectraceBestMatch(ptData, searchWithNum);
         if (best) {
           rs._poketraceData = best;
           for (const gs of gradeSearches) {
