@@ -307,7 +307,7 @@ window.monthFilter = '';
 let toast = null;
 let charts = {};
 let debugLog = [];
-const MAX_DEBUG = 50;
+const MAX_DEBUG = 200;
 
 function dbg(source, msg, data) {
   const ts = new Date().toLocaleTimeString();
@@ -3892,7 +3892,8 @@ window.researchEbayLookup = async function() {
     
     // Try PokeTrace Pro for all grades at once (single API call already done)
     if (window.poketraceState.apiKey && rs._poketraceData) {
-      const best = rs._poketraceData; // Already the best matched card
+      const best = rs._poketraceData;
+      window._ptGradedKeysLogged = false; // Reset so keys get logged
       for (const gs of gradeSearches) {
         const gPrice = poketraceGradedPrice(best, gs.company, gs.grade);
         if (gPrice && gPrice.avg) {
@@ -4739,8 +4740,16 @@ function poketraceNMPrice(card) {
 
 // Extract graded price from PokeTrace response for a specific company and grade
 function poketraceGradedPrice(card, company, grade) {
-  if (!card || !card.prices) return null;
+  if (!card || !card.prices) { dbg('PokeTrace', 'No prices object on card'); return null; }
   const ebay = card.prices.ebay || {};
+  
+  // Log all available keys on first call
+  if (!window._ptGradedKeysLogged) {
+    const allKeys = Object.keys(ebay);
+    dbg('PokeTrace', 'Available eBay price keys: ' + (allKeys.length ? allKeys.join(', ') : 'NONE'));
+    dbg('PokeTrace', 'hasGraded: ' + card.hasGraded + ', gradedOptions: ' + JSON.stringify(card.gradedOptions || []));
+    window._ptGradedKeysLogged = true;
+  }
   
   // Build tier key: PSA_10, CGC_9, BGS_8_5, etc.
   const companyUpper = (company || '').toUpperCase();
@@ -4753,12 +4762,6 @@ function poketraceGradedPrice(card, company, grade) {
     return { avg: d.avg, low: d.low, high: d.high, saleCount: d.saleCount || 0, avg7d: d.avg7d, avg30d: d.avg30d, source: 'PokeTrace (eBay sold · ' + companyUpper + ' ' + grade + ')', tier: tierKey };
   }
   
-  // Check gradedOptions to see what's available
-  if (card.gradedOptions) {
-    dbg('PokeTrace', 'Available graded tiers: ' + card.gradedOptions.join(', '));
-  }
-  
-  dbg('PokeTrace', 'No graded price for: ' + tierKey);
   return null;
 }
 
