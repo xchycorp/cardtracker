@@ -3890,19 +3890,42 @@ window.researchEbayLookup = async function() {
       {company:'BGS', grade:'8', key:'BGS_8', query:'BGS 8'}
     ];
     
-    // Try PokeTrace Pro for all grades at once (single API call returns all tiers)
+    // Try PokeTrace Pro for all grades at once (single API call already done)
     if (window.poketraceState.apiKey && rs._poketraceData) {
-      const best = pokectraceBestMatch(rs._poketraceData, rs.selectedCard?.name || rs.cardName);
-      if (best) {
-        for (const gs of gradeSearches) {
-          const gPrice = poketraceGradedPrice(best, gs.company, gs.grade);
-          if (gPrice && gPrice.avg) {
-            const label = gs.query.replace('-Pristine','').trim();
-            graded[label] = { median: gPrice.avg, low: gPrice.low, high: gPrice.high, count: gPrice.saleCount || 0, source: 'sold' };
-            rs.prices[gs.key] = gPrice.avg.toFixed(2);
-          }
+      const best = rs._poketraceData; // Already the best matched card
+      for (const gs of gradeSearches) {
+        const gPrice = poketraceGradedPrice(best, gs.company, gs.grade);
+        if (gPrice && gPrice.avg) {
+          const label = gs.query.replace('-Pristine','').trim();
+          graded[label] = { median: gPrice.avg, low: gPrice.low, high: gPrice.high, count: gPrice.saleCount || 0, source: 'sold' };
+          rs.prices[gs.key] = gPrice.avg.toFixed(2);
         }
       }
+      if (Object.keys(rs.prices).length) {
+        dbg('Research', 'PokeTrace filled ' + Object.keys(rs.prices).length + ' graded prices');
+      }
+    }
+    // If no PokeTrace data yet, try fetching it now
+    if (window.poketraceState.apiKey && !rs._poketraceData) {
+      try {
+        const searchName = rs.selectedCard?.name || rs.cardName || '';
+        const ptData = await poketraceSearch(searchName);
+        const best = pokectraceBestMatch(ptData, searchName);
+        if (best) {
+          rs._poketraceData = best;
+          for (const gs of gradeSearches) {
+            const gPrice = poketraceGradedPrice(best, gs.company, gs.grade);
+            if (gPrice && gPrice.avg) {
+              const label = gs.query.replace('-Pristine','').trim();
+              graded[label] = { median: gPrice.avg, low: gPrice.low, high: gPrice.high, count: gPrice.saleCount || 0, source: 'sold' };
+              rs.prices[gs.key] = gPrice.avg.toFixed(2);
+            }
+          }
+          if (Object.keys(rs.prices).length) {
+            dbg('Research', 'PokeTrace fetched and filled ' + Object.keys(rs.prices).length + ' graded prices');
+          }
+        }
+      } catch(e) { dbg('Research', 'PokeTrace graded fetch error: ' + e.message); }
     }
     
     // Fill remaining grades from eBay if PokeTrace didn't have them
