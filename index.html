@@ -3872,32 +3872,51 @@ window.researchEbayLookup = async function() {
       rawSummary = ebayPricingSummary(fallbackResults);
     }
     
-    // Search graded variants using the SAME base query
+    // Search graded variants — try PokeTrace Pro first, then eBay fallback
     const graded = {};
     const gradeSearches = [
-      {query:'PSA 10', key:'PSA_10'},
-      {query:'PSA 9', key:'PSA_9'},
-      {query:'PSA 8', key:'PSA_8'},
-      {query:'PSA 7', key:'PSA_7'},
-      {query:'CGC Pristine 10', key:'CGC_10.1'},
-      {query:'CGC 10 -Pristine', key:'CGC_10'},
-      {query:'CGC 9.5', key:'CGC_9.5'},
-      {query:'CGC 9', key:'CGC_9'},
-      {query:'CGC 8.5', key:'CGC_8.5'},
-      {query:'CGC 8', key:'CGC_8'},
-      {query:'BGS 10', key:'BGS_10'},
-      {query:'BGS 9.5', key:'BGS_9.5'},
-      {query:'BGS 9', key:'BGS_9'},
-      {query:'BGS 8', key:'BGS_8'}
+      {company:'PSA', grade:'10', key:'PSA_10', query:'PSA 10'},
+      {company:'PSA', grade:'9', key:'PSA_9', query:'PSA 9'},
+      {company:'PSA', grade:'8', key:'PSA_8', query:'PSA 8'},
+      {company:'PSA', grade:'7', key:'PSA_7', query:'PSA 7'},
+      {company:'CGC', grade:'10', key:'CGC_10', query:'CGC 10 -Pristine'},
+      {company:'CGC', grade:'9.5', key:'CGC_9.5', query:'CGC 9.5'},
+      {company:'CGC', grade:'9', key:'CGC_9', query:'CGC 9'},
+      {company:'CGC', grade:'8.5', key:'CGC_8.5', query:'CGC 8.5'},
+      {company:'CGC', grade:'8', key:'CGC_8', query:'CGC 8'},
+      {company:'BGS', grade:'10', key:'BGS_10', query:'BGS 10'},
+      {company:'BGS', grade:'9.5', key:'BGS_9.5', query:'BGS 9.5'},
+      {company:'BGS', grade:'9', key:'BGS_9', query:'BGS 9'},
+      {company:'BGS', grade:'8', key:'BGS_8', query:'BGS 8'}
     ];
-    for (const gs of gradeSearches) {
-      const gQuery = `${baseQuery} ${gs.query} -lot -bundle -mystery -repack`.trim();
-      const gResults = await ebaySearch(gQuery, 15);
-      const gSummary = ebayPricingSummary(gResults);
-      if (gSummary && gSummary.count >= 1) {
-        const label = gs.query.replace('-Pristine','').trim();
-        graded[label] = gSummary;
-        rs.prices[gs.key] = gSummary.median.toFixed(2);
+    
+    // Try PokeTrace Pro for all grades at once (single API call returns all tiers)
+    if (window.poketraceState.apiKey && rs._poketraceData) {
+      const best = pokectraceBestMatch(rs._poketraceData, rs.selectedCard?.name || rs.cardName);
+      if (best) {
+        for (const gs of gradeSearches) {
+          const gPrice = poketraceGradedPrice(best, gs.company, gs.grade);
+          if (gPrice && gPrice.avg) {
+            const label = gs.query.replace('-Pristine','').trim();
+            graded[label] = { median: gPrice.avg, low: gPrice.low, high: gPrice.high, count: gPrice.saleCount || 0, source: 'sold' };
+            rs.prices[gs.key] = gPrice.avg.toFixed(2);
+          }
+        }
+      }
+    }
+    
+    // Fill remaining grades from eBay if PokeTrace didn't have them
+    if (window.ebayState.appId) {
+      for (const gs of gradeSearches) {
+        if (rs.prices[gs.key]) continue; // Already got from PokeTrace
+        const gQuery = `${baseQuery} ${gs.query} -lot -bundle -mystery -repack`.trim();
+        const gResults = await ebaySearch(gQuery, 15);
+        const gSummary = ebayPricingSummary(gResults);
+        if (gSummary && gSummary.count >= 1) {
+          const label = gs.query.replace('-Pristine','').trim();
+          graded[label] = gSummary;
+          rs.prices[gs.key] = gSummary.median.toFixed(2);
+        }
       }
     }
     
@@ -3931,33 +3950,52 @@ window.researchEbayFillMatrix = async function() {
     rs._ebayData = rawSummary ? {...rawSummary, query: rawQuery} : {count:0, query: rawQuery};
     render();
     
-    // Search all graded variants using base query
+    // Search all graded variants — PokeTrace Pro first, eBay fallback
     const gradeSearches = [
-      {query:'PSA 10', key:'PSA_10'},
-      {query:'PSA 9', key:'PSA_9'},
-      {query:'PSA 8', key:'PSA_8'},
-      {query:'PSA 7', key:'PSA_7'},
-      {query:'CGC Pristine 10', key:'CGC_10.1'},
-      {query:'CGC 10 -Pristine', key:'CGC_10'},
-      {query:'CGC 9.5', key:'CGC_9.5'},
-      {query:'CGC 9', key:'CGC_9'},
-      {query:'CGC 8.5', key:'CGC_8.5'},
-      {query:'CGC 8', key:'CGC_8'},
-      {query:'BGS 10', key:'BGS_10'},
-      {query:'BGS 9.5', key:'BGS_9.5'},
-      {query:'BGS 9', key:'BGS_9'},
-      {query:'BGS 8', key:'BGS_8'}
+      {company:'PSA', grade:'10', key:'PSA_10', query:'PSA 10'},
+      {company:'PSA', grade:'9', key:'PSA_9', query:'PSA 9'},
+      {company:'PSA', grade:'8', key:'PSA_8', query:'PSA 8'},
+      {company:'PSA', grade:'7', key:'PSA_7', query:'PSA 7'},
+      {company:'CGC', grade:'10', key:'CGC_10', query:'CGC 10 -Pristine'},
+      {company:'CGC', grade:'9.5', key:'CGC_9.5', query:'CGC 9.5'},
+      {company:'CGC', grade:'9', key:'CGC_9', query:'CGC 9'},
+      {company:'CGC', grade:'8.5', key:'CGC_8.5', query:'CGC 8.5'},
+      {company:'CGC', grade:'8', key:'CGC_8', query:'CGC 8'},
+      {company:'BGS', grade:'10', key:'BGS_10', query:'BGS 10'},
+      {company:'BGS', grade:'9.5', key:'BGS_9.5', query:'BGS 9.5'},
+      {company:'BGS', grade:'9', key:'BGS_9', query:'BGS 9'},
+      {company:'BGS', grade:'8', key:'BGS_8', query:'BGS 8'}
     ];
     
+    // Try PokeTrace Pro first
+    if (window.poketraceState.apiKey) {
+      try {
+        const ptData = await poketraceSearch(baseQuery);
+        const best = pokectraceBestMatch(ptData, baseQuery);
+        if (best) {
+          for (const gs of gradeSearches) {
+            const gPrice = poketraceGradedPrice(best, gs.company, gs.grade);
+            if (gPrice && gPrice.avg) {
+              rs.prices[gs.key] = gPrice.avg.toFixed(2);
+            }
+          }
+        }
+      } catch(e) { dbg('Research', 'PokeTrace matrix error: ' + e.message); }
+    }
+    
+    // Fill remaining from eBay
     const graded = {};
-    for (const gs of gradeSearches) {
-      const gQuery = `${baseQuery} ${gs.query} -lot -bundle -mystery -repack`.trim();
-      const gResults = await ebaySearch(gQuery, 15);
-      const gSummary = ebayPricingSummary(gResults);
-      if (gSummary && gSummary.count >= 1) {
-        const label = gs.query.replace('-Pristine','').trim();
-        graded[label] = gSummary;
-        rs.prices[gs.key] = gSummary.median.toFixed(2);
+    if (window.ebayState.appId) {
+      for (const gs of gradeSearches) {
+        if (rs.prices[gs.key]) continue; // Already got from PokeTrace
+        const gQuery = `${baseQuery} ${gs.query} -lot -bundle -mystery -repack`.trim();
+        const gResults = await ebaySearch(gQuery, 15);
+        const gSummary = ebayPricingSummary(gResults);
+        if (gSummary && gSummary.count >= 1) {
+          const label = gs.query.replace('-Pristine','').trim();
+          graded[label] = gSummary;
+          rs.prices[gs.key] = gSummary.median.toFixed(2);
+        }
       }
     }
     
