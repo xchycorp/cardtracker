@@ -1297,10 +1297,25 @@ window.refreshSelectedPrices = async function() {
       const hasGrade = card.grade && card.gradingCompany;
       let gotPrice = false;
       
-      if (hasGrade && hasEB) {
+      if (hasGrade && hasPT) {
+        // Use PokeTrace Pro for graded card pricing (sold data)
+        try {
+          const ptData = await poketraceSearch(card.cardName);
+          const best = pokectraceBestMatch(ptData, card.cardName);
+          const gPrice = poketraceGradedPrice(best, card.gradingCompany, card.grade);
+          if (gPrice && gPrice.avg) { card.marketValue = Number(gPrice.avg.toFixed(2)); gotPrice = true; }
+        } catch(e) {}
+        // Fallback to eBay active listings if PokeTrace has no graded data
+        if (!gotPrice && hasEB) {
+          const company = card.gradingCompany.toUpperCase();
+          let query = card.cardName + ' ' + company + ' ' + card.grade;
+          const results = await ebaySearch(query.trim(), 15);
+          const summary = ebayPricingSummary(results);
+          if (summary && summary.median) { card.marketValue = Number(summary.median.toFixed(2)); gotPrice = true; }
+        }
+      } else if (hasGrade && hasEB) {
         const company = card.gradingCompany.toUpperCase();
-        let query = company === 'CGC' && (card.grade === '10.1' || card.grade === '11') ?
-          card.cardName + ' CGC Pristine 10' : card.cardName + ' ' + company + ' ' + card.grade;
+        let query = card.cardName + ' ' + company + ' ' + card.grade;
         const results = await ebaySearch(query.trim(), 15);
         const summary = ebayPricingSummary(results);
         if (summary && summary.median) { card.marketValue = Number(summary.median.toFixed(2)); gotPrice = true; }
@@ -1353,7 +1368,7 @@ window.refreshAllMarketValues = async function() {
   }
   
   if (!cardsToRefresh.length) { showToast('No cards to refresh in current filter'); return; }
-  if (!confirm(`Refresh market values for ${cardsToRefresh.length} cards (${filterLabel})?\n\nRaw cards: ${hasPT?'PokeTrace (sold data)':'eBay (active listings)'}\nGraded cards: ${hasEB?'eBay Browse API':'PokeTrace if available'}\n\nThis may take a minute.`)) return;
+  if (!confirm(`Refresh market values for ${cardsToRefresh.length} cards (${filterLabel})?\n\nRaw cards: ${hasPT?'PokeTrace (sold data)':'eBay (active listings)'}\nGraded cards: ${hasPT?'PokeTrace Pro (sold data)':'eBay Browse API'}\n\nThis may take a minute.`)) return;
   
   let updated = 0, failed = 0;
   showToast(`Refreshing prices for ${cardsToRefresh.length} cards...`);
@@ -1365,21 +1380,38 @@ window.refreshAllMarketValues = async function() {
     try {
       const hasGrade = card.grade && card.gradingCompany;
       
-      if (hasGrade && hasEB) {
-        // Graded card — use eBay Browse API for active listing prices
-        const company = card.gradingCompany.toUpperCase();
-        let gradeStr = card.grade;
-        let query = '';
-        
-        if (company === 'CGC' && (gradeStr === '10.1' || gradeStr === '11')) {
-          query = `${card.cardName} CGC Pristine 10`;
-        } else {
-          query = `${card.cardName} ${company} ${gradeStr}`;
+      if (hasGrade && hasPT) {
+        // Graded card — use PokeTrace Pro for sold data pricing
+        let gotPrice = false;
+        try {
+          const ptData = await poketraceSearch(card.cardName);
+          const best = pokectraceBestMatch(ptData, card.cardName);
+          const gPrice = poketraceGradedPrice(best, card.gradingCompany, card.grade);
+          if (gPrice && gPrice.avg) {
+            card.marketValue = Number(gPrice.avg.toFixed(2));
+            updated++;
+            gotPrice = true;
+          }
+        } catch(e) {}
+        // Fallback to eBay active listings
+        if (!gotPrice && hasEB) {
+          const company = card.gradingCompany.toUpperCase();
+          const query = `${card.cardName} ${company} ${card.grade}`;
+          const results = await ebaySearch(query.trim(), 15);
+          const summary = ebayPricingSummary(results);
+          if (summary && summary.median) {
+            card.marketValue = Number(summary.median.toFixed(2));
+            updated++;
+            gotPrice = true;
+          }
         }
-        
+        if (!gotPrice) failed++;
+      } else if (hasGrade && hasEB) {
+        // Graded card — no PokeTrace, use eBay Browse API
+        const company = card.gradingCompany.toUpperCase();
+        const query = `${card.cardName} ${company} ${card.grade}`;
         const results = await ebaySearch(query.trim(), 15);
         const summary = ebayPricingSummary(results);
-        
         if (summary && summary.median) {
           card.marketValue = Number(summary.median.toFixed(2));
           updated++;
@@ -1477,15 +1509,34 @@ window.refreshSinglePrice = async function(idx) {
   try {
     let gotPrice = false;
     
-    if (hasGrade && hasEB) {
-      // Graded — use eBay
-      const company = card.gradingCompany.toUpperCase();
-      let query = '';
-      if (company === 'CGC' && (card.grade === '10.1' || card.grade === '11')) {
-        query = card.cardName + ' CGC Pristine 10';
-      } else {
-        query = card.cardName + ' ' + company + ' ' + card.grade;
+    if (hasGrade && hasPT) {
+      // Graded — use PokeTrace Pro sold data
+      try {
+        const ptData = await poketraceSearch(card.cardName);
+        const best = pokectraceBestMatch(ptData, card.cardName);
+        const gPrice = poketraceGradedPrice(best, card.gradingCompany, card.grade);
+        if (gPrice && gPrice.avg) {
+          card.marketValue = Number(gPrice.avg.toFixed(2));
+          gotPrice = true;
+          dbg('Refresh', 'PokeTrace graded price: $' + card.marketValue + ' (' + gPrice.source + ')');
+        }
+      } catch(e) { dbg('Refresh', 'PokeTrace graded failed: ' + e.message); }
+      // Fallback to eBay active listings
+      if (!gotPrice && hasEB) {
+        const company = card.gradingCompany.toUpperCase();
+        const query = card.cardName + ' ' + company + ' ' + card.grade;
+        const results = await ebaySearch(query.trim(), 15);
+        const summary = ebayPricingSummary(results);
+        if (summary && summary.median) {
+          card.marketValue = Number(summary.median.toFixed(2));
+          gotPrice = true;
+          dbg('Refresh', 'eBay fallback price: $' + card.marketValue);
+        }
       }
+    } else if (hasGrade && hasEB) {
+      // Graded — no PokeTrace, use eBay
+      const company = card.gradingCompany.toUpperCase();
+      const query = card.cardName + ' ' + company + ' ' + card.grade;
       const results = await ebaySearch(query.trim(), 15);
       const summary = ebayPricingSummary(results);
       if (summary && summary.median) {
@@ -4118,20 +4169,31 @@ If not a trading card: {"error":"Not a trading card"}` }
     }
   } catch(e) { dbg('Bulk', 'TCGdex error: ' + e.message); }
   
-  // For graded cards, fetch eBay median price
-  if (isGraded && gradingCompany && grade && window.ebayState.appId) {
+  // For graded cards, use PokeTrace Pro sold data first, eBay fallback
+  if (isGraded && gradingCompany && grade && window.poketraceState.apiKey) {
+    try {
+      const ptData = await poketraceSearch(formatted || cardName);
+      const best = pokectraceBestMatch(ptData, formatted || cardName);
+      const gPrice = poketraceGradedPrice(best, gradingCompany, grade);
+      if (gPrice && gPrice.avg) {
+        marketPrice = gPrice.avg;
+        priceSource = gPrice.source;
+        dbg('Bulk', 'PokeTrace graded price: $' + Number(gPrice.avg).toFixed(2));
+      }
+    } catch(e) { dbg('Bulk', 'PokeTrace graded error: ' + e.message); }
+  }
+  if (isGraded && !marketPrice && gradingCompany && grade && window.ebayState.appId) {
     try {
       const company = gradingCompany.toUpperCase();
       const gradeQuery = company + ' ' + grade;
       const setShort = setName.split(' ').slice(0,2).join(' ').replace(/[^a-zA-Z0-9\s]/g,'').trim();
       const ebayQuery = `${setShort} ${cardName} ${number} ${gradeQuery} -lot -bundle -mystery -repack`.trim();
-      dbg('Bulk', 'Graded eBay search: ' + ebayQuery);
+      dbg('Bulk', 'Graded eBay fallback: ' + ebayQuery);
       const results = await ebaySearch(ebayQuery, 15);
       const summary = ebayPricingSummary(results);
       if (summary && summary.median) {
         marketPrice = summary.median;
         priceSource = 'eBay median (' + company + ' ' + grade + ')';
-        dbg('Bulk', 'Graded price: $' + Number(summary.median).toFixed(2));
       }
     } catch(e) { dbg('Bulk', 'Graded eBay error: ' + e.message); }
   }
@@ -4485,11 +4547,11 @@ async function poketraceSearch(cardName) {
   const pt = window.poketraceState;
   if (!pt.apiKey) { dbg('PokeTrace', 'No API key set'); return null; }
   
-  // Rate limit: minimum 2 seconds between calls
+  // Rate limit: Pro tier = 30 requests/10 seconds (333ms minimum gap)
   const now = Date.now();
   const elapsed = now - window._poketraceLastCall;
-  if (elapsed < 2000) {
-    await new Promise(r => setTimeout(r, 2000 - elapsed));
+  if (elapsed < 350) {
+    await new Promise(r => setTimeout(r, 350 - elapsed));
   }
   window._poketraceLastCall = Date.now();
   
@@ -4611,6 +4673,31 @@ function poketraceNMPrice(card) {
     }
   }
   
+  return null;
+}
+
+// Extract graded price from PokeTrace response for a specific company and grade
+function poketraceGradedPrice(card, company, grade) {
+  if (!card || !card.prices) return null;
+  const ebay = card.prices.ebay || {};
+  
+  // Build tier key: PSA_10, CGC_9, BGS_8_5, etc.
+  const companyUpper = (company || '').toUpperCase();
+  const gradeStr = String(grade).replace('.', '_');
+  const tierKey = companyUpper + '_' + gradeStr;
+  
+  if (ebay[tierKey] && ebay[tierKey].avg) {
+    const d = ebay[tierKey];
+    dbg('PokeTrace', 'Graded price found: ' + tierKey + ' avg=$' + d.avg + ' (' + (d.saleCount||0) + ' sales)');
+    return { avg: d.avg, low: d.low, high: d.high, saleCount: d.saleCount || 0, avg7d: d.avg7d, avg30d: d.avg30d, source: 'PokeTrace (eBay sold · ' + companyUpper + ' ' + grade + ')', tier: tierKey };
+  }
+  
+  // Check gradedOptions to see what's available
+  if (card.gradedOptions) {
+    dbg('PokeTrace', 'Available graded tiers: ' + card.gradedOptions.join(', '));
+  }
+  
+  dbg('PokeTrace', 'No graded price for: ' + tierKey);
   return null;
 }
 
