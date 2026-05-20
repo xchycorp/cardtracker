@@ -5474,25 +5474,105 @@ window.scannerSaveAll = function() {
 
 function rFinancials(m) {
   const expEntries=Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1]);
+  
+  // Calculate period comparisons
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const thisYM = todayStr.slice(0, 7);
+  const prevDate = new Date(today); prevDate.setMonth(prevDate.getMonth() - 1);
+  const prevYM = prevDate.toISOString().slice(0, 7);
+  const yoyDate = new Date(today); yoyDate.setFullYear(yoyDate.getFullYear() - 1);
+  const yoyYM = yoyDate.toISOString().slice(0, 7);
+  
+  // Current quarter
+  const thisQ = Math.floor(today.getMonth() / 3);
+  const qStart = new Date(today.getFullYear(), thisQ * 3, 1).toISOString().slice(0, 10);
+  const prevQStart = new Date(today.getFullYear(), (thisQ - 1) * 3, 1).toISOString().slice(0, 10);
+  const prevQEnd = new Date(today.getFullYear(), thisQ * 3, 0).toISOString().slice(0, 10);
+  
+  // Helper to compute P&L for a date range
+  function periodPL(startStr, endStr) {
+    const s = D.sales.filter(r => r.date && r.date >= startStr && r.date <= endStr);
+    const e = D.expenses.filter(r => r.date && r.date >= startStr && r.date <= endStr);
+    const rev = s.reduce((t, r) => t + num(r.salePrice), 0);
+    const platFee = s.reduce((t, r) => t + num(r.platformFee), 0);
+    const conFee = s.reduce((t, r) => t + num(r.consignFee), 0);
+    const ship = s.reduce((t, r) => t + num(r.shipCost), 0);
+    const cogs = s.reduce((t, r) => t + num(r.costBasis), 0);
+    const netRev = rev - platFee - conFee - ship;
+    const exp = e.reduce((t, r) => t + num(r.amount), 0);
+    // Grading costs for cards sold in this period
+    const gradeCost = s.reduce((t, r) => {
+      if (!r.cardId) return t;
+      const card = D.inventory.find(c => c.id === r.cardId);
+      return t + (card ? num(card.gradingCost) : 0);
+    }, 0);
+    const gross = netRev - cogs - gradeCost;
+    const net = gross - exp;
+    return { rev, platFee, conFee, ship, netRev, cogs, gradeCost, gross, exp, net, units: s.length };
+  }
+  
+  // Monthly P&L buckets
+  const monthlyPL = {};
+  const allMonths = new Set();
+  D.sales.forEach(r => { if (r.date && r.date.length >= 7) allMonths.add(r.date.slice(0, 7)); });
+  D.expenses.forEach(r => { if (r.date && r.date.length >= 7) allMonths.add(r.date.slice(0, 7)); });
+  const sortedMonths = Array.from(allMonths).sort();
+  sortedMonths.forEach(ym => {
+    const start = ym + '-01';
+    const endDate = new Date(parseInt(ym.slice(0, 4)), parseInt(ym.slice(5, 7)), 0);
+    const end = endDate.toISOString().slice(0, 10);
+    monthlyPL[ym] = periodPL(start, end);
+  });
+  
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const pctChg = function(curr, prev) {
+    if (!prev) return '—';
+    const ch = ((curr - prev) / Math.abs(prev)) * 100;
+    const color = ch >= 0 ? 'var(--green)' : 'var(--red)';
+    const arrow = ch >= 0 ? '↑' : '↓';
+    return '<span style="color:' + color + '">' + arrow + Math.abs(ch).toFixed(1) + '%</span>';
+  };
+  
+  // Total selling fees
+  const totalSellingFees = m.tPlatFee + m.tConFee + m.tShip;
+  
   return `<div class="fin-grid">
     <div class="panel">
       <h3 style="color:var(--blue)">📊 Income Statement <button class="btn btn-sm" onclick="exportPDF('income')">📄 PDF</button></h3>
-      <div class="fin-row indent"><span class="lbl">Card Sales (Gross)</span><span class="amt">${fmtD(m.tSale)}</span></div>
-      <div class="fin-row indent"><span class="lbl">Less: Platform Fees</span><span class="amt neg">(${fmtD(m.tPlatFee)})</span></div>
-      <div class="fin-row indent"><span class="lbl">Less: Consignment Fees</span><span class="amt neg">(${fmtD(m.tConFee)})</span></div>
-      <div class="fin-row indent"><span class="lbl">Less: Shipping Costs</span><span class="amt neg">(${fmtD(m.tShip)})</span></div>
-      <div class="fin-row bold bt"><span class="lbl">Net Revenue</span><span class="amt">${fmtD(m.netRev)}</span></div>
+      
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint);margin-bottom:4px"><span class="lbl">REVENUE</span></div>
+      <div class="fin-row indent"><span class="lbl">Card Sales (Gross Revenue)</span><span class="amt">${fmtD(m.tSale)}</span></div>
+      <div style="height:4px"></div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint);margin-bottom:4px"><span class="lbl">LESS: SELLING FEES & COSTS</span></div>
+      <div class="fin-row indent"><span class="lbl">Platform Fees (eBay, etc.)</span><span class="amt neg">(${fmtD(m.tPlatFee)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Consignment Fees</span><span class="amt neg">(${fmtD(m.tConFee)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Shipping Costs</span><span class="amt neg">(${fmtD(m.tShip)})</span></div>
+      <div class="fin-row indent" style="border-top:1px solid var(--border);padding-top:4px"><span class="lbl">Total Selling Fees</span><span class="amt neg">(${fmtD(totalSellingFees)})</span></div>
+      <div style="height:4px"></div>
+      <div class="fin-row bold bt"><span class="lbl">NET REVENUE</span><span class="amt">${fmtD(m.netRev)}</span></div>
+      <div class="fin-row indent" style="font-size:10px;color:var(--text-faint)"><span class="lbl">(Gross Revenue − Selling Fees)</span><span class="amt">${fmtD(m.tSale)} − ${fmtD(totalSellingFees)} = ${fmtD(m.netRev)}</span></div>
+      
+      <div style="height:10px"></div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint);margin-bottom:4px"><span class="lbl">LESS: COST OF GOODS</span></div>
+      <div class="fin-row indent"><span class="lbl">Cost of Goods Sold (Card Cost Basis)</span><span class="amt neg">(${fmtD(m.tCOGS)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Grading Costs (on sold cards)</span><span class="amt neg">(${fmtD(m.tGrade)})</span></div>
+      <div class="fin-row indent" style="border-top:1px solid var(--border);padding-top:4px"><span class="lbl">Total Cost of Goods</span><span class="amt neg">(${fmtD(m.tCOGS + m.tGrade)})</span></div>
+      
+      <div style="height:4px"></div>
+      <div class="fin-row bold bt"><span class="lbl">GROSS PROFIT</span><span class="amt ${m.gross>=0?'pos':'neg'}">${fmtD(m.gross)}</span></div>
+      <div class="fin-row indent" style="font-size:10px;color:var(--text-faint)"><span class="lbl">(Net Revenue − Cost of Goods)</span><span class="amt">${fmtD(m.netRev)} − ${fmtD(m.tCOGS + m.tGrade)} = ${fmtD(m.gross)}</span></div>
+      <div class="fin-row indent" style="font-size:10px"><span class="lbl">Gross Margin</span><span class="amt">${pct(m.gm)}</span></div>
+      
+      <div style="height:10px"></div>
+      <div class="fin-row" style="font-size:11px;color:var(--text-faint);margin-bottom:4px"><span class="lbl">LESS: OPERATING EXPENSES</span></div>
+      ${expEntries.length ? expEntries.map(([c,a])=>`<div class="fin-row indent"><span class="lbl">${c}</span><span class="amt neg">(${fmtD(a)})</span></div>`).join('') : '<div class="fin-row indent"><span class="lbl" style="color:var(--text-faint)">No expenses logged</span><span class="amt">—</span></div>'}
+      <div class="fin-row indent" style="border-top:1px solid var(--border);padding-top:4px"><span class="lbl">Total Operating Expenses</span><span class="amt neg">(${fmtD(m.tExp)})</span></div>
+      
       <div style="height:6px"></div>
-      <div class="fin-row indent"><span class="lbl">Cost of Goods Sold</span><span class="amt">${fmtD(m.tCOGS)}</span></div>
-      <div class="fin-row indent"><span class="lbl">Grading Costs</span><span class="amt">${fmtD(m.tGrade)}</span></div>
-      <div class="fin-row bold bt"><span class="lbl">Gross Profit</span><span class="amt ${m.gross>=0?'pos':'neg'}">${fmtD(m.gross)}</span></div>
-      <div class="fin-row indent"><span class="lbl" style="font-size:11px">Gross Margin</span><span class="amt" style="font-size:11px">${pct(m.gm)}</span></div>
-      <div style="height:6px"></div>
-      ${expEntries.map(([c,a])=>`<div class="fin-row indent"><span class="lbl">${c}</span><span class="amt">${fmtD(a)}</span></div>`).join('')}
-      <div class="fin-row bold bt"><span class="lbl">Total Expenses</span><span class="amt">${fmtD(m.tExp)}</span></div>
-      <div style="height:6px"></div>
-      <div class="fin-row bold bd"><span class="lbl">NET INCOME</span><span class="amt ${m.net>=0?'pos':'neg'}">${fmtD(m.net)}</span></div>
-      <div class="fin-row indent"><span class="lbl" style="font-size:11px">Net Margin</span><span class="amt" style="font-size:11px">${pct(m.nm)}</span></div>
+      <div class="fin-row bold bd" style="font-size:15px;padding:8px 0"><span class="lbl">NET INCOME</span><span class="amt ${m.net>=0?'pos':'neg'}">${fmtD(m.net)}</span></div>
+      <div class="fin-row indent" style="font-size:10px;color:var(--text-faint)"><span class="lbl">(Gross Profit − Operating Expenses)</span><span class="amt">${fmtD(m.gross)} − ${fmtD(m.tExp)} = ${fmtD(m.net)}</span></div>
+      <div class="fin-row indent" style="font-size:10px"><span class="lbl">Net Margin</span><span class="amt">${pct(m.nm)}</span></div>
     </div>
     <div class="panel">
       <h3 style="color:var(--cyan)">🏦 Balance Sheet <button class="btn btn-sm" onclick="exportPDF('balance')">📄 PDF</button></h3>
@@ -5550,6 +5630,49 @@ function rFinancials(m) {
     <div class="fin-row bold bd"><span class="lbl">Starting Cash</span><span class="amt">${fmtD(m.startingCash)}</span></div>
     <div class="fin-row bold bd"><span class="lbl">Net Cash Change</span><span class="amt ${m.cashBalance-m.startingCash>=0?'pos':'neg'}">${fmtD(m.cashBalance-m.startingCash)}</span></div>
     <div class="fin-row bold bd" style="font-size:15px"><span class="lbl">Ending Cash</span><span class="amt">${fmtD(m.cashBalance)}</span></div>
+  </div>
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--green)">📊 Period Comparison <button class="btn btn-sm" onclick="exportPDF('comparison')">📄 PDF</button></h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Month-over-month, quarter-over-quarter, and year-over-year P&L</div>
+    ${sortedMonths.length ? `
+    <div style="overflow-x:auto">
+      <table style="width:100%;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:2px solid var(--border)">
+          <th style="text-align:left;padding:6px 8px;color:var(--text-dim)">Month</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">Revenue</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">COGS</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">Fees</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">Expenses</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">Net Income</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">Margin</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">Units</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">MoM Rev</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)">MoM Net</th>
+        </tr></thead>
+        <tbody>
+          ${sortedMonths.slice(-12).reverse().map(function(ym) {
+            const p = monthlyPL[ym];
+            const pp = ym.split('-');
+            const label = monthNames[parseInt(pp[1])-1] + ' ' + pp[0];
+            const prevIdx = sortedMonths.indexOf(ym) - 1;
+            const prevPL = prevIdx >= 0 ? monthlyPL[sortedMonths[prevIdx]] : null;
+            return '<tr style="border-bottom:1px solid var(--border)">' +
+              '<td style="padding:6px 8px;font-weight:600">' + label + '</td>' +
+              '<td class="r mono" style="padding:6px 8px">' + fmtD(p.rev) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(p.cogs + p.gradeCost) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(p.platFee + p.conFee + p.ship) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(p.exp) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px;font-weight:700;color:' + (p.net >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtD(p.net) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px">' + (p.rev ? pct(p.net / p.rev) : '—') + '</td>' +
+              '<td class="r mono" style="padding:6px 8px">' + p.units + '</td>' +
+              '<td class="r mono" style="padding:6px 8px">' + (prevPL ? pctChg(p.rev, prevPL.rev) : '—') + '</td>' +
+              '<td class="r mono" style="padding:6px 8px">' + (prevPL && prevPL.net ? pctChg(p.net, prevPL.net) : '—') + '</td>' +
+            '</tr>';
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : '<div style="color:var(--text-dim);text-align:center;padding:20px">Add sales and expense data to see period comparisons</div>'}
   </div>
   ${r1099K(m)}
   ${rYearEndInventory(m)}`;
