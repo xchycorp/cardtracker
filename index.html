@@ -183,7 +183,7 @@ onSnapshot(DOC_REF, (snap) => {
 const emptyData = () => ({
   inventory: [], sales: [], purchases: [], grading: [], sealed: [], expenses: [],
   capital: [], crackList: [], nameCorrections: {},
-  settings: { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0 },
+  settings: { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0, goalRevenue:0, goalProfit:0, goalYear:'' },
   nextIds: { C:1, S:1, P:1, G:1, SL:1, E:1, CAP:1 }
 });
 
@@ -985,6 +985,12 @@ function rCapital(m) {
         <div class="form-group"><label>Sales Tax Owed ($)</label><input type="number" step="0.01" value="${num(s.salesTaxOwed)}" onchange="saveSetting('salesTaxOwed',this.value)"></div>
         <div class="form-group"><label>Credit Card Balance ($)</label><input type="number" step="0.01" value="${num(s.creditCardBal)}" onchange="saveSetting('creditCardBal',this.value)"></div>
       </div>
+      <div style="font-size:12px;font-weight:600;margin:16px 0 8px;color:var(--cyan)">🎯 Goal Targets</div>
+      <div class="form-grid">
+        <div class="form-group"><label>Annual Revenue Goal ($)</label><input type="number" step="1" value="${num(s.goalRevenue)||''}" onchange="saveSetting('goalRevenue',this.value)" placeholder="e.g. 50000"></div>
+        <div class="form-group"><label>Annual Profit Goal ($)</label><input type="number" step="1" value="${num(s.goalProfit)||''}" onchange="saveSetting('goalProfit',this.value)" placeholder="e.g. 15000"></div>
+        <div class="form-group"><label>Goal Year</label><input type="number" value="${s.goalYear||new Date().getFullYear()}" onchange="saveSettingStr('goalYear',this.value)" placeholder="${new Date().getFullYear()}"></div>
+      </div>
     </div>
     <div class="metrics" style="margin-bottom:16px">
       <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Total Contributions</div><div class="val pos">${fmt(num(s.startingCash)+totalIn)}</div><div class="sub" style="color:var(--text-dim)">${fmt(num(s.startingCash))} starting + ${fmt(totalIn)} added</div></div>
@@ -998,6 +1004,12 @@ function rCapital(m) {
 window.saveSetting = function(key, value) {
   if(!D.settings) D.settings={};
   D.settings[key]=parseFloat(value)||0;
+  saveData();
+  showToast('Setting saved & synced');
+};
+window.saveSettingStr = function(key, value) {
+  if(!D.settings) D.settings={};
+  D.settings[key]=String(value||'');
   saveData();
   showToast('Setting saved & synced');
 };
@@ -5675,7 +5687,286 @@ function rFinancials(m) {
     ` : '<div style="color:var(--text-dim);text-align:center;padding:20px">Add sales and expense data to see period comparisons</div>'}
   </div>
   ${r1099K(m)}
-  ${rYearEndInventory(m)}`;
+  ${rYearEndInventory(m)}
+  
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--accent)">📊 Comparative Income Statement</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Side-by-side P&L: This Month vs Last Month vs Same Month Last Year</div>
+    ${(function() {
+      const thisMonth = monthlyPL[thisYM] || {rev:0,platFee:0,conFee:0,ship:0,netRev:0,cogs:0,gradeCost:0,gross:0,exp:0,net:0,units:0};
+      const lastMonth = monthlyPL[prevYM] || {rev:0,platFee:0,conFee:0,ship:0,netRev:0,cogs:0,gradeCost:0,gross:0,exp:0,net:0,units:0};
+      const yoyMonth = monthlyPL[yoyYM] || {rev:0,platFee:0,conFee:0,ship:0,netRev:0,cogs:0,gradeCost:0,gross:0,exp:0,net:0,units:0};
+      const thisLabel = monthNames[today.getMonth()] + ' ' + today.getFullYear();
+      const prevLabel = monthNames[prevDate.getMonth()] + ' ' + prevDate.getFullYear();
+      const yoyLabel = monthNames[yoyDate.getMonth()] + ' ' + yoyDate.getFullYear();
+      
+      function compRow(label, key, isCost) {
+        const vals = [thisMonth[key], lastMonth[key], yoyMonth[key]];
+        return '<tr style="border-bottom:1px solid var(--border)">' +
+          '<td style="padding:5px 8px">' + label + '</td>' +
+          vals.map(function(v, idx) {
+            var ref = idx === 1 ? lastMonth[key] : (idx === 2 ? yoyMonth[key] : null);
+            return '<td class="r mono" style="padding:5px 8px;' + (isCost && v ? 'color:var(--text-dim)' : '') + '">' + (isCost ? '(' + fmtD(v) + ')' : fmtD(v)) + '</td>';
+          }).join('') +
+          '<td class="r mono" style="padding:5px 8px">' + (lastMonth[key] ? pctChg(thisMonth[key], lastMonth[key]) : '—') + '</td>' +
+          '<td class="r mono" style="padding:5px 8px">' + (yoyMonth[key] ? pctChg(thisMonth[key], yoyMonth[key]) : '—') + '</td>' +
+        '</tr>';
+      }
+      
+      return '<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="border-bottom:2px solid var(--border)">' +
+        '<th style="text-align:left;padding:6px 8px;color:var(--text-dim)">Line Item</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">' + thisLabel + '</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">' + prevLabel + '</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">' + yoyLabel + '</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">MoM</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">YoY</th>' +
+      '</tr></thead><tbody>' +
+        compRow('Gross Revenue', 'rev', false) +
+        compRow('Selling Fees', 'platFee', true) +
+        '<tr style="border-bottom:2px solid var(--border);font-weight:700"><td style="padding:5px 8px">Net Revenue</td>' +
+          [thisMonth,lastMonth,yoyMonth].map(function(p) { return '<td class="r mono" style="padding:5px 8px">' + fmtD(p.netRev) + '</td>'; }).join('') +
+          '<td class="r mono" style="padding:5px 8px">' + (lastMonth.netRev ? pctChg(thisMonth.netRev, lastMonth.netRev) : '—') + '</td>' +
+          '<td class="r mono" style="padding:5px 8px">' + (yoyMonth.netRev ? pctChg(thisMonth.netRev, yoyMonth.netRev) : '—') + '</td></tr>' +
+        compRow('COGS', 'cogs', true) +
+        compRow('Grading Costs', 'gradeCost', true) +
+        '<tr style="border-bottom:2px solid var(--border);font-weight:700"><td style="padding:5px 8px">Gross Profit</td>' +
+          [thisMonth,lastMonth,yoyMonth].map(function(p) { return '<td class="r mono" style="padding:5px 8px;color:' + (p.gross>=0?'var(--green)':'var(--red)') + '">' + fmtD(p.gross) + '</td>'; }).join('') +
+          '<td class="r mono" style="padding:5px 8px">' + (lastMonth.gross ? pctChg(thisMonth.gross, lastMonth.gross) : '—') + '</td>' +
+          '<td class="r mono" style="padding:5px 8px">' + (yoyMonth.gross ? pctChg(thisMonth.gross, yoyMonth.gross) : '—') + '</td></tr>' +
+        compRow('Expenses', 'exp', true) +
+        '<tr style="border-bottom:2px solid var(--border);font-weight:700;font-size:13px"><td style="padding:8px">NET INCOME</td>' +
+          [thisMonth,lastMonth,yoyMonth].map(function(p) { return '<td class="r mono" style="padding:8px;color:' + (p.net>=0?'var(--green)':'var(--red)') + '">' + fmtD(p.net) + '</td>'; }).join('') +
+          '<td class="r mono" style="padding:8px">' + (lastMonth.net ? pctChg(thisMonth.net, lastMonth.net) : '—') + '</td>' +
+          '<td class="r mono" style="padding:8px">' + (yoyMonth.net ? pctChg(thisMonth.net, yoyMonth.net) : '—') + '</td></tr>' +
+        '<tr><td style="padding:5px 8px;color:var(--text-dim)">Units Sold</td>' +
+          [thisMonth,lastMonth,yoyMonth].map(function(p) { return '<td class="r mono" style="padding:5px 8px">' + p.units + '</td>'; }).join('') +
+          '<td class="r mono" style="padding:5px 8px">' + (lastMonth.units ? pctChg(thisMonth.units, lastMonth.units) : '—') + '</td>' +
+          '<td class="r mono" style="padding:5px 8px">' + (yoyMonth.units ? pctChg(thisMonth.units, yoyMonth.units) : '—') + '</td></tr>' +
+      '</tbody></table></div>';
+    })()}
+  </div>
+  
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--yellow)">📅 Quarterly P&L Rollup</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Aggregated by quarter</div>
+    ${(function() {
+      // Build quarterly data
+      var quarters = {};
+      sortedMonths.forEach(function(ym) {
+        var yr = ym.slice(0,4);
+        var mo = parseInt(ym.slice(5,7));
+        var q = 'Q' + (Math.floor((mo-1)/3)+1) + ' ' + yr;
+        if (!quarters[q]) quarters[q] = {rev:0,cogs:0,gradeCost:0,platFee:0,conFee:0,ship:0,netRev:0,gross:0,exp:0,net:0,units:0};
+        var p = monthlyPL[ym];
+        quarters[q].rev += p.rev; quarters[q].cogs += p.cogs; quarters[q].gradeCost += p.gradeCost;
+        quarters[q].platFee += p.platFee; quarters[q].conFee += p.conFee; quarters[q].ship += p.ship;
+        quarters[q].netRev += p.netRev; quarters[q].gross += p.gross; quarters[q].exp += p.exp;
+        quarters[q].net += p.net; quarters[q].units += p.units;
+      });
+      var qKeys = Object.keys(quarters).sort();
+      if (!qKeys.length) return '<div style="color:var(--text-dim);text-align:center;padding:20px">No data yet</div>';
+      return '<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="border-bottom:2px solid var(--border)">' +
+        '<th style="text-align:left;padding:6px 8px;color:var(--text-dim)">Quarter</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Revenue</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">COGS+Grade</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Fees</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Gross Profit</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Expenses</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Net Income</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Margin</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Units</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">QoQ</th>' +
+      '</tr></thead><tbody>' +
+        qKeys.map(function(q, qi) {
+          var p = quarters[q];
+          var prevQ = qi > 0 ? quarters[qKeys[qi-1]] : null;
+          return '<tr style="border-bottom:1px solid var(--border)">' +
+            '<td style="padding:6px 8px;font-weight:700">' + q + '</td>' +
+            '<td class="r mono" style="padding:6px 8px">' + fmtD(p.rev) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(p.cogs+p.gradeCost) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(p.platFee+p.conFee+p.ship) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px;color:' + (p.gross>=0?'var(--green)':'var(--red)') + '">' + fmtD(p.gross) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(p.exp) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px;font-weight:700;color:' + (p.net>=0?'var(--green)':'var(--red)') + '">' + fmtD(p.net) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px">' + (p.rev ? pct(p.net/p.rev) : '—') + '</td>' +
+            '<td class="r mono" style="padding:6px 8px">' + p.units + '</td>' +
+            '<td class="r mono" style="padding:6px 8px">' + (prevQ && prevQ.rev ? pctChg(p.rev, prevQ.rev) : '—') + '</td>' +
+          '</tr>';
+        }).join('') +
+      '</tbody></table></div>';
+    })()}
+  </div>
+  
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--cyan)">📈 Year-to-Date Summary</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">YTD ${today.getFullYear()} performance${sortedMonths.some(function(ym){return ym.startsWith(String(today.getFullYear()-1))}) ? ' vs Prior Year YTD' : ''}</div>
+    ${(function() {
+      var thisYear = String(today.getFullYear());
+      var lastYear = String(today.getFullYear() - 1);
+      var ytdStart = thisYear + '-01-01';
+      var ytdEnd = todayStr;
+      var pytdEnd = lastYear + todayStr.slice(4); // Same day last year
+      var pytdStart = lastYear + '-01-01';
+      
+      var ytd = periodPL(ytdStart, ytdEnd);
+      var pytd = periodPL(pytdStart, pytdEnd);
+      
+      var rows = [
+        ['Gross Revenue', ytd.rev, pytd.rev],
+        ['Selling Fees', -(ytd.platFee+ytd.conFee+ytd.ship), -(pytd.platFee+pytd.conFee+pytd.ship)],
+        ['Net Revenue', ytd.netRev, pytd.netRev],
+        ['COGS + Grading', -(ytd.cogs+ytd.gradeCost), -(pytd.cogs+pytd.gradeCost)],
+        ['Gross Profit', ytd.gross, pytd.gross],
+        ['Operating Expenses', -ytd.exp, -pytd.exp],
+        ['Net Income', ytd.net, pytd.net]
+      ];
+      
+      return '<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="border-bottom:2px solid var(--border)">' +
+        '<th style="text-align:left;padding:6px 8px;color:var(--text-dim)">Line Item</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">YTD ' + thisYear + '</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">YTD ' + lastYear + '</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">$ Change</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">% Change</th>' +
+      '</tr></thead><tbody>' +
+        rows.map(function(r) {
+          var isBold = r[0]==='Net Revenue'||r[0]==='Gross Profit'||r[0]==='Net Income';
+          var isCost = r[1] < 0 && r[0]!=='Net Income' && r[0]!=='Net Revenue' && r[0]!=='Gross Profit';
+          var dollarChg = r[1] - r[2];
+          return '<tr style="border-bottom:' + (isBold?'2':'1') + 'px solid var(--border);' + (isBold?'font-weight:700':'') + '">' +
+            '<td style="padding:6px 8px">' + r[0] + '</td>' +
+            '<td class="r mono" style="padding:6px 8px;' + (r[0]==='Net Income' ? 'color:' + (r[1]>=0?'var(--green)':'var(--red)') : (isCost?'color:var(--text-dim)':'')) + '">' + (isCost ? '(' + fmtD(Math.abs(r[1])) + ')' : fmtD(r[1])) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px;' + (isCost?'color:var(--text-dim)':'') + '">' + (isCost ? '(' + fmtD(Math.abs(r[2])) + ')' : fmtD(r[2])) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px;color:' + (dollarChg>=0?'var(--green)':'var(--red)') + '">' + (dollarChg>=0?'+':'') + fmtD(dollarChg) + '</td>' +
+            '<td class="r mono" style="padding:6px 8px">' + (r[2] ? pctChg(r[1], r[2]) : '—') + '</td>' +
+          '</tr>';
+        }).join('') +
+        '<tr><td style="padding:6px 8px;color:var(--text-dim)">Units Sold</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + ytd.units + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + pytd.units + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + ((ytd.units-pytd.units)>=0?'var(--green)':'var(--red)') + '">' + (ytd.units-pytd.units>=0?'+':'') + (ytd.units-pytd.units) + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + (pytd.units ? pctChg(ytd.units, pytd.units) : '—') + '</td></tr>' +
+      '</tbody></table></div>';
+    })()}
+  </div>
+  
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--green)">🎯 Goal Tracker</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Set revenue and profit targets. Edit in Settings (⚙️).</div>
+    ${(function() {
+      var goalRev = num(m.sett.goalRevenue) || 0;
+      var goalProf = num(m.sett.goalProfit) || 0;
+      var goalYear = m.sett.goalYear || String(today.getFullYear());
+      
+      if (!goalRev && !goalProf) {
+        return '<div style="color:var(--text-dim);text-align:center;padding:16px;font-size:12px">No goals set. Go to ⚙️ Settings to set annual revenue and profit targets.</div>';
+      }
+      
+      var ytdStart = goalYear + '-01-01';
+      var ytdEnd = goalYear === String(today.getFullYear()) ? todayStr : goalYear + '-12-31';
+      var ytd = periodPL(ytdStart, ytdEnd);
+      
+      var dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 1)) / 86400000) + 1;
+      var daysInYear = ((today.getFullYear() % 4 === 0) ? 366 : 365);
+      var pctThrough = dayOfYear / daysInYear;
+      
+      var revPct = goalRev ? (ytd.rev / goalRev) * 100 : 0;
+      var profPct = goalProf ? (ytd.net / goalProf) * 100 : 0;
+      var revPace = goalRev ? ytd.rev / pctThrough : 0;
+      var profPace = goalProf ? ytd.net / pctThrough : 0;
+      
+      function goalBar(label, actual, target, pace) {
+        if (!target) return '';
+        var pctDone = Math.min((actual / target) * 100, 100);
+        var onTrack = actual >= target * pctThrough;
+        var color = onTrack ? 'var(--green)' : 'var(--yellow)';
+        if (pctDone >= 100) color = 'var(--green)';
+        
+        return '<div style="margin-bottom:16px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">' +
+            '<span style="font-weight:600;font-size:12px">' + label + '</span>' +
+            '<span style="font-size:11px;color:var(--text-dim)">' + fmtD(actual) + ' / ' + fmtD(target) + ' (' + pctDone.toFixed(1) + '%)</span>' +
+          '</div>' +
+          '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;height:24px;overflow:hidden;position:relative">' +
+            '<div style="width:' + Math.min(pctDone, 100) + '%;height:100%;background:' + color + ';border-radius:8px;transition:width .3s"></div>' +
+            '<div style="position:absolute;left:' + (pctThrough*100).toFixed(1) + '%;top:0;bottom:0;width:2px;background:var(--text-faint);opacity:.5" title="Where you should be (' + (pctThrough*100).toFixed(0) + '% of year)"></div>' +
+          '</div>' +
+          '<div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text-dim)">' +
+            '<span>Pace: ' + fmtD(pace) + '/yr' + (onTrack ? ' ✅ On track' : ' ⚠️ Behind pace') + '</span>' +
+            '<span>Need ' + fmtD(Math.max(0, target - actual)) + ' more (' + fmtD(Math.max(0, (target - actual) / Math.max(1, daysInYear - dayOfYear) * 30)) + '/mo)</span>' +
+          '</div>' +
+        '</div>';
+      }
+      
+      return goalBar('Revenue Target (' + goalYear + ')', ytd.rev, goalRev, revPace) +
+             goalBar('Profit Target (' + goalYear + ')', ytd.net, goalProf, profPace);
+    })()}
+  </div>
+  
+  <div class="panel" style="margin-top:14px">
+    <h3 style="color:var(--purple)">📦 Pipeline Projection</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Estimated future revenue from cards currently in the grading pipeline</div>
+    ${(function() {
+      var submitted = D.inventory.filter(function(c) { return c.status === 'Submitted'; });
+      var listed = D.inventory.filter(function(c) { return c.status === 'Listed'; });
+      var graded = D.inventory.filter(function(c) { return c.status === 'Graded'; });
+      
+      var submittedCost = submitted.reduce(function(s,c) { return s + num(c.costBasis) + num(c.gradingCost); }, 0);
+      var submittedMarket = submitted.reduce(function(s,c) { return s + num(c.marketValue); }, 0);
+      var listedCost = listed.reduce(function(s,c) { return s + num(c.costBasis) + num(c.gradingCost); }, 0);
+      var listedMarket = listed.reduce(function(s,c) { return s + num(c.marketValue); }, 0);
+      var listedListPrice = listed.reduce(function(s,c) { return s + num(c.listPrice); }, 0);
+      var gradedCost = graded.reduce(function(s,c) { return s + num(c.costBasis) + num(c.gradingCost); }, 0);
+      var gradedMarket = graded.reduce(function(s,c) { return s + num(c.marketValue); }, 0);
+      
+      // Estimate net revenue (after ~13% eBay fees)
+      var feeRate = 0.13;
+      var estListedRev = listedListPrice ? listedListPrice * (1 - feeRate) : listedMarket * (1 - feeRate);
+      var estGradedRev = gradedMarket * (1 - feeRate);
+      var estSubmittedRev = submittedMarket * (1 - feeRate);
+      
+      var estListedProf = estListedRev - listedCost;
+      var estGradedProf = estGradedRev - gradedCost;
+      var estSubmittedProf = estSubmittedRev - submittedCost;
+      
+      var totalPipelineRev = estListedRev + estGradedRev + estSubmittedRev;
+      var totalPipelineProf = estListedProf + estGradedProf + estSubmittedProf;
+      
+      return '<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="border-bottom:2px solid var(--border)">' +
+        '<th style="text-align:left;padding:6px 8px;color:var(--text-dim)">Pipeline Stage</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Cards</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Total Cost</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Market Value</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Est. Net Revenue</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Est. Profit</th>' +
+      '</tr></thead><tbody>' +
+        '<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--yellow);margin-right:6px"></span>Listed (ready to sell)</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + listed.length + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + fmtD(listedCost) + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + fmtD(listedMarket || listedListPrice) + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + fmtD(estListedRev) + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + (estListedProf>=0?'var(--green)':'var(--red)') + '">' + fmtD(estListedProf) + '</td></tr>' +
+        '<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--cyan);margin-right:6px"></span>Graded (needs listing)</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + graded.length + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + fmtD(gradedCost) + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + fmtD(gradedMarket) + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + fmtD(estGradedRev) + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + (estGradedProf>=0?'var(--green)':'var(--red)') + '">' + fmtD(estGradedProf) + '</td></tr>' +
+        '<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--purple);margin-right:6px"></span>Submitted (at grading co.)</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + submitted.length + '</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + fmtD(submittedCost) + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;font-style:italic;color:var(--text-dim)">' + (submittedMarket ? fmtD(submittedMarket) : 'TBD') + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;font-style:italic;color:var(--text-dim)">' + (submittedMarket ? fmtD(estSubmittedRev) : 'TBD') + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;font-style:italic;color:var(--text-dim)">' + (submittedMarket ? fmtD(estSubmittedProf) : 'TBD') + '</td></tr>' +
+        '<tr style="border-top:2px solid var(--border);font-weight:700"><td style="padding:8px">Total Pipeline</td>' +
+          '<td class="r mono" style="padding:8px">' + (listed.length + graded.length + submitted.length) + '</td>' +
+          '<td class="r mono" style="padding:8px">' + fmtD(listedCost + gradedCost + submittedCost) + '</td>' +
+          '<td class="r mono" style="padding:8px">' + fmtD((listedMarket||listedListPrice) + gradedMarket + submittedMarket) + '</td>' +
+          '<td class="r mono" style="padding:8px">' + fmtD(totalPipelineRev) + '</td>' +
+          '<td class="r mono" style="padding:8px;color:' + (totalPipelineProf>=0?'var(--green)':'var(--red)') + '">' + fmtD(totalPipelineProf) + '</td></tr>' +
+      '</tbody></table></div>' +
+      '<div style="font-size:10px;color:var(--text-faint);margin-top:8px;font-style:italic">Est. Net Revenue = Market Value × 0.87 (after 13% eBay fees). Submitted card values are based on raw market prices — actual graded values will differ. Pipeline projections assume all cards sell at current market.</div>';
+    })()}
+  </div>`;
 }
 
 // ============================================================
