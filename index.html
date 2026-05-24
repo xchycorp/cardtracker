@@ -5661,9 +5661,13 @@ function rFinancials(m) {
     <div class="fin-row bold bd"><span class="lbl">Net Cash Change</span><span class="amt ${m.cashBalance-m.startingCash>=0?'pos':'neg'}">${fmtD(m.cashBalance-m.startingCash)}</span></div>
     <div class="fin-row bold bd" style="font-size:15px"><span class="lbl">Ending Cash</span><span class="amt">${fmtD(m.cashBalance)}</span></div>
   </div>
+  
   <div class="panel" style="margin-top:14px">
-    <h3 style="color:var(--green)">📊 Period Comparison <button class="btn btn-sm" onclick="exportPDF('comparison')">📄 PDF</button></h3>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Month-over-month, quarter-over-quarter, and year-over-year P&L</div>
+    <h3 style="color:var(--accent)">📊 Financial Analysis</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Comparative, quarterly, and year-to-date financial performance</div>
+    
+    <details open>
+    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--green);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📋 Monthly P&L (last 12 months)</summary>
     ${sortedMonths.length ? `
     <div style="overflow-x:auto">
       <table style="width:100%;font-size:11px;border-collapse:collapse">
@@ -5702,16 +5706,10 @@ function rFinancials(m) {
         </tbody>
       </table>
     </div>
-    ` : '<div style="color:var(--text-dim);text-align:center;padding:20px">Add sales and expense data to see period comparisons</div>'}
-  </div>
-  ${r1099K(m)}
-  ${rYearEndInventory(m)}
-  
-  <div class="panel" style="margin-top:14px">
-    <h3 style="color:var(--accent)">📊 Financial Analysis</h3>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Comparative, quarterly, and year-to-date financial performance</div>
+    ` : '<div style="color:var(--text-dim);text-align:center;padding:20px">No data yet</div>'}
+    </details>
     
-    <details open>
+    <details>
     <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--cyan);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📋 Comparative P&L — This Month vs Last Month vs YoY</summary>
     ${(function() {
       const thisMonth = monthlyPL[thisYM] || {rev:0,platFee:0,conFee:0,ship:0,netRev:0,cogs:0,gradeCost:0,gross:0,exp:0,net:0,units:0};
@@ -5986,7 +5984,15 @@ function rFinancials(m) {
       '</tbody></table></div>' +
       '<div style="font-size:10px;color:var(--text-faint);margin-top:8px;font-style:italic">Est. Net Revenue = Market Value × 0.87 (after 13% eBay fees). Submitted card values are based on raw market prices — actual graded values will differ. Pipeline projections assume all cards sell at current market.</div>';
     })()}
-  </div>`;
+  </div>
+  <details style="margin-top:14px">
+    <summary class="panel" style="cursor:pointer;user-select:none;padding:14px;list-style:none;display:block">
+      <span style="font-weight:700;color:var(--accent)">📋 1099-K Reconciliation</span>
+      <span style="font-size:11px;color:var(--text-dim);margin-left:8px">Click to expand</span>
+    </summary>
+    ${r1099K(m)}
+  </details>
+  ${rYearEndInventory(m)}`;
 }
 
 // ============================================================
