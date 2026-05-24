@@ -1150,7 +1150,11 @@ window.saveModal = async function() {
     }
   });
   if(s.onSave)s.onSave(row);
-  // Preserve linked data not in form fields (only for sales with linked inventory cards)
+  
+  // Debug: log what dateAdded is being saved
+  if (window.modal.type === 'inventory') {
+    dbg('Save', 'dateAdded from form: ' + row.dateAdded + ' | modal.data: ' + window.modal.data.dateAdded);
+  }
   if(window.modal.type==='sales' && window.modal.data._linkedInvIdx !== undefined){
     if(window.modal.data.gradingCompany) row.gradingCompany = window.modal.data.gradingCompany;
     if(window.modal.data.grade) row.grade = window.modal.data.grade;
