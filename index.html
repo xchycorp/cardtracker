@@ -364,7 +364,15 @@ function M() {
   const tShip=sales.reduce((s,r)=>s+num(r.shipCost),0);
   const tCOGS=sales.reduce((s,r)=>s+num(r.costBasis),0);
   const netRev=tSale-tPlatFee-tConFee-tShip;
-  const tGrade=gr.reduce((s,r)=>s+num(r.totalCost),0);
+  // Grading costs split: sold cards only for P&L, total for cash flow
+  const tGradeAll=gr.reduce((s,r)=>s+num(r.totalCost),0);
+  // Grading cost on sold cards: look up each sale's linked card
+  const tGradeSold=sales.reduce((s,r)=>{
+    if(!r.cardId) return s;
+    const card=D.inventory.find(c=>c.id===r.cardId);
+    return s + (card ? num(card.gradingCost) : 0);
+  },0);
+  const tGrade=tGradeSold; // Income statement uses sold-only grading costs
   const gross=netRev-tCOGS-tGrade;
   const tExp=exp.reduce((s,r)=>s+num(r.amount),0);
   const net=gross-tExp;
@@ -407,7 +415,7 @@ function M() {
   const balanceCheck=totalAssets-totalLiabilities-totalEquity;
   const totalInvested = startingCash + totalContributions + tPurchases;
   const bizROI = totalInvested ? net / totalInvested : 0;
-  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI,cashBalance,unpaidGrading,tPurchases,paidGrading,totalAssets,totalEquity,balanceCheck};
+  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,tGradeAll,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI,cashBalance,unpaidGrading,tPurchases,paidGrading,totalAssets,totalEquity,balanceCheck};
 }
 
 // ============================================================
@@ -5568,7 +5576,8 @@ function rFinancials(m) {
       <div style="height:10px"></div>
       <div class="fin-row" style="font-size:11px;color:var(--text-faint);margin-bottom:4px"><span class="lbl">LESS: COST OF GOODS</span></div>
       <div class="fin-row indent"><span class="lbl">Cost of Goods Sold (Card Cost Basis)</span><span class="amt neg">(${fmtD(m.tCOGS)})</span></div>
-      <div class="fin-row indent"><span class="lbl">Grading Costs (on sold cards)</span><span class="amt neg">(${fmtD(m.tGrade)})</span></div>
+      <div class="fin-row indent"><span class="lbl">Grading Costs (on ${m.sc} sold cards)</span><span class="amt neg">(${fmtD(m.tGrade)})</span></div>
+      <div class="fin-row indent" style="font-size:10px;color:var(--text-faint)"><span class="lbl">Note: ${fmtD(m.tGradeAll - m.tGrade)} in grading fees on unsold/pipeline cards excluded from P&L</span></div>
       <div class="fin-row indent" style="border-top:1px solid var(--border);padding-top:4px"><span class="lbl">Total Cost of Goods</span><span class="amt neg">(${fmtD(m.tCOGS + m.tGrade)})</span></div>
       
       <div style="height:4px"></div>
@@ -5690,8 +5699,11 @@ function rFinancials(m) {
   ${rYearEndInventory(m)}
   
   <div class="panel" style="margin-top:14px">
-    <h3 style="color:var(--accent)">📊 Comparative Income Statement</h3>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Side-by-side P&L: This Month vs Last Month vs Same Month Last Year</div>
+    <h3 style="color:var(--accent)">📊 Financial Analysis</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Comparative, quarterly, and year-to-date financial performance</div>
+    
+    <details open>
+    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--cyan);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📋 Comparative P&L — This Month vs Last Month vs YoY</summary>
     ${(function() {
       const thisMonth = monthlyPL[thisYM] || {rev:0,platFee:0,conFee:0,ship:0,netRev:0,cogs:0,gradeCost:0,gross:0,exp:0,net:0,units:0};
       const lastMonth = monthlyPL[prevYM] || {rev:0,platFee:0,conFee:0,ship:0,netRev:0,cogs:0,gradeCost:0,gross:0,exp:0,net:0,units:0};
@@ -5744,11 +5756,10 @@ function rFinancials(m) {
           '<td class="r mono" style="padding:5px 8px">' + (yoyMonth.units ? pctChg(thisMonth.units, yoyMonth.units) : '—') + '</td></tr>' +
       '</tbody></table></div>';
     })()}
-  </div>
-  
-  <div class="panel" style="margin-top:14px">
-    <h3 style="color:var(--yellow)">📅 Quarterly P&L Rollup</h3>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Aggregated by quarter</div>
+    </details>
+    
+    <details>
+    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--yellow);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📅 Quarterly P&L Rollup</summary>
     ${(function() {
       // Build quarterly data
       var quarters = {};
@@ -5777,9 +5788,9 @@ function rFinancials(m) {
         '<th class="r" style="padding:6px 8px;color:var(--text-dim)">Units</th>' +
         '<th class="r" style="padding:6px 8px;color:var(--text-dim)">QoQ</th>' +
       '</tr></thead><tbody>' +
-        qKeys.map(function(q, qi) {
+        qKeys.slice().reverse().map(function(q, qi, arr) {
           var p = quarters[q];
-          var prevQ = qi > 0 ? quarters[qKeys[qi-1]] : null;
+          var prevQ = qi < arr.length - 1 ? quarters[arr[qi+1]] : null;
           return '<tr style="border-bottom:1px solid var(--border)">' +
             '<td style="padding:6px 8px;font-weight:700">' + q + '</td>' +
             '<td class="r mono" style="padding:6px 8px">' + fmtD(p.rev) + '</td>' +
@@ -5795,11 +5806,10 @@ function rFinancials(m) {
         }).join('') +
       '</tbody></table></div>';
     })()}
-  </div>
-  
-  <div class="panel" style="margin-top:14px">
-    <h3 style="color:var(--cyan)">📈 Year-to-Date Summary</h3>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">YTD ${today.getFullYear()} performance${sortedMonths.some(function(ym){return ym.startsWith(String(today.getFullYear()-1))}) ? ' vs Prior Year YTD' : ''}</div>
+    </details>
+    
+    <details>
+    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--green);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📈 Year-to-Date — YTD ${today.getFullYear()} vs Prior Year</summary>
     ${(function() {
       var thisYear = String(today.getFullYear());
       var lastYear = String(today.getFullYear() - 1);
@@ -5847,6 +5857,7 @@ function rFinancials(m) {
           '<td class="r mono" style="padding:6px 8px">' + (pytd.units ? pctChg(ytd.units, pytd.units) : '—') + '</td></tr>' +
       '</tbody></table></div>';
     })()}
+    </details>
   </div>
   
   <div class="panel" style="margin-top:14px">
@@ -5903,7 +5914,7 @@ function rFinancials(m) {
   </div>
   
   <div class="panel" style="margin-top:14px">
-    <h3 style="color:var(--purple)">📦 Pipeline Projection</h3>
+    <h3 style="color:var(--purple)">📦 Sales Pipeline</h3>
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Estimated future revenue from cards currently in the grading pipeline</div>
     ${(function() {
       var submitted = D.inventory.filter(function(c) { return c.status === 'Submitted'; });
@@ -6006,7 +6017,8 @@ function r1099K(m) {
   const otherTotal = otherSales.reduce(function(s, r) { return s + num(r.salePrice); }, 0);
 
   return '<div class="panel" style="margin-top:14px">' +
-    '<h3 style="color:var(--accent)">📋 1099-K Reconciliation <button class="btn btn-sm" onclick="exportPDF(\'1099k\')" style="font-size:10px">📄 PDF</button></h3>' +
+    '<details>' +
+    '<summary style="cursor:pointer;user-select:none"><h3 style="color:var(--accent);display:inline">📋 1099-K Reconciliation</h3> <button class="btn btn-sm" onclick="event.stopPropagation();exportPDF(\'1099k\')" style="font-size:10px">📄 PDF</button> <span style="font-size:10px;color:var(--text-faint)">(click to expand)</span></summary>' +
     '<div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Reconciles your eBay sales with the 1099-K gross amount eBay reports to the IRS. The 1099-K total will be higher than your actual card sales because it includes buyer-paid shipping and sales tax eBay collected.</div>' +
     '<div class="fin-grid"><div>' +
       '<div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">1099-K GROSS BREAKDOWN</span></div>' +
@@ -6041,6 +6053,7 @@ function r1099K(m) {
     '<div style="margin-top:12px;padding:10px 14px;background:var(--bg);border-radius:var(--radius-sm);font-size:11px;color:var(--text-dim)">' +
       '<strong>How to use this:</strong> When you receive your 1099-K from eBay, compare the gross amount to the "Expected 1099-K Gross" above. They should match (within a few dollars for rounding). Show your accountant this reconciliation to explain why the 1099-K is higher than your actual card sales revenue. The difference is buyer-paid shipping and sales tax — neither is your income.' +
     '</div>' +
+    '</details>' +
   '</div>';
 }
 
