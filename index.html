@@ -633,8 +633,7 @@ const SCHEMAS = {
       {k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
       {k:'grade',l:'Grade',w:90,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';return(co||gr)?`<strong style="color:var(--yellow)">${co}${co&&gr?' ':''}${gr}</strong>`:'—';}},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
-      {k:'marketValue',l:'Market',w:80,r:1,render:v=>num(v)?fmt(num(v)):'—'},
-      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);if(!mv||row.status==='Sold')return'—';const r2=(mv-c)/c;return`<span class="${r2>=0?'pos':'neg'}">${pct(r2)}</span>`;},sortVal:row=>{const c=num(row.costBasis)+num(row.gradingCost);const mv=num(row.marketValue);return(!mv||row.status==='Sold')?-999:(mv-c)/c;}}
+      {k:'marketValue',l:'Market',w:80,r:1,render:v=>num(v)?fmt(num(v)):'—'}
     ],
     fields:[
       {k:'cardName',l:'Card Name',type:'pokemonsearch',required:true},
