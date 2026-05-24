@@ -307,6 +307,8 @@ window.gradingFeePerCard = '';
 window.refreshSelectMode = false;
 window.refreshSelectedCards = new Set();
 window.monthFilter = '';
+window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'' };
+window.showAdvFilter = false;
 let toast = null;
 let charts = {};
 let debugLog = [];
@@ -440,7 +442,7 @@ window.render = function render() {
       </div>
     </div>
     <div class="tabs">
-      ${['overview','tools','inventory','grading','sales','spending','financials'].map(t2=>{
+      ${['overview','inventory','grading','sales','spending','tools','financials'].map(t2=>{
         const labels={overview:'Overview',tools:'Tools',inventory:'Inventory',grading:'Grading',sales:'Sales',spending:'Spending',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,grading:m.gc,spending:D.purchases.length+D.expenses.length};
         return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.gradingCompanyFilter='';window.monthFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
@@ -486,6 +488,12 @@ function rOverview(m) {
       <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Cash on Hand</div><div class="val">${fmt(m.cashBalance)}</div><div class="sub" style="color:${m.cashBalance>=0?'var(--green)':'var(--red)'}">Available cash</div></div>
       <div class="mc" style="border-left-color:var(--purple)"><div class="lbl">Inventory (Cost)</div><div class="val">${fmt(m.invCost)}</div><div class="sub" style="color:var(--text-dim)">${m.ac} cards</div></div>
       <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Inventory (Market)</div><div class="val">${fmt(m.invMkt)}</div><div class="sub" style="color:var(--text-dim);font-size:10px">${['Raw','Submitted','Graded','Listed','Hold'].filter(st=>m.statusCounts[st]).map(st=>m.statusCounts[st]+' '+st.toLowerCase()).join(' · ')}</div></div>
+    </div>
+    <div class="metrics">
+      <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Avg Sale Price</div><div class="val">${m.sc?fmt(m.tSale/m.sc):'—'}</div><div class="sub" style="color:var(--text-dim)">per card sold</div></div>
+      <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Avg Profit/Card</div><div class="val ${m.avgP>=0?'pos':'neg'}">${m.sc?fmt(m.avgP):'—'}</div><div class="sub" style="color:var(--text-dim)">after all fees</div></div>
+      <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Avg ROI/Sale</div><div class="val">${m.tCOGS?pct(m.gross/m.tCOGS):'—'}</div><div class="sub" style="color:var(--text-dim)">return on cost basis</div></div>
+      <div class="mc" style="border-left-color:var(--red)"><div class="lbl">Top Expense</div><div class="val" style="font-size:14px">${Object.keys(m.expByCat).length?Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1])[0][0]:'—'}</div><div class="sub" style="color:var(--text-dim)">${Object.keys(m.expByCat).length?fmt(Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1])[0][1]):'No expenses'}</div></div>
     </div>
     <div class="charts-grid">
       <div class="panel chart-card"><h3>Revenue & Profit by Platform</h3><div class="chart-wrap"><canvas id="ch1"></canvas></div></div>
@@ -917,8 +925,55 @@ function rTable(type,m) {
     </div>`;
   })() : '';
 
-  const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter || window.monthFilter;
-  const searchBar = `<div class="search-bar"><input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input">${hasActiveFilter?'<button class="btn btn-sm" onclick="clearSearch()" style="margin-left:6px">✕ Clear</button>':''}<span class="search-count">${hasActiveFilter?`${sorted.length} of ${data.length}`:''}</span></div>`;
+  const af = window.advFilter;
+  const hasAdvFilter = af.minPrice || af.maxPrice || af.minProfit || af.minMargin || af.minROI || af.category;
+  const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter || window.monthFilter || hasAdvFilter;
+  const advFilterTypes = ['inventory','sales','expenses','purchases'];
+  const showAdvToggle = advFilterTypes.includes(type);
+  const searchBar = `<div style="margin-bottom:10px">
+    <div class="search-bar" style="display:flex;gap:6px;align-items:center">
+      <input type="text" placeholder="🔍 Search ${s.title.toLowerCase()}..." value="${window.searchTerm}" oninput="setSearch(this.value)" class="search-input" style="flex:1">
+      ${showAdvToggle?`<button class="btn btn-sm" style="font-size:10px;white-space:nowrap;${window.showAdvFilter||hasAdvFilter?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.showAdvFilter=!window.showAdvFilter;render()">⚙️ Filters${hasAdvFilter?' ✓':''}</button>`:''}
+      ${hasActiveFilter?'<button class="btn btn-sm" onclick="clearSearch()" style="font-size:10px">✕ Clear</button>':''}
+      <span style="font-size:10px;color:var(--text-faint)">${hasActiveFilter?sorted.length+' of '+data.length:''}</span>
+    </div>
+    ${window.showAdvFilter && showAdvToggle ? `
+    <div style="margin-top:8px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <div style="font-size:11px;font-weight:600;color:var(--text-dim);margin-bottom:8px">Advanced Filters</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        ${type==='inventory'||type==='sales'?`
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">${type==='sales'?'Min Sale $':'Min Cost $'}</label>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" oninput="window.advFilter.minPrice=this.value;render()" placeholder="0"></div>
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">${type==='sales'?'Max Sale $':'Max Cost $'}</label>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.maxPrice}" oninput="window.advFilter.maxPrice=this.value;render()" placeholder="∞"></div>
+        `:''}
+        ${type==='sales'?`
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min Profit $</label>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minProfit}" oninput="window.advFilter.minProfit=this.value;render()" placeholder="0"></div>
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min Margin %</label>
+          <input type="number" class="search-input" style="width:70px;font-size:11px;padding:4px 8px" value="${af.minMargin}" oninput="window.advFilter.minMargin=this.value;render()" placeholder="0"></div>
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min ROI %</label>
+          <input type="number" class="search-input" style="width:70px;font-size:11px;padding:4px 8px" value="${af.minROI}" oninput="window.advFilter.minROI=this.value;render()" placeholder="0"></div>
+        `:''}
+        ${type==='expenses'?`
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Category</label>
+          <select class="search-input" style="font-size:11px;padding:4px 8px" onchange="window.advFilter.category=this.value;render()">
+            <option value="">All Categories</option>
+            ${[...new Set(D.expenses.map(e=>e.category||'Other'))].sort().map(c=>'<option'+(af.category===c?' selected':'')+'>'+c+'</option>').join('')}
+          </select></div>
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min Amount $</label>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" oninput="window.advFilter.minPrice=this.value;render()" placeholder="0"></div>
+        `:''}
+        ${type==='purchases'?`
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min Total $</label>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" oninput="window.advFilter.minPrice=this.value;render()" placeholder="0"></div>
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Max Total $</label>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.maxPrice}" oninput="window.advFilter.maxPrice=this.value;render()" placeholder="∞"></div>
+        `:''}
+      </div>
+    </div>
+    `:''}
+  </div>`;
 
   // Show quick entry mode if active
   if(type==='inventory' && window.quickEntryMode) return rQuickEntry(data, addBtn, quickAddBtn);
@@ -1151,10 +1206,6 @@ window.saveModal = async function() {
   });
   if(s.onSave)s.onSave(row);
   
-  // Debug: log what dateAdded is being saved
-  if (window.modal.type === 'inventory') {
-    dbg('Save', 'dateAdded from form: ' + row.dateAdded + ' | modal.data: ' + window.modal.data.dateAdded);
-  }
   if(window.modal.type==='sales' && window.modal.data._linkedInvIdx !== undefined){
     if(window.modal.data.gradingCompany) row.gradingCompany = window.modal.data.gradingCompany;
     if(window.modal.data.grade) row.grade = window.modal.data.grade;
@@ -2672,7 +2723,7 @@ window.toggleSort = function(col) {
   }
   render();
 };
-window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; window.monthFilter = ''; render(); };
+window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; window.monthFilter = ''; window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'' }; window.showAdvFilter = false; render(); };
 
 function filterData(data, type) {
   let result = data;
@@ -2687,6 +2738,47 @@ function filterData(data, type) {
   // Apply month filter for purchases, expenses, sales
   if ((type === 'purchases' || type === 'expenses' || type === 'sales') && window.monthFilter) {
     result = result.filter(row => (row.date || '').startsWith(window.monthFilter));
+  }
+  // Apply advanced filters
+  const af = window.advFilter;
+  if (af.minPrice) {
+    const min = parseFloat(af.minPrice);
+    if (type === 'inventory') result = result.filter(row => num(row.costBasis) >= min);
+    else if (type === 'sales') result = result.filter(row => num(row.salePrice) >= min);
+    else if (type === 'expenses') result = result.filter(row => num(row.amount) >= min);
+    else if (type === 'purchases') result = result.filter(row => num(row.grandTotal) >= min);
+  }
+  if (af.maxPrice) {
+    const max = parseFloat(af.maxPrice);
+    if (type === 'inventory') result = result.filter(row => num(row.costBasis) <= max);
+    else if (type === 'sales') result = result.filter(row => num(row.salePrice) <= max);
+    else if (type === 'purchases') result = result.filter(row => num(row.grandTotal) <= max);
+  }
+  if (af.minProfit && type === 'sales') {
+    const min = parseFloat(af.minProfit);
+    result = result.filter(row => {
+      const profit = num(row.salePrice) - num(row.platformFee) - num(row.consignFee) - num(row.shipCost) - num(row.costBasis);
+      return profit >= min;
+    });
+  }
+  if (af.minMargin && type === 'sales') {
+    const min = parseFloat(af.minMargin) / 100;
+    result = result.filter(row => {
+      const rev = num(row.salePrice);
+      const profit = rev - num(row.platformFee) - num(row.consignFee) - num(row.shipCost) - num(row.costBasis);
+      return rev ? (profit / rev) >= min : false;
+    });
+  }
+  if (af.minROI && type === 'sales') {
+    const min = parseFloat(af.minROI) / 100;
+    result = result.filter(row => {
+      const cost = num(row.costBasis);
+      const profit = num(row.salePrice) - num(row.platformFee) - num(row.consignFee) - num(row.shipCost) - cost;
+      return cost ? (profit / cost) >= min : false;
+    });
+  }
+  if (af.category && type === 'expenses') {
+    result = result.filter(row => (row.category || 'Other') === af.category);
   }
   // Apply text search
   if (window.searchTerm) {
