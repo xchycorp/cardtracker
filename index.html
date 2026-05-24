@@ -5626,8 +5626,17 @@ function rFinancials(m) {
       <div class="ratio-row"><span class="lbl">Avg Sale Price</span><span class="val">${m.sc?fmtD(m.tSale/m.sc):'—'}</span></div>
       <div class="ratio-row"><span class="lbl">Avg Profit/Card</span><span class="val ${m.avgP>=0?'pos':'neg'}">${fmtD(m.avgP)}</span></div>
       <div class="ratio-row"><span class="lbl">Avg ROI/Card Sold</span><span class="val ${m.gross>=0?'pos':'neg'}">${m.tCOGS?pct(m.gross/m.tCOGS):'—'}</span></div>
-      <div class="ratio-row"><span class="lbl">Overall Business ROI</span><span class="val ${m.bizROI>=0?'pos':'neg'}">${m.totalInvested?pct(m.bizROI):'—'}</span></div>
-      <div class="ratio-row"><span class="lbl">Total Invested</span><span class="val">${fmt(m.totalInvested)}</span></div>
+      ${m.tGradeAll > m.tGrade ? `
+      <div style="margin-top:12px;padding:10px 14px;background:rgba(78,124,255,.08);border:1px solid rgba(78,124,255,.2);border-radius:var(--radius-sm);font-size:11px">
+        <div style="font-weight:600;color:var(--blue);margin-bottom:4px">📦 Pipeline Investment Context</div>
+        <div style="color:var(--text-dim)">
+          Total grading fees paid: <strong>${fmtD(m.tGradeAll)}</strong><br>
+          Grading fees on sold cards (in P&L): <strong>${fmtD(m.tGrade)}</strong><br>
+          Grading fees on unsold cards (in inventory as asset): <strong>${fmtD(m.tGradeAll - m.tGrade)}</strong><br>
+          <div style="margin-top:6px">The <strong>${pct(m.nm)}</strong> net margin reflects sold cards only. The <strong>${fmtD(m.tGradeAll - m.tGrade)}</strong> invested in grading unsold cards is carried as inventory cost (asset), not expense. When these cards sell, revenue will increase without additional grading cost.</div>
+        </div>
+      </div>
+      ` : ''}
     </div>
   </div>
   <div class="panel" style="margin-top:14px">
