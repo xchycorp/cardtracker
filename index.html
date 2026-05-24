@@ -284,6 +284,9 @@ function saveNameCorrection(scanKeyStr, originalFormatted, finalName) {
   }
 }
 window.tab = 'overview';
+window.toolsSubTab = 'scanner'; // scanner | research
+window.spendingSubTab = 'purchases'; // purchases | expenses
+window.financialsSubTab = 'financials'; // financials | analytics | capital
 window.modal = null;
 window.editIdx = null;
 window.searchTerm = '';
@@ -437,25 +440,21 @@ window.render = function render() {
       </div>
     </div>
     <div class="tabs">
-      ${['overview','scanner','research','purchases','sealed','inventory','grading','sales','expenses','capital','financials','analytics'].map(t2=>{
-        const labels={overview:'Overview',scanner:'Scanner',research:'Research',inventory:'Inventory',purchases:'Purchases',grading:'Grading',sealed:'Sealed',sales:'Sales',expenses:'Expenses',capital:'Capital',analytics:'Analytics',financials:'Financials'};
-        const counts={inventory:m.ac,sales:m.sc,purchases:D.purchases.length,grading:m.gc,sealed:D.sealed.length,expenses:D.expenses.length,capital:(D.capital||[]).length};
+      ${['overview','tools','inventory','grading','sales','spending','financials'].map(t2=>{
+        const labels={overview:'Overview',tools:'Tools',inventory:'Inventory',grading:'Grading',sales:'Sales',spending:'Spending',financials:'Financials'};
+        const counts={inventory:m.ac,sales:m.sc,grading:m.gc,spending:D.purchases.length+D.expenses.length};
         return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.gradingCompanyFilter='';window.monthFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
     </div>
     <div id="content">${
       window.tab==='overview'?rOverview(m):
+      window.tab==='tools'?(window.toolsSubTab==='research'?rResearch(m):rScanner(m)):
       window.tab==='inventory'?rTable('inventory',m):
-      window.tab==='sales'?rTable('sales',m):
-      window.tab==='purchases'?rTable('purchases',m):
       window.tab==='grading'?rTable('grading',m):
-      window.tab==='sealed'?rTable('sealed',m):
-      window.tab==='expenses'?rTable('expenses',m):
-      window.tab==='capital'?rCapital(m):
-      window.tab==='analytics'?rAnalytics(m):
-      window.tab==='research'?rResearch(m):
-      window.tab==='scanner'?rScanner(m):
-      rFinancials(m)
+      window.tab==='sales'?rTable('sales',m):
+      window.tab==='spending'?(window.spendingSubTab==='expenses'?rTable('expenses',m):rTable('purchases',m)):
+      window.tab==='financials'?(window.financialsSubTab==='analytics'?rAnalytics(m):window.financialsSubTab==='capital'?rCapital(m):rFinancials(m)):
+      rOverview(m)
     }</div>
     ${window.modal?rModal():''}
     <div class="toast" id="toast" style="display:${toast?'block':'none'}">${toast||''}</div>
@@ -467,7 +466,7 @@ window.render = function render() {
     <input type="file" id="gradeUpdateIn" accept=".xlsx,.xls" style="display:none" onchange="handleGradeUpdate(event)">
   `;
   if(window.tab==='overview') renderCharts(m);
-  if(window.tab==='analytics') renderAnalyticsCharts(m);
+  if(window.tab==='financials' && window.financialsSubTab==='analytics') renderAnalyticsCharts(m);
 };
 
 // ============================================================
@@ -841,6 +840,14 @@ function renderTableRow(type, row, i, s) {
 // ============================================================
 function rTable(type,m) {
   const s=SCHEMAS[type];let data=D[type];
+  
+  // Sub-tab bar for spending tab
+  const spendingBar = (type==='purchases'||type==='expenses') ? `
+  <div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
+    <button class="btn btn-sm" style="font-size:12px;${window.spendingSubTab==='purchases'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.spendingSubTab='purchases';window.searchTerm='';window.sortCol=null;window.monthFilter='';render()">🛒 Purchases <span style="font-size:10px;opacity:.7">${D.purchases.length}</span></button>
+    <button class="btn btn-sm" style="font-size:12px;${window.spendingSubTab==='expenses'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.spendingSubTab='expenses';window.searchTerm='';window.sortCol=null;window.monthFilter='';render()">💸 Expenses <span style="font-size:10px;opacity:.7">${D.expenses.length}</span></button>
+  </div>` : '';
+  
   const addBtn=`<button class="btn btn-accent btn-sm" onclick="openAdd('${type}')">${s.addLabel}</button>`;
   const quickAddBtn=type==='inventory'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickEntry()">⚡ Quick Add</button> <button class="btn btn-sm" style="background:var(--purple);color:#fff" onclick="showGradingCompanyPicker()">📦 Submission</button>`
     :type==='sales'?` <button class="btn btn-sm" style="background:var(--blue);color:#fff" onclick="openQuickSales()">⚡ Quick Log</button> <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openEbayCsvImport()">📥 eBay CSV</button>`
@@ -920,7 +927,7 @@ function rTable(type,m) {
   if(type==='sales' && window.quickSalesMode) return rQuickSales(data, addBtn, quickAddBtn);
   if(type==='sales' && window.ebayCsvState.active) return rEbayCsvImport();
 
-  if(!data.length) return `<div class="panel"><h3>${s.title} ${addBtn}${quickAddBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
+  if(!data.length) return `${spendingBar}<div class="panel"><h3>${s.title} ${addBtn}${quickAddBtn}</h3><div class="empty"><div class="icon">📋</div>No ${type} records yet. Click "${s.addLabel}" to get started.</div></div>`;
 
   // Grading select mode toolbar for inventory
   const gradingToolbar = (type==='inventory' && window.gradingSelectMode) ? `
@@ -961,7 +968,7 @@ function rTable(type,m) {
       <span style="font-size:10px;color:var(--text-faint)">Refresh all${window.statusFilter ? ' ' + window.statusFilter.toLowerCase() : ' unsold'} or select specific cards</span>
     </div>`) : '';
 
-  return `<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
+  return `${spendingBar}<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
     ${refreshBar}
     ${gradingToolbar}
     ${statusFilterBar}
@@ -975,11 +982,19 @@ function rTable(type,m) {
 // ============================================================
 // CAPITAL TAB
 // ============================================================
+function rFinancialsSubTabs() {
+  return `<div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
+    <button class="btn btn-sm" style="font-size:12px;${window.financialsSubTab==='financials'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.financialsSubTab='financials';render()">📊 Financials</button>
+    <button class="btn btn-sm" style="font-size:12px;${window.financialsSubTab==='analytics'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.financialsSubTab='analytics';render()">📈 Analytics</button>
+    <button class="btn btn-sm" style="font-size:12px;${window.financialsSubTab==='capital'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.financialsSubTab='capital';render()">💰 Capital</button>
+  </div>`;
+}
+
 function rCapital(m) {
   const s=D.settings||{};const cap=D.capital||[];
   const totalIn=cap.filter(r=>r.type==='Contribution').reduce((a,r)=>a+num(r.amount),0);
   const totalOut=cap.filter(r=>r.type==='Draw').reduce((a,r)=>a+num(r.amount),0);
-  return `
+  return `${rFinancialsSubTabs()}
     <div class="panel" style="margin-bottom:16px">
       <h3 style="color:var(--cyan)">⚙️ Business Settings & Balances</h3>
       <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Edit these values to reflect your current business position. Changes save and sync automatically.</p>
@@ -2724,7 +2739,7 @@ function rAnalytics(m) {
     return {...c, _upside: mv - cost, _roi: cost ? (mv-cost)/cost : 0};
   }).sort((a,b) => b._upside - a._upside).slice(0,10);
 
-  if (!sales.length && !inv.length) return '<div class="panel"><div class="empty"><div class="icon">📊</div>Add some inventory and sales data to unlock analytics.</div></div>';
+  if (!sales.length && !inv.length) return rFinancialsSubTabs() + '<div class="panel"><div class="empty"><div class="icon">📊</div>Add some inventory and sales data to unlock analytics.</div></div>';
 
   // ===== PERFORMANCE METRICS =====
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -2854,7 +2869,7 @@ function rAnalytics(m) {
     return '<span style="color:' + color + ';font-size:10px;font-weight:600">' + arrow + ' ' + Math.abs(change).toFixed(1) + '%</span>';
   };
 
-  return `
+  return rFinancialsSubTabs() + `
     <div class="panel">
       <h3 style="color:var(--cyan)">📊 Performance Overview</h3>
       <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Month-over-month and year-over-year comparisons for ${thisYM}</div>
@@ -3124,6 +3139,10 @@ function rResearch(m) {
   const rs = window.researchState;
   const isBulk = rs.mode === 'bulk';
   return `
+  <div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='scanner'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='scanner';render()">📸 Scanner</button>
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='research'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='research';render()">🔍 Research</button>
+  </div>
   <div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h3 style="color:var(--purple)">\u{1f52c} Card Research</h3>
@@ -4829,6 +4848,10 @@ function rScanner(m) {
   const hasEbay = !!window.ebayState.appId;
   const hasPT = !!window.poketraceState.apiKey;
   return `
+  <div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='scanner'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='scanner';render()">📸 Scanner</button>
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='research'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='research';render()">🔍 Research</button>
+  </div>
   <div class="panel">
     <h3 style="color:var(--cyan)">📸 Card Scanner</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">Scan cards to identify and log to inventory. Works best with a clear front-facing photo.</div>
@@ -5557,7 +5580,7 @@ function rFinancials(m) {
   // Total selling fees
   const totalSellingFees = m.tPlatFee + m.tConFee + m.tShip;
   
-  return `<div class="fin-grid">
+  return rFinancialsSubTabs() + `<div class="fin-grid">
     <div class="panel">
       <h3 style="color:var(--blue)">📊 Income Statement <button class="btn btn-sm" onclick="exportPDF('income')">📄 PDF</button></h3>
       
