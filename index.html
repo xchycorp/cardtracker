@@ -1094,9 +1094,9 @@ function rModal() {
           </div>`;
           return `<div class="form-group${f.full?' full':''}">
           <label>${f.l}${f.required?' *':''}</label>
-          ${f.type==='select'?`<select id="f_${f.k}">${f.opts.map(o=>`<option${(window.modal.data[f.k]||'')===o?' selected':''}>${o}</option>`).join('')}</select>`:
-          f.type==='textarea'?`<textarea id="f_${f.k}">${window.modal.data[f.k]||''}</textarea>`:
-          `<input type="${f.type||'text'}" id="f_${f.k}" value="${window.modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}${f.placeholder?' placeholder="'+f.placeholder+'"':''}>`}
+          ${f.type==='select'?`<select id="f_${f.k}" onchange="if(window.modal)window.modal.data['${f.k}']=this.value">${f.opts.map(o=>`<option${(window.modal.data[f.k]||'')===o?' selected':''}>${o}</option>`).join('')}</select>`:
+          f.type==='textarea'?`<textarea id="f_${f.k}" onchange="if(window.modal)window.modal.data['${f.k}']=this.value">${window.modal.data[f.k]||''}</textarea>`:
+          `<input type="${f.type||'text'}" id="f_${f.k}" value="${window.modal.data[f.k]||''}"${f.type==='number'?' step="0.01"':''}${f.placeholder?' placeholder="'+f.placeholder+'"':''} onchange="if(window.modal)window.modal.data['${f.k}']=${f.type==='number'?'parseFloat(this.value)||0':'this.value'}">`}
         </div>`;}).join('')}
       </div>
       ${window.modal.type==='expenses'||window.modal.type==='purchases'?`
