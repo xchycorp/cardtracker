@@ -431,6 +431,7 @@ function M() {
 // RENDER
 // ============================================================
 window.render = function render() {
+  try {
   const m = M();
   const app = document.getElementById('app');
   app.innerHTML = `
@@ -473,6 +474,10 @@ window.render = function render() {
   `;
   if(window.tab==='overview') renderCharts(m);
   if(window.tab==='financials' && window.financialsSubTab==='analytics') renderAnalyticsCharts(m);
+  } catch(e) {
+    console.error('Render error:', e);
+    document.getElementById('app').innerHTML = '<div style="padding:40px;color:red;font-family:monospace"><h2>Render Error</h2><pre>' + e.message + '\n' + e.stack + '</pre></div>';
+  }
 };
 
 // ============================================================
