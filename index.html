@@ -182,7 +182,7 @@ onSnapshot(DOC_REF, (snap) => {
 // ============================================================
 const emptyData = () => ({
   inventory: [], sales: [], purchases: [], grading: [], sealed: [], expenses: [],
-  capital: [], crackList: [], nameCorrections: {},
+  capital: [], crackList: [], nameCorrections: {}, forecasts: {},
   settings: { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0, goalRevenue:0, goalProfit:0, goalYear:'' },
   nextIds: { C:1, S:1, P:1, G:1, SL:1, E:1, CAP:1 }
 });
@@ -191,6 +191,7 @@ function ensureFields() {
   if (!D.capital) D.capital = [];
   if (!D.crackList) D.crackList = [];
   if (!D.nameCorrections) D.nameCorrections = {};
+  if (!D.forecasts) D.forecasts = {};
   if (!D.settings) D.settings = { startingCash:0, otherAssets:0, suppliesInventory:0, equipment:0, accountsPayable:0, unpaidGrading:0, salesTaxOwed:0, creditCardBal:0 };
   if (!D.nextIds) D.nextIds = { C:1,S:1,P:1,G:1,SL:1,E:1,CAP:1 };
   if (!D.nextIds.CAP) D.nextIds.CAP = 1;
@@ -309,6 +310,8 @@ window.refreshSelectedCards = new Set();
 window.monthFilter = '';
 window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'' };
 window.showAdvFilter = false;
+window._fcYear = new Date().getFullYear();
+window._fcEditMonth = '';
 let toast = null;
 let charts = {};
 let debugLog = [];
@@ -416,7 +419,8 @@ function M() {
   // We show cash, inventory, and other assets separately, but note the balance sheet
   // may not perfectly balance if purchase totals don't match inventory cost basis assignments
   const totalAssets=cashBalance+invCost+otherAssets;
-  const totalEquity=startingCash+totalContributions-totalDraws+net;
+  const openingBalAdj = num(sett.openingBalAdj) || 0;
+  const totalEquity=startingCash+totalContributions-totalDraws+net+openingBalAdj;
   const balanceCheck=totalAssets-totalLiabilities-totalEquity;
   const totalInvested = startingCash + totalContributions + tPurchases;
   const bizROI = totalInvested ? net / totalInvested : 0;
@@ -492,7 +496,7 @@ function rOverview(m) {
     <div class="metrics">
       <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Avg Sale Price</div><div class="val">${m.sc?fmt(m.tSale/m.sc):'—'}</div><div class="sub" style="color:var(--text-dim)">per card sold</div></div>
       <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Avg Profit/Card</div><div class="val ${m.avgP>=0?'pos':'neg'}">${m.sc?fmt(m.avgP):'—'}</div><div class="sub" style="color:var(--text-dim)">after all fees</div></div>
-      <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Avg ROI/Sale</div><div class="val">${m.tCOGS?pct(m.gross/m.tCOGS):'—'}</div><div class="sub" style="color:var(--text-dim)">return on cost basis</div></div>
+      <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Weighted ROI</div><div class="val">${(m.tCOGS+m.tGrade)?pct(m.gross/(m.tCOGS+m.tGrade)):'—'}</div><div class="sub" style="color:var(--text-dim)">profit ÷ total invested</div></div>
       <div class="mc" style="border-left-color:var(--red)"><div class="lbl">Top Expense</div><div class="val" style="font-size:14px">${Object.keys(m.expByCat).length?Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1])[0][0]:'—'}</div><div class="sub" style="color:var(--text-dim)">${Object.keys(m.expByCat).length?fmt(Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1])[0][1]):'No expenses'}</div></div>
     </div>
     <div class="charts-grid">
@@ -507,18 +511,30 @@ function rOverview(m) {
 
 function renderAnalyticsCharts(m) {
   destroyCharts();
-  // Build monthly data from sales
-  const monthlyRev = {}, monthlyProf = {};
+  // Build monthly data from sales and expenses
+  const monthlyRev = {}, monthlyGross = {}, monthlyExp = {}, monthlyNet = {};
   D.sales.forEach(function(r) {
     const d = r.date || '';
     if (!d || d.length < 7) return;
     const ym = d.slice(0, 7);
     const rev = num(r.salePrice);
-    const prof = rev - num(r.platformFee) - num(r.consignFee) - num(r.shipCost) - num(r.costBasis);
+    const gross = rev - num(r.platformFee) - num(r.consignFee) - num(r.shipCost) - num(r.costBasis);
     monthlyRev[ym] = (monthlyRev[ym] || 0) + rev;
-    monthlyProf[ym] = (monthlyProf[ym] || 0) + prof;
+    monthlyGross[ym] = (monthlyGross[ym] || 0) + gross;
   });
-  const months = Object.keys(monthlyRev).sort().slice(-12);
+  D.expenses.forEach(function(r) {
+    const d = r.date || '';
+    if (!d || d.length < 7) return;
+    const ym = d.slice(0, 7);
+    monthlyExp[ym] = (monthlyExp[ym] || 0) + num(r.amount);
+  });
+  // Compute net income per month
+  const allYMs = new Set([...Object.keys(monthlyRev), ...Object.keys(monthlyExp)]);
+  allYMs.forEach(function(ym) {
+    monthlyNet[ym] = (monthlyGross[ym] || 0) - (monthlyExp[ym] || 0);
+  });
+  
+  const months = Array.from(allYMs).sort().slice(-12);
   if (!months.length) return;
   const monthNames2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const labels = months.map(function(ym) { const p = ym.split('-'); return monthNames2[parseInt(p[1])-1] + ' ' + p[0].slice(2); });
@@ -529,8 +545,9 @@ function renderAnalyticsCharts(m) {
     data: {
       labels: labels,
       datasets: [
-        { label: 'Revenue', data: months.map(function(ym) { return monthlyRev[ym]; }), backgroundColor: '#4E7CFF', borderRadius: 6 },
-        { label: 'Profit', data: months.map(function(ym) { return monthlyProf[ym]; }), backgroundColor: '#00D68F', borderRadius: 6 }
+        { label: 'Revenue', data: months.map(function(ym) { return monthlyRev[ym] || 0; }), backgroundColor: '#4E7CFF', borderRadius: 6 },
+        { label: 'Gross Profit', data: months.map(function(ym) { return monthlyGross[ym] || 0; }), backgroundColor: '#FFBE0B', borderRadius: 6 },
+        { label: 'Net Income', data: months.map(function(ym) { return monthlyNet[ym] || 0; }), backgroundColor: '#00D68F', borderRadius: 6 }
       ]
     },
     options: cOpts()
@@ -637,7 +654,7 @@ const SCHEMAS = {
   inventory: {
     title:'Card Inventory',addLabel:'+ Add Card',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:70,render:v=>{if(!v)return'—';const parts=String(v).split('-');if(parts.length>=2)return parts[1]+'/'+parts[0].slice(2);return v;}},{k:'cardName',l:'Card Name',w:160},
+      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:80,render:v=>{if(!v)return'—';const parts=String(v).split('-');if(parts.length>=3)return parts[1]+'/'+parts[2]+'/'+parts[0].slice(2);if(parts.length>=2)return parts[1]+'/'+parts[0].slice(2);return v;}},{k:'cardName',l:'Card Name',w:160},
       {k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
       {k:'grade',l:'Grade',w:90,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';return(co||gr)?`<strong style="color:var(--yellow)">${co}${co&&gr?' ':''}${gr}</strong>`:'—';}},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
@@ -665,7 +682,7 @@ const SCHEMAS = {
       {k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'_profit',l:'Profit',w:80,r:1,render:(_,row)=>{const p2=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return`<strong class="${p2>=0?'pos':'neg'}">${fmt(p2)}</strong>`;},sortVal:row=>num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis)},
       {k:'_margin',l:'Margin',w:70,r:1,render:(_,row)=>{const sp=num(row.salePrice);const p2=sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return sp?`<span class="${p2>=0?'pos':'neg'}">${pct(p2/sp)}</span>`:'—';},sortVal:row=>{const sp=num(row.salePrice);return sp?(sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis))/sp:-999;}},
-      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const cost=num(row.costBasis);const profit=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cost;return cost?`<span class="${profit>=0?'pos':'neg'}">${pct(profit/cost)}</span>`:'—';},sortVal:row=>{const cost=num(row.costBasis);return cost?(num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cost)/cost:-999;}}
+      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const cardCost=num(row.costBasis);const linkedCard=row.cardId?D.inventory.find(c=>c.id===row.cardId):null;const gradeCost=linkedCard?num(linkedCard.gradingCost):0;const totalCost=cardCost+gradeCost;const profit=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cardCost;return totalCost?`<span class="${profit>=0?'pos':'neg'}">${pct(profit/totalCost)}</span>`:'—';},sortVal:row=>{const cardCost=num(row.costBasis);const linkedCard=row.cardId?D.inventory.find(c=>c.id===row.cardId):null;const gradeCost=linkedCard?num(linkedCard.gradingCost):0;const totalCost=cardCost+gradeCost;return totalCost?(num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cardCost)/totalCost:-999;}}
     ],
     fields:[
       {k:'cardName',l:'Card Name (or search inventory)',type:'cardpicker',required:true},{k:'cardId',l:'Card ID',type:'hidden'},
@@ -1081,7 +1098,56 @@ function rTable(type,m) {
     ${searchBar}
     <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.refreshSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
     <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.refreshSelectMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
-    </tbody></table></div>`;
+    </tbody>
+    ${(function() {
+      if (!sorted.length) return '';
+      var totals = {};
+      // Calculate totals based on table type
+      if (type === 'inventory') {
+        totals = {
+          count: sorted.length,
+          costBasis: sorted.reduce(function(s,r){return s+num(r.costBasis)},0),
+          gradingCost: sorted.reduce(function(s,r){return s+num(r.gradingCost)},0),
+          marketValue: sorted.reduce(function(s,r){return s+num(r.marketValue)},0)
+        };
+        var extraCols = (window.gradingSelectMode||window.refreshSelectMode) ? '<td></td>' : '';
+        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)">' + extraCols + '<td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' cards</td><td></td><td></td><td></td><td class="r" style="padding:6px 8px">' + fmt(totals.costBasis) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.gradingCost) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.marketValue) + '</td><td></td></tr></tfoot>';
+      }
+      if (type === 'sales') {
+        totals = {
+          count: sorted.length,
+          salePrice: sorted.reduce(function(s,r){return s+num(r.salePrice)},0),
+          fees: sorted.reduce(function(s,r){return s+num(r.platformFee)+num(r.consignFee)},0),
+          shipCost: sorted.reduce(function(s,r){return s+num(r.shipCost)},0),
+          costBasis: sorted.reduce(function(s,r){return s+num(r.costBasis)},0),
+          profit: sorted.reduce(function(s,r){return s+num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis)},0)
+        };
+        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' sales</td><td></td><td class="r" style="padding:6px 8px">' + fmt(totals.salePrice) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.fees) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.shipCost) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.costBasis) + '</td><td class="r" style="padding:6px 8px;color:' + (totals.profit>=0?'var(--green)':'var(--red)') + '">' + fmt(totals.profit) + '</td><td></td><td></td><td></td></tr></tfoot>';
+      }
+      if (type === 'purchases') {
+        totals = {
+          count: sorted.length,
+          grandTotal: sorted.reduce(function(s,r){return s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax))},0)
+        };
+        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' purchases</td>' + '<td></td>'.repeat(s.cols.length - 4) + '<td class="r" style="padding:6px 8px">' + fmt(totals.grandTotal) + '</td><td></td></tr></tfoot>';
+      }
+      if (type === 'expenses') {
+        totals = {
+          count: sorted.length,
+          amount: sorted.reduce(function(s,r){return s+num(r.amount)},0)
+        };
+        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' expenses</td><td></td><td class="r" style="padding:6px 8px">' + fmt(totals.amount) + '</td><td></td></tr></tfoot>';
+      }
+      if (type === 'grading') {
+        totals = {
+          count: sorted.length,
+          totalCost: sorted.reduce(function(s,r){return s+num(r.totalCost)},0)
+        };
+        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' entries</td>' + '<td></td>'.repeat(3) + '<td class="r" style="padding:6px 8px">' + fmt(totals.totalCost) + '</td>' + '<td></td>'.repeat(s.cols.length - 5) + '<td></td></tr></tfoot>';
+      }
+      return '';
+    })()}
+    </table></div>`;
 }
 
 // ============================================================
@@ -1140,6 +1206,24 @@ window.saveSettingStr = function(key, value) {
   D.settings[key]=String(value||'');
   saveData();
   showToast('Setting saved & synced');
+};
+
+window.saveForecast = function(ym) {
+  if (!D.forecasts) D.forecasts = {};
+  var rev = parseFloat(document.getElementById('fc_rev').value) || 0;
+  var cogs = parseFloat(document.getElementById('fc_cogs').value) || 0;
+  var grade = parseFloat(document.getElementById('fc_grade').value) || 0;
+  var fees = parseFloat(document.getElementById('fc_fees').value) || 0;
+  var exp = parseFloat(document.getElementById('fc_exp').value) || 0;
+  var units = parseInt(document.getElementById('fc_units').value) || 0;
+  var netRev = rev - fees;
+  var gross = netRev - cogs - grade;
+  var net = gross - exp;
+  D.forecasts[ym] = { rev: rev, cogs: cogs, grade: grade, fees: fees, exp: exp, units: units, netRev: netRev, gross: gross, net: net, setDate: new Date().toISOString().slice(0, 10) };
+  saveData();
+  window._fcEditMonth = '';
+  render();
+  showToast('Forecast saved for ' + ym);
 };
 
 // ============================================================
@@ -3139,6 +3223,174 @@ function rAnalytics(m) {
     </div>
     
     <div class="panel" style="margin-top:14px">
+      <h3 style="color:var(--green)">📋 Forecast vs Actuals</h3>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Set monthly forecasts, then track actual performance against them. Forecasts are locked once set.</div>
+      ${(function() {
+        if (!D.forecasts) D.forecasts = {};
+        var today = new Date();
+        var thisYear = today.getFullYear();
+        var fcYear = window._fcYear || thisYear;
+        var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        
+        // Build all 12 months for the selected year
+        var yearMonths = [];
+        for (var mi = 0; mi < 12; mi++) {
+          var ym = fcYear + '-' + String(mi + 1).padStart(2, '0');
+          yearMonths.push(ym);
+        }
+        
+        // Compute actuals for each month using periodPL
+        var monthActuals = {};
+        yearMonths.forEach(function(ym) {
+          var start = ym + '-01';
+          var endDate = new Date(parseInt(ym.slice(0, 4)), parseInt(ym.slice(5, 7)), 0);
+          var end = endDate.toISOString().slice(0, 10);
+          monthActuals[ym] = periodPL(start, end);
+        });
+        
+        // Check if there's an active edit
+        var editYM = window._fcEditMonth || '';
+        
+        // Year selector
+        var html = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">';
+        html += '<button class="btn btn-sm" style="font-size:11px" onclick="window._fcYear=' + (fcYear - 1) + ';render()">◀</button>';
+        html += '<span style="font-weight:700;font-size:14px">' + fcYear + '</span>';
+        html += '<button class="btn btn-sm" style="font-size:11px" onclick="window._fcYear=' + (fcYear + 1) + ';render()">▶</button>';
+        html += '</div>';
+        
+        // Monthly forecast vs actuals table
+        html += '<div style="overflow-x:auto"><table style="width:100%;font-size:10px;border-collapse:collapse">';
+        html += '<thead><tr style="border-bottom:2px solid var(--border)">';
+        html += '<th style="text-align:left;padding:5px 6px;color:var(--text-dim)">Month</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">FC Rev</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Act Rev</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Var</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">FC Net</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Act Net</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Var</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">FC Units</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Act Units</th>';
+        html += '<th style="padding:5px 6px;width:80px"></th>';
+        html += '</tr></thead><tbody>';
+        
+        var qTotals = {}; // quarterly rollups
+        
+        yearMonths.forEach(function(ym, mi) {
+          var fc = D.forecasts[ym] || {};
+          var act = monthActuals[ym];
+          var hasForecast = fc.rev !== undefined;
+          var label = monthNames[mi] + ' ' + String(fcYear).slice(2);
+          var isPast = ym < todayStr.slice(0, 7);
+          var isCurrent = ym === todayStr.slice(0, 7);
+          var qNum = Math.floor(mi / 3) + 1;
+          var qKey = 'Q' + qNum;
+          if (!qTotals[qKey]) qTotals[qKey] = { fcRev: 0, actRev: 0, fcNet: 0, actNet: 0, fcUnits: 0, actUnits: 0, hasFc: false };
+          
+          if (hasForecast) {
+            qTotals[qKey].fcRev += num(fc.rev);
+            qTotals[qKey].fcNet += num(fc.net);
+            qTotals[qKey].fcUnits += num(fc.units);
+            qTotals[qKey].hasFc = true;
+          }
+          qTotals[qKey].actRev += act.rev;
+          qTotals[qKey].actNet += act.net;
+          qTotals[qKey].actUnits += act.units;
+          
+          var revVar = hasForecast ? act.rev - num(fc.rev) : 0;
+          var netVar = hasForecast ? act.net - num(fc.net) : 0;
+          
+          var rowBg = isCurrent ? 'background:rgba(78,124,255,.06);' : '';
+          
+          html += '<tr style="border-bottom:1px solid var(--border);' + rowBg + '">';
+          html += '<td style="padding:5px 6px;font-weight:' + (isCurrent ? '700' : '600') + '">' + label + (isCurrent ? ' ◄' : '') + '</td>';
+          
+          if (hasForecast) {
+            html += '<td class="r mono" style="padding:5px 6px">' + fmtD(num(fc.rev)) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + fmtD(act.rev) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (revVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (revVar >= 0 ? '+' : '') + fmtD(revVar) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + fmtD(num(fc.net)) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (act.net >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtD(act.net) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (netVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (netVar >= 0 ? '+' : '') + fmtD(netVar) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + num(fc.units) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + act.units + '</td>';
+            html += '<td style="padding:5px 6px;text-align:center"><button class="btn btn-sm" style="font-size:9px;padding:2px 6px" onclick="window._fcEditMonth=\'' + ym + '\';render()">✏️</button></td>';
+          } else {
+            html += '<td class="r mono" style="padding:5px 6px;color:var(--text-faint)">—</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + (act.rev ? fmtD(act.rev) : '$0') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">—</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:var(--text-faint)">—</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (act.net >= 0 ? 'var(--green)' : act.net < 0 ? 'var(--red)' : '') + '">' + (act.rev || act.exp ? fmtD(act.net) : '$0') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">—</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:var(--text-faint)">—</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + (act.units || '0') + '</td>';
+            html += '<td style="padding:5px 6px;text-align:center"><button class="btn btn-accent btn-sm" style="font-size:9px;padding:2px 6px" onclick="window._fcEditMonth=\'' + ym + '\';render()">+ Set</button></td>';
+          }
+          html += '</tr>';
+          
+          // Insert quarterly subtotal after every 3rd month
+          if ((mi + 1) % 3 === 0) {
+            var qt = qTotals[qKey];
+            var qRevVar = qt.hasFc ? qt.actRev - qt.fcRev : 0;
+            var qNetVar = qt.hasFc ? qt.actNet - qt.fcNet : 0;
+            html += '<tr style="border-bottom:2px solid var(--border);background:rgba(255,255,255,.03);font-weight:700">';
+            html += '<td style="padding:5px 6px;color:var(--accent)">' + qKey + ' ' + fcYear + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + (qt.hasFc ? fmtD(qt.fcRev) : '—') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + fmtD(qt.actRev) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (qRevVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (qt.hasFc ? (qRevVar >= 0 ? '+' : '') + fmtD(qRevVar) : '—') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + (qt.hasFc ? fmtD(qt.fcNet) : '—') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (qt.actNet >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtD(qt.actNet) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (qNetVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (qt.hasFc ? (qNetVar >= 0 ? '+' : '') + fmtD(qNetVar) : '—') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + (qt.hasFc ? qt.fcUnits : '—') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + qt.actUnits + '</td>';
+            html += '<td></td></tr>';
+          }
+        });
+        
+        html += '</tbody></table></div>';
+        
+        // Edit form for a specific month
+        if (editYM) {
+          var efc = D.forecasts[editYM] || {};
+          var eLabel = monthNames[parseInt(editYM.slice(5, 7)) - 1] + ' ' + editYM.slice(0, 4);
+          var eAct = monthActuals[editYM] || {};
+          // Default to trailing 3-month average if no forecast set
+          var trail3 = { rev: 0, cogs: 0, grade: 0, fees: 0, exp: 0, units: 0 };
+          var trailMonths = sortedMonths.filter(function(ym) { return ym < editYM; }).slice(-3);
+          if (trailMonths.length) {
+            trailMonths.forEach(function(ym) {
+              var p = monthlyPL[ym] || {};
+              trail3.rev += p.rev || 0; trail3.cogs += p.cogs || 0; trail3.grade += p.gradeCost || 0;
+              trail3.fees += (p.platFee || 0) + (p.conFee || 0) + (p.ship || 0); trail3.exp += p.exp || 0; trail3.units += p.units || 0;
+            });
+            var tn = trailMonths.length;
+            trail3.rev /= tn; trail3.cogs /= tn; trail3.grade /= tn; trail3.fees /= tn; trail3.exp /= tn; trail3.units /= tn;
+          }
+          
+          html += '<div style="margin-top:14px;padding:14px;background:var(--bg);border:2px solid var(--green);border-radius:var(--radius-sm)">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+          html += '<span style="font-weight:700;color:var(--green)">📋 Set Forecast — ' + eLabel + '</span>';
+          html += '<button class="btn btn-sm" style="font-size:10px" onclick="window._fcEditMonth=\'\';render()">✕ Close</button>';
+          html += '</div>';
+          html += '<div style="font-size:10px;color:var(--text-dim);margin-bottom:10px">Enter your projections. Placeholders show trailing 3-month averages as suggested values.</div>';
+          html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+          html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Revenue</label><input type="number" id="fc_rev" class="search-input" style="width:90px;font-size:11px;padding:4px 8px" value="' + (efc.rev !== undefined ? efc.rev : '') + '" placeholder="' + Math.round(trail3.rev) + '"></div>';
+          html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">COGS</label><input type="number" id="fc_cogs" class="search-input" style="width:90px;font-size:11px;padding:4px 8px" value="' + (efc.cogs !== undefined ? efc.cogs : '') + '" placeholder="' + Math.round(trail3.cogs) + '"></div>';
+          html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Grading</label><input type="number" id="fc_grade" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="' + (efc.grade !== undefined ? efc.grade : '') + '" placeholder="' + Math.round(trail3.grade) + '"></div>';
+          html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Fees</label><input type="number" id="fc_fees" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="' + (efc.fees !== undefined ? efc.fees : '') + '" placeholder="' + Math.round(trail3.fees) + '"></div>';
+          html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Expenses</label><input type="number" id="fc_exp" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="' + (efc.exp !== undefined ? efc.exp : '') + '" placeholder="' + Math.round(trail3.exp) + '"></div>';
+          html += '<div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Units</label><input type="number" id="fc_units" class="search-input" style="width:60px;font-size:11px;padding:4px 8px" value="' + (efc.units !== undefined ? efc.units : '') + '" placeholder="' + Math.round(trail3.units) + '"></div>';
+          html += '</div>';
+          html += '<div style="display:flex;gap:8px">';
+          html += '<button class="btn btn-accent btn-sm" style="font-size:11px" onclick="saveForecast(\'' + editYM + '\')">💾 Save Forecast</button>';
+          html += '<button class="btn btn-sm" style="font-size:11px" onclick="if(confirm(\'Clear forecast for ' + eLabel + '?\')){{delete D.forecasts[\'' + editYM + '\'];saveData();window._fcEditMonth=\'\';render()}}">🗑 Clear</button>';
+          html += '</div></div>';
+        }
+        
+        return html;
+      })()}
+    </div>
+    
+    <div class="panel" style="margin-top:14px">
       <h3 style="color:var(--accent)">🎯 Key Performance Indicators</h3>
       <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">The numbers that matter most for business health</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px">
@@ -3166,8 +3418,8 @@ function rAnalytics(m) {
     </div>
 
     <div class="panel" style="margin-top:14px">
-      <h3 style="color:var(--blue)">📊 Monthly Revenue & Profit</h3>
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Track month-over-month performance</div>
+      <h3 style="color:var(--blue)">📊 Monthly P&L</h3>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Revenue, gross profit, and net income after all expenses</div>
       <div style="height:280px;position:relative"><canvas id="chAnalyticsMonthly"></canvas></div>
       ${sortedMonths.length?`
       <div style="margin-top:14px;overflow-x:auto">
@@ -5789,8 +6041,17 @@ function rFinancials(m) {
       <div class="fin-row indent"><span class="lbl">Owner's Contributions</span><span class="amt">${fmtD(m.startingCash+m.totalContributions)}</span></div>
       <div class="fin-row indent"><span class="lbl">Retained Earnings</span><span class="amt">${fmtD(m.net)}</span></div>
       <div class="fin-row indent"><span class="lbl">Less: Owner's Draws</span><span class="amt neg">(${fmtD(m.totalDraws)})</span></div>
+      ${num(m.sett.openingBalAdj)?`<div class="fin-row indent"><span class="lbl">Opening Balance Adjustment</span><span class="amt">${fmtD(num(m.sett.openingBalAdj))}</span></div>`:''}
       <div class="fin-row bold bd"><span class="lbl">Total Equity</span><span class="amt">${fmtD(m.totalEquity)}</span></div>
-      ${Math.abs(m.balanceCheck)>0.01?`<div style="margin-top:8px;padding:8px 12px;background:var(--red);background:rgba(255,71,87,.12);border:1px solid var(--red);border-radius:var(--radius-sm);font-size:11px;color:var(--red)">⚠️ Balance sheet is off by <strong>${fmtD(Math.abs(m.balanceCheck))}</strong>. This is normal — it means your Purchase totals don't perfectly match the cost basis assigned across Inventory and Sales entries. The difference is: Purchases cash out (${fmtD(m.tPurchases)}) vs. Inventory cost + COGS (${fmtD(m.invCost+m.tCOGS)}). Tip: make sure the cost basis you assign to cards adds up to what you paid in Purchases.</div>`:'<div style="font-size:11px;color:var(--green);margin-top:8px">✓ Balance sheet balances</div>'}
+      ${Math.abs(m.balanceCheck)>0.01?`
+      <div style="margin-top:8px;padding:10px 14px;background:rgba(255,71,87,.08);border:1px solid rgba(255,71,87,.2);border-radius:var(--radius-sm);font-size:11px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:var(--red)">⚠️ Off by <strong>${fmtD(Math.abs(m.balanceCheck))}</strong> — Assets (${fmtD(m.totalAssets)}) ≠ Liabilities (${fmtD(m.totalLiabilities)}) + Equity (${fmtD(m.totalEquity)})</span>
+          <button class="btn btn-sm" style="font-size:10px;white-space:nowrap" onclick="if(confirm('This will add an Opening Balance Adjustment of ${fmtD(m.balanceCheck)} to make the balance sheet balance. This accounts for pre-system activity. Continue?')){saveSetting('openingBalAdj',${(num(m.sett.openingBalAdj)||0)+m.balanceCheck})}">⚖️ Auto-Balance</button>
+        </div>
+        <div style="color:var(--text-dim);margin-top:4px">This gap is from pre-system transactions. Click Auto-Balance to add an opening adjustment.</div>
+      </div>
+      `:'<div style="font-size:11px;color:var(--green);margin-top:8px">✅ Balance sheet balances — Assets = Liabilities + Equity</div>'}
       <div style="font-size:10px;color:var(--text-faint);margin-top:8px;font-style:italic">* Market value for reference; assets at cost · Edit in Capital tab</div>
       <h3 style="color:var(--yellow);margin-top:24px">📈 Key Ratios <button class="btn btn-sm" onclick="exportPDF('ratios')">📄 PDF</button></h3>
       <div class="ratio-row"><span class="lbl">Gross Margin</span><span class="val ${m.gm>=.3?'pos':'neg'}">${pct(m.gm)}</span></div>
@@ -5799,7 +6060,7 @@ function rFinancials(m) {
       <div class="ratio-row"><span class="lbl">Cards Sold</span><span class="val">${m.sc}</span></div>
       <div class="ratio-row"><span class="lbl">Avg Sale Price</span><span class="val">${m.sc?fmtD(m.tSale/m.sc):'—'}</span></div>
       <div class="ratio-row"><span class="lbl">Avg Profit/Card</span><span class="val ${m.avgP>=0?'pos':'neg'}">${fmtD(m.avgP)}</span></div>
-      <div class="ratio-row"><span class="lbl">Avg ROI/Card Sold</span><span class="val ${m.gross>=0?'pos':'neg'}">${m.tCOGS?pct(m.gross/m.tCOGS):'—'}</span></div>
+      <div class="ratio-row"><span class="lbl">Weighted ROI (all sold)</span><span class="val ${m.gross>=0?'pos':'neg'}">${(m.tCOGS+m.tGrade)?pct(m.gross/(m.tCOGS+m.tGrade)):'—'}</span></div>
       ${m.tGradeAll > m.tGrade ? `
       <div style="margin-top:12px;padding:10px 14px;background:rgba(78,124,255,.08);border:1px solid rgba(78,124,255,.2);border-radius:var(--radius-sm);font-size:11px">
         <div style="font-weight:600;color:var(--blue);margin-bottom:4px">📦 Pipeline Investment Context</div>
