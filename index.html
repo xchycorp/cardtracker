@@ -516,126 +516,88 @@ function rOverview(m) {
 
 function renderAnalyticsCharts(m) {
   destroyCharts();
-  // Build monthly data from sales and expenses
-  const monthlyRev = {}, monthlyGross = {}, monthlyExp = {}, monthlyNet = {};
+  // Build comprehensive monthly data
+  const monthlyData = {};
+  const mn2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  
   D.sales.forEach(function(r) {
-    const d = r.date || '';
-    if (!d || d.length < 7) return;
-    const ym = d.slice(0, 7);
-    const rev = num(r.salePrice);
-    const gross = rev - num(r.platformFee) - num(r.consignFee) - num(r.shipCost) - num(r.costBasis);
-    monthlyRev[ym] = (monthlyRev[ym] || 0) + rev;
-    monthlyGross[ym] = (monthlyGross[ym] || 0) + gross;
+    var d = r.date || ''; if (!d || d.length < 7) return;
+    var ym = d.slice(0, 7);
+    if (!monthlyData[ym]) monthlyData[ym] = {rev:0,fees:0,cogs:0,grade:0,exp:0,net:0,units:0};
+    monthlyData[ym].rev += num(r.salePrice);
+    monthlyData[ym].fees += num(r.platformFee) + num(r.consignFee) + num(r.shipCost);
+    monthlyData[ym].cogs += num(r.costBasis);
   });
   D.expenses.forEach(function(r) {
-    const d = r.date || '';
-    if (!d || d.length < 7) return;
-    const ym = d.slice(0, 7);
-    monthlyExp[ym] = (monthlyExp[ym] || 0) + num(r.amount);
+    var d = r.date || ''; if (!d || d.length < 7) return;
+    var ym = d.slice(0, 7);
+    if (!monthlyData[ym]) monthlyData[ym] = {rev:0,fees:0,cogs:0,grade:0,exp:0,net:0,units:0};
+    monthlyData[ym].exp += num(r.amount);
   });
-  // Compute net income per month
-  const allYMs = new Set([...Object.keys(monthlyRev), ...Object.keys(monthlyExp)]);
-  allYMs.forEach(function(ym) {
-    monthlyNet[ym] = (monthlyGross[ym] || 0) - (monthlyExp[ym] || 0);
+  // Count units
+  D.sales.forEach(function(r) {
+    var d = r.date || ''; if (!d || d.length < 7) return;
+    var ym = d.slice(0, 7);
+    if (monthlyData[ym]) monthlyData[ym].units++;
+  });
+  // Compute net for each month
+  Object.keys(monthlyData).forEach(function(ym) {
+    var md = monthlyData[ym];
+    md.net = md.rev - md.fees - md.cogs - md.grade - md.exp;
   });
   
-  const months = Array.from(allYMs).sort().slice(-12);
+  var months = Object.keys(monthlyData).sort().slice(-12);
   if (!months.length) return;
-  const monthNames2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const labels = months.map(function(ym) { const p = ym.split('-'); return monthNames2[parseInt(p[1])-1] + ' ' + p[0].slice(2); });
-  const canvas = document.getElementById('chAnalyticsMonthly');
+  var labels = months.map(function(ym) { var p = ym.split('-'); return mn2[parseInt(p[1])-1] + ' ' + p[0].slice(2); });
+  var canvas = document.getElementById('chAnalyticsMonthly');
   if (!canvas) return;
+  
+  // Store data for tooltip access
+  var tooltipData = {};
+  months.forEach(function(ym, i) { tooltipData[i] = monthlyData[ym]; });
+  
   charts.cAnalytics = new Chart(canvas, {
     type: 'bar',
     data: {
       labels: labels,
       datasets: [
-        { label: 'Revenue', data: months.map(function(ym) { return monthlyRev[ym] || 0; }), backgroundColor: '#4E7CFF', borderRadius: 6 },
-        { label: 'Gross Profit', data: months.map(function(ym) { return monthlyGross[ym] || 0; }), backgroundColor: '#FFBE0B', borderRadius: 6 },
-        { label: 'Net Income', data: months.map(function(ym) { return monthlyNet[ym] || 0; }), backgroundColor: '#00D68F', borderRadius: 6 }
+        { label: 'Revenue', data: months.map(function(ym) { return monthlyData[ym].rev; }), backgroundColor: '#4E7CFF', borderRadius: 6 },
+        { label: 'Net Income', data: months.map(function(ym) { return monthlyData[ym].net; }), backgroundColor: function(ctx) { return monthlyData[months[ctx.dataIndex]]?.net >= 0 ? '#00D68F' : '#FF4757'; }, borderRadius: 6 }
       ]
     },
-    options: cOpts()
-  });
-  
-  // Spending by category stacked bar chart
-  var spendByMonth = {};
-  D.purchases.forEach(function(r) {
-    var d = r.date || '';
-    if (!d || d.length < 7) return;
-    var ym = d.slice(0, 7);
-    if (!spendByMonth[ym]) spendByMonth[ym] = {};
-    var cat = 'Card Purchases';
-    spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.grandTotal || (num(r.qty) * num(r.unitCost) + num(r.shipping) + num(r.tax)));
-  });
-  D.expenses.forEach(function(r) {
-    var d = r.date || '';
-    if (!d || d.length < 7) return;
-    var ym = d.slice(0, 7);
-    if (!spendByMonth[ym]) spendByMonth[ym] = {};
-    var cat = r.category || 'Other';
-    spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.amount);
-  });
-  // Grading fees — use inventory gradingCost linked via grading entries for dates
-  D.grading.forEach(function(r) {
-    var d = r.dateSubmitted || '';
-    // Fallback to linked inventory card's date if grading entry has no date
-    if ((!d || d.length < 7) && r.cardId) {
-      var linkedCard = D.inventory.find(function(c) { return c.id === r.cardId; });
-      if (linkedCard) d = linkedCard.dateAdded || linkedCard.datePurchased || '';
-    }
-    if (!d || d.length < 7) return;
-    var ym = d.slice(0, 7);
-    if (!spendByMonth[ym]) spendByMonth[ym] = {};
-    var cat = 'Grading Fees';
-    // Use totalCost from grading entry, but fallback to linked inventory card's gradingCost
-    var fee = num(r.totalCost);
-    if (!fee && r.cardId) {
-      var linked = D.inventory.find(function(c) { return c.id === r.cardId; });
-      if (linked) fee = num(linked.gradingCost);
-    }
-    spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + fee;
-  });
-  var spendMonths = Object.keys(spendByMonth).sort().slice(-12);
-  var spendCanvas = document.getElementById('chAnalyticsSpending');
-  if (spendCanvas && spendMonths.length) {
-    var allCats = {};
-    spendMonths.forEach(function(ym) { Object.keys(spendByMonth[ym]).forEach(function(c) { allCats[c] = true; }); });
-    var catList = Object.keys(allCats).sort();
-    var catColors = ['#FF3366', '#4E7CFF', '#00D68F', '#FFBE0B', '#A855F7', '#06D6A0', '#FF6B6B', '#48DBFB', '#FFA502', '#7C4DFF'];
-    var spendLabels = spendMonths.map(function(ym) { var p = ym.split('-'); return monthNames2[parseInt(p[1])-1] + ' ' + p[0].slice(2); });
-    var datasets = catList.map(function(cat, ci) {
-      return {
-        label: cat,
-        data: spendMonths.map(function(ym) { return spendByMonth[ym][cat] || 0; }),
-        backgroundColor: catColors[ci % catColors.length],
-        borderRadius: 4
-      };
-    });
-    charts.cSpending = new Chart(spendCanvas, {
-      type: 'bar',
-      data: { labels: spendLabels, datasets: datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { labels: { color: '#E4E4F0', font: { family: "'DM Sans',sans-serif", size: 10 } } },
-          tooltip: {
-            callbacks: {
-              footer: function(items) {
-                var total = items.reduce(function(s, it) { return s + it.raw; }, 0);
-                return 'Total: $' + total.toFixed(2);
-              }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#E4E4F0', font: { family: "'DM Sans',sans-serif", size: 11 } } },
+        tooltip: {
+          callbacks: {
+            afterBody: function(items) {
+              var idx = items[0]?.dataIndex;
+              if (idx === undefined) return '';
+              var md = tooltipData[idx];
+              if (!md) return '';
+              return [
+                '',
+                '── Breakdown ──',
+                'Fees: $' + md.fees.toFixed(2),
+                'COGS: $' + md.cogs.toFixed(2),
+                'Expenses: $' + md.exp.toFixed(2),
+                'Total Costs: $' + (md.fees + md.cogs + md.grade + md.exp).toFixed(2),
+                '',
+                'Margin: ' + (md.rev ? (md.net / md.rev * 100).toFixed(1) + '%' : '—'),
+                'Units: ' + md.units
+              ];
             }
           }
-        },
-        scales: {
-          x: { stacked: true, ticks: { color: '#7878A0', font: { family: "'DM Sans',sans-serif", size: 10 } }, grid: { color: '#252545' } },
-          y: { stacked: true, ticks: { color: '#7878A0', callback: function(v) { return '$' + v.toLocaleString(); }, font: { family: "'DM Sans',sans-serif", size: 10 } }, grid: { color: '#252545' } }
         }
+      },
+      scales: {
+        x: { ticks: { color: '#7878A0', font: { family: "'DM Sans',sans-serif", size: 10 } }, grid: { color: '#252545' } },
+        y: { ticks: { color: '#7878A0', callback: function(v) { return '$' + v.toLocaleString(); }, font: { family: "'DM Sans',sans-serif", size: 10 } }, grid: { color: '#252545' } }
       }
-    });
-  }
+    }
+  });
 }
 
 function renderCharts(m) {
@@ -3306,6 +3268,43 @@ function rAnalytics(m) {
         // Check if there's an active edit
         var editYM = window._fcEditMonth || '';
         
+        // Auto-trend: compute trailing 3-month averages for auto-forecasting future months
+        var trailAvg = { rev:0, cogs:0, grade:0, fees:0, exp:0, units:0, net:0 };
+        var trailMonths = sortedMonths.slice(-3);
+        if (trailMonths.length) {
+          trailMonths.forEach(function(ym) {
+            var p = monthlyPL[ym] || {};
+            trailAvg.rev += p.rev || 0;
+            trailAvg.cogs += p.cogs || 0;
+            trailAvg.grade += p.gradeCost || 0;
+            trailAvg.fees += (p.platFee || 0) + (p.conFee || 0) + (p.ship || 0);
+            trailAvg.exp += p.exp || 0;
+            trailAvg.units += p.units || 0;
+            trailAvg.net += p.net || 0;
+          });
+          var tn = trailMonths.length;
+          trailAvg.rev /= tn; trailAvg.cogs /= tn; trailAvg.grade /= tn;
+          trailAvg.fees /= tn; trailAvg.exp /= tn; trailAvg.units /= tn; trailAvg.net /= tn;
+        }
+        
+        // Auto-populate forecasts for future/current months that don't have manual entries
+        var currentYM = todayStr.slice(0, 7);
+        yearMonths.forEach(function(ym) {
+          if (ym >= currentYM && !D.forecasts[ym] && trailAvg.rev > 0) {
+            // Auto-forecast based on trend (not saved, computed on the fly)
+            monthActuals[ym]._autoForecast = {
+              rev: Math.round(trailAvg.rev),
+              cogs: Math.round(trailAvg.cogs),
+              grade: Math.round(trailAvg.grade),
+              fees: Math.round(trailAvg.fees),
+              exp: Math.round(trailAvg.exp),
+              units: Math.round(trailAvg.units),
+              net: Math.round(trailAvg.net),
+              isAuto: true
+            };
+          }
+        });
+        
         // Year selector
         var html = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">';
         html += '<button class="btn btn-sm" style="font-size:11px" onclick="window._fcYear=' + (fcYear - 1) + ';render()">◀</button>';
@@ -3334,6 +3333,9 @@ function rAnalytics(m) {
           var fc = D.forecasts[ym] || {};
           var act = monthActuals[ym];
           var hasForecast = fc.rev !== undefined;
+          var autoFc = act._autoForecast || null;
+          var useFc = hasForecast ? fc : autoFc; // Use manual forecast or auto-trend
+          var hasAnyFc = hasForecast || autoFc;
           var label = monthNames[mi] + ' ' + String(fcYear).slice(2);
           var isPast = ym < todayStr.slice(0, 7);
           var isCurrent = ym === todayStr.slice(0, 7);
@@ -3341,25 +3343,37 @@ function rAnalytics(m) {
           var qKey = 'Q' + qNum;
           if (!qTotals[qKey]) qTotals[qKey] = { fcRev: 0, actRev: 0, fcNet: 0, actNet: 0, fcUnits: 0, actUnits: 0, hasFc: false };
           
-          if (hasForecast) {
-            qTotals[qKey].fcRev += num(fc.rev);
-            qTotals[qKey].fcNet += num(fc.net);
-            qTotals[qKey].fcUnits += num(fc.units);
+          if (hasAnyFc) {
+            qTotals[qKey].fcRev += num(useFc.rev);
+            qTotals[qKey].fcNet += num(useFc.net);
+            qTotals[qKey].fcUnits += num(useFc.units);
             qTotals[qKey].hasFc = true;
           }
           qTotals[qKey].actRev += act.rev;
           qTotals[qKey].actNet += act.net;
           qTotals[qKey].actUnits += act.units;
           
-          var revVar = hasForecast ? act.rev - num(fc.rev) : 0;
-          var netVar = hasForecast ? act.net - num(fc.net) : 0;
+          var revVar = hasAnyFc ? act.rev - num(useFc.rev) : 0;
+          var netVar = hasAnyFc ? act.net - num(useFc.net) : 0;
           
           var rowBg = isCurrent ? 'background:rgba(78,124,255,.06);' : '';
+          var autoStyle = (autoFc && !hasForecast) ? 'font-style:italic;color:var(--text-dim)' : '';
           
           html += '<tr style="border-bottom:1px solid var(--border);' + rowBg + '">';
           html += '<td style="padding:5px 6px;font-weight:' + (isCurrent ? '700' : '600') + '">' + label + (isCurrent ? ' ◄' : '') + '</td>';
           
-          if (hasForecast) {
+          if (hasAnyFc) {
+            var fcLabel = (autoFc && !hasForecast) ? ' title="Auto-forecast from trailing 3-month trend"' : '';
+            html += '<td class="r mono" style="padding:5px 6px;' + autoStyle + '"' + fcLabel + '>' + fmtD(num(useFc.rev)) + (autoFc && !hasForecast ? ' ~' : '') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + fmtD(act.rev) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (revVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (isPast || isCurrent ? (revVar >= 0 ? '+' : '') + fmtD(revVar) : '—') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;' + autoStyle + '"' + fcLabel + '>' + fmtD(num(useFc.net)) + (autoFc && !hasForecast ? ' ~' : '') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (act.net >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtD(act.net) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;color:' + (netVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (isPast || isCurrent ? (netVar >= 0 ? '+' : '') + fmtD(netVar) : '—') + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px;' + autoStyle + '">' + num(useFc.units) + '</td>';
+            html += '<td class="r mono" style="padding:5px 6px">' + act.units + '</td>';
+            html += '<td style="padding:5px 6px;text-align:center"><button class="btn btn-sm" style="font-size:9px;padding:2px 6px" onclick="window._fcEditMonth=\'' + ym + '\';render()">' + (hasForecast ? '✏️' : '📌 Lock') + '</button></td>';
+          } else {
             html += '<td class="r mono" style="padding:5px 6px">' + fmtD(num(fc.rev)) + '</td>';
             html += '<td class="r mono" style="padding:5px 6px">' + fmtD(act.rev) + '</td>';
             html += '<td class="r mono" style="padding:5px 6px;color:' + (revVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (revVar >= 0 ? '+' : '') + fmtD(revVar) + '</td>';
@@ -3506,71 +3520,6 @@ function rAnalytics(m) {
         </table>
       </div>
       `:''}
-    </div>
-
-    <div class="panel" style="margin-top:14px">
-      <h3 style="color:var(--yellow)">💸 Monthly Spending by Category</h3>
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Hover over bars to see category breakdown</div>
-      <div style="height:280px;position:relative"><canvas id="chAnalyticsSpending"></canvas></div>
-      ${(function() {
-        // Build monthly spending data from purchases and expenses
-        var spendByMonth = {};
-        D.purchases.forEach(function(r) {
-          var d = r.date || '';
-          if (!d || d.length < 7) return;
-          var ym = d.slice(0, 7);
-          if (!spendByMonth[ym]) spendByMonth[ym] = {};
-          var cat = 'Card Purchases';
-          spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.grandTotal || (num(r.qty) * num(r.unitCost) + num(r.shipping) + num(r.tax)));
-        });
-        D.expenses.forEach(function(r) {
-          var d = r.date || '';
-          if (!d || d.length < 7) return;
-          var ym = d.slice(0, 7);
-          if (!spendByMonth[ym]) spendByMonth[ym] = {};
-          var cat = r.category || 'Other';
-          spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + num(r.amount);
-        });
-        // Add grading costs by month
-        D.grading.forEach(function(r) {
-          var d = r.dateSubmitted || '';
-          if ((!d || d.length < 7) && r.cardId) {
-            var linkedCard = D.inventory.find(function(c) { return c.id === r.cardId; });
-            if (linkedCard) d = linkedCard.dateAdded || linkedCard.datePurchased || '';
-          }
-          if (!d || d.length < 7) return;
-          var ym = d.slice(0, 7);
-          if (!spendByMonth[ym]) spendByMonth[ym] = {};
-          var cat = 'Grading Fees';
-          var fee = num(r.totalCost);
-          if (!fee && r.cardId) {
-            var linked = D.inventory.find(function(c) { return c.id === r.cardId; });
-            if (linked) fee = num(linked.gradingCost);
-          }
-          spendByMonth[ym][cat] = (spendByMonth[ym][cat] || 0) + fee;
-        });
-        var spendMonths = Object.keys(spendByMonth).sort().slice(-12);
-        if (!spendMonths.length) return '';
-        // Build table
-        var allCats = {};
-        spendMonths.forEach(function(ym) { Object.keys(spendByMonth[ym]).forEach(function(c) { allCats[c] = true; }); });
-        var catList = Object.keys(allCats).sort();
-        return '<div style="margin-top:14px;overflow-x:auto"><table style="width:100%;font-size:11px"><thead><tr><th style="text-align:left">Month</th>' +
-          catList.map(function(c) { return '<th class="r">' + c + '</th>'; }).join('') +
-          '<th class="r" style="font-weight:700">Total</th></tr></thead><tbody>' +
-          spendMonths.slice().reverse().map(function(ym) {
-            var p2 = ym.split('-');
-            var label = monthNames[parseInt(p2[1])-1] + ' ' + p2[0];
-            var total = 0;
-            var cells = catList.map(function(c) {
-              var val = spendByMonth[ym][c] || 0;
-              total += val;
-              return '<td class="r mono">' + (val ? fmt(val) : '—') + '</td>';
-            }).join('');
-            return '<tr><td><strong>' + label + '</strong></td>' + cells + '<td class="r mono" style="font-weight:700">' + fmt(total) + '</td></tr>';
-          }).join('') +
-          '</tbody></table></div>';
-      })()}
     </div>
 
     <div class="panel" style="margin-top:14px">
