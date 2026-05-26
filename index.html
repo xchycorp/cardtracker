@@ -929,7 +929,8 @@ function rTable(type,m) {
   })() : '';
 
   const af = window.advFilter;
-  const hasAdvFilter = af.minPrice || af.maxPrice || af.minProfit || af.minMargin || af.minROI || af.category;
+  const afActive = function(v) { return v !== '' && v !== '0' && v !== 0; };
+  const hasAdvFilter = afActive(af.minPrice) || afActive(af.maxPrice) || afActive(af.minProfit) || afActive(af.minMargin) || afActive(af.minROI) || af.category;
   const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter || window.monthFilter || hasAdvFilter;
   const advFilterTypes = ['inventory','sales','expenses','purchases'];
   const showAdvToggle = advFilterTypes.includes(type);
@@ -946,17 +947,17 @@ function rTable(type,m) {
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
         ${type==='inventory'||type==='sales'?`
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">${type==='sales'?'Min Sale $':'Min Cost $'}</label>
-          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" oninput="window.advFilter.minPrice=this.value;render()" placeholder="0"></div>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" onchange="window.advFilter.minPrice=this.value;render()" placeholder="Min"></div>
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">${type==='sales'?'Max Sale $':'Max Cost $'}</label>
-          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.maxPrice}" oninput="window.advFilter.maxPrice=this.value;render()" placeholder="∞"></div>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.maxPrice}" onchange="window.advFilter.maxPrice=this.value;render()" placeholder="Max"></div>
         `:''}
         ${type==='sales'?`
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min Profit $</label>
-          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minProfit}" oninput="window.advFilter.minProfit=this.value;render()" placeholder="0"></div>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minProfit}" onchange="window.advFilter.minProfit=this.value;render()" placeholder="Min"></div>
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min Margin %</label>
-          <input type="number" class="search-input" style="width:70px;font-size:11px;padding:4px 8px" value="${af.minMargin}" oninput="window.advFilter.minMargin=this.value;render()" placeholder="0"></div>
+          <input type="number" class="search-input" style="width:70px;font-size:11px;padding:4px 8px" value="${af.minMargin}" onchange="window.advFilter.minMargin=this.value;render()" placeholder="Min"></div>
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min ROI %</label>
-          <input type="number" class="search-input" style="width:70px;font-size:11px;padding:4px 8px" value="${af.minROI}" oninput="window.advFilter.minROI=this.value;render()" placeholder="0"></div>
+          <input type="number" class="search-input" style="width:70px;font-size:11px;padding:4px 8px" value="${af.minROI}" onchange="window.advFilter.minROI=this.value;render()" placeholder="Min"></div>
         `:''}
         ${type==='expenses'?`
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Category</label>
@@ -965,13 +966,13 @@ function rTable(type,m) {
             ${[...new Set(D.expenses.map(e=>e.category||'Other'))].sort().map(c=>'<option'+(af.category===c?' selected':'')+'>'+c+'</option>').join('')}
           </select></div>
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min Amount $</label>
-          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" oninput="window.advFilter.minPrice=this.value;render()" placeholder="0"></div>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" onchange="window.advFilter.minPrice=this.value;render()" placeholder="Min"></div>
         `:''}
         ${type==='purchases'?`
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min Total $</label>
-          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" oninput="window.advFilter.minPrice=this.value;render()" placeholder="0"></div>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.minPrice}" onchange="window.advFilter.minPrice=this.value;render()" placeholder="Min"></div>
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Max Total $</label>
-          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.maxPrice}" oninput="window.advFilter.maxPrice=this.value;render()" placeholder="∞"></div>
+          <input type="number" class="search-input" style="width:80px;font-size:11px;padding:4px 8px" value="${af.maxPrice}" onchange="window.advFilter.maxPrice=this.value;render()" placeholder="Max"></div>
         `:''}
       </div>
     </div>
@@ -2795,27 +2796,28 @@ function filterData(data, type) {
   }
   // Apply advanced filters
   const af = window.advFilter;
-  if (af.minPrice) {
+  const afHasVal = function(v) { return v !== '' && parseFloat(v) > 0; };
+  if (afHasVal(af.minPrice)) {
     const min = parseFloat(af.minPrice);
     if (type === 'inventory') result = result.filter(row => num(row.costBasis) >= min);
     else if (type === 'sales') result = result.filter(row => num(row.salePrice) >= min);
     else if (type === 'expenses') result = result.filter(row => num(row.amount) >= min);
     else if (type === 'purchases') result = result.filter(row => num(row.grandTotal) >= min);
   }
-  if (af.maxPrice) {
+  if (afHasVal(af.maxPrice)) {
     const max = parseFloat(af.maxPrice);
     if (type === 'inventory') result = result.filter(row => num(row.costBasis) <= max);
     else if (type === 'sales') result = result.filter(row => num(row.salePrice) <= max);
     else if (type === 'purchases') result = result.filter(row => num(row.grandTotal) <= max);
   }
-  if (af.minProfit && type === 'sales') {
+  if (afHasVal(af.minProfit) && type === 'sales') {
     const min = parseFloat(af.minProfit);
     result = result.filter(row => {
       const profit = num(row.salePrice) - num(row.platformFee) - num(row.consignFee) - num(row.shipCost) - num(row.costBasis);
       return profit >= min;
     });
   }
-  if (af.minMargin && type === 'sales') {
+  if (afHasVal(af.minMargin) && type === 'sales') {
     const min = parseFloat(af.minMargin) / 100;
     result = result.filter(row => {
       const rev = num(row.salePrice);
@@ -2823,7 +2825,7 @@ function filterData(data, type) {
       return rev ? (profit / rev) >= min : false;
     });
   }
-  if (af.minROI && type === 'sales') {
+  if (afHasVal(af.minROI) && type === 'sales') {
     const min = parseFloat(af.minROI) / 100;
     result = result.filter(row => {
       const cost = num(row.costBasis);
