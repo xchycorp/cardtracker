@@ -1028,33 +1028,55 @@ function rTable(type,m) {
   return `${spendingBar}<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
     ${refreshBar}
     ${gradingToolbar}
-    ${(type==='inventory'||type==='grading') ? `
-    <div style="display:flex;gap:3px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
-      ${type==='inventory' ? ['','Raw','Submitted','Graded','Listed','Hold','Cracked','Sold'].map(st => {
-        const isActive = window.statusFilter === st;
-        const label = st || 'All';
-        const count = st ? data.filter(r => r.status === st).length : data.length;
-        return `<button class="btn btn-sm" style="font-size:10px;padding:4px 8px;${isActive ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : ''}" onclick="window.statusFilter='${st}';render()">${label}<span style="font-size:9px;opacity:.7;margin-left:3px">${count}</span></button>`;
-      }).join('') : ''}
-      ${type==='grading' ? ['','PSA','CGC','BGS','SGC'].map(co => {
-        const isActive = window.gradingCompanyFilter === co;
-        const label = co || 'All';
-        const count = co ? data.filter(r => (r.company || '') === co).length : data.length;
-        return count || !co ? `<button class="btn btn-sm" style="font-size:10px;padding:4px 8px;${isActive ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : ''}" onclick="window.gradingCompanyFilter='${co}';render()">${label}<span style="font-size:9px;opacity:.7;margin-left:3px">${count}</span></button>` : '';
-      }).join('') : ''}
-      ${monthFilterBar ? `<div style="margin-left:auto;display:flex;align-items:center;gap:6px">${(function(){
-        const dateKey = type==='grading' ? 'dateSubmitted' : 'dateAdded';
-        const months = {};
-        data.forEach(function(r) { const d = r[dateKey]||''; if (d && d.length>=7) { const ym=d.slice(0,7); months[ym]=(months[ym]||0)+1; }});
-        const sm = Object.keys(months).sort();
-        if (!sm.length) return '';
-        return '<select onchange="window.monthFilter=this.value;render()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:4px 8px;font-size:11px;font-family:DM Sans,sans-serif">' +
-          '<option value="">Select Month</option>' +
-          sm.map(function(ym){var p=ym.split("-");return "<option value=\\""+ym+"\\"" + (window.monthFilter===ym?" selected":"") + ">" + monthNames[parseInt(p[1])-1]+" "+p[0].slice(2)+" ("+months[ym]+")</option>";}).join("") +
-          '</select>' + (window.monthFilter ? '<span style="font-size:10px;color:var(--text-dim)">' + (function(){var p=window.monthFilter.split("-");return monthNames[parseInt(p[1])-1]+" "+p[0].slice(2)})() + '</span>' : '');
-      })()}</div>` : ''}
-    </div>
-    ` : `${statusFilterBar}${monthFilterBar}`}
+    ${(type==='inventory'||type==='grading') ? (function() {
+      // Combined status/company + month filter in one row
+      var filterHtml = '<div style="display:flex;gap:3px;margin-bottom:10px;flex-wrap:wrap;align-items:center">';
+      
+      if (type === 'inventory') {
+        ['','Raw','Submitted','Graded','Listed','Hold','Cracked','Sold'].forEach(function(st) {
+          var isActive = window.statusFilter === st;
+          var label = st || 'All';
+          var count = st ? data.filter(function(r){return r.status===st}).length : data.length;
+          filterHtml += '<button class="btn btn-sm" style="font-size:10px;padding:4px 8px;' + (isActive?'background:var(--accent);color:#fff;border-color:var(--accent)':'') + '" onclick="window.statusFilter=\'' + st + '\';render()">' + label + '<span style="font-size:9px;opacity:.7;margin-left:3px">' + count + '</span></button>';
+        });
+      }
+      
+      if (type === 'grading') {
+        ['','PSA','CGC','BGS','SGC'].forEach(function(co) {
+          var isActive = window.gradingCompanyFilter === co;
+          var label = co || 'All';
+          var count = co ? data.filter(function(r){return (r.company||'')===co}).length : data.length;
+          if (count || !co) {
+            filterHtml += '<button class="btn btn-sm" style="font-size:10px;padding:4px 8px;' + (isActive?'background:var(--accent);color:#fff;border-color:var(--accent)':'') + '" onclick="window.gradingCompanyFilter=\'' + co + '\';render()">' + label + '<span style="font-size:9px;opacity:.7;margin-left:3px">' + count + '</span></button>';
+          }
+        });
+      }
+      
+      // Month dropdown on the right
+      var dateKey = type === 'grading' ? 'dateSubmitted' : 'dateAdded';
+      var months = {};
+      data.forEach(function(r) { var d = r[dateKey]||''; if (d && d.length>=7) { var ym=d.slice(0,7); months[ym]=(months[ym]||0)+1; }});
+      var sm = Object.keys(months).sort();
+      if (sm.length) {
+        filterHtml += '<div style="margin-left:auto;display:flex;align-items:center;gap:6px">';
+        filterHtml += '<select onchange="window.monthFilter=this.value;render()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:4px 8px;font-size:11px;font-family:DM Sans,sans-serif">';
+        filterHtml += '<option value="">Select Month</option>';
+        sm.forEach(function(ym) {
+          var p = ym.split('-');
+          var label = monthNames[parseInt(p[1])-1] + ' ' + p[0].slice(2);
+          filterHtml += '<option value="' + ym + '"' + (window.monthFilter===ym?' selected':'') + '>' + label + ' (' + months[ym] + ')</option>';
+        });
+        filterHtml += '</select>';
+        if (window.monthFilter) {
+          var mp = window.monthFilter.split('-');
+          filterHtml += '<span style="font-size:10px;color:var(--text-dim)">' + monthNames[parseInt(mp[1])-1] + ' ' + mp[0].slice(2) + '</span>';
+        }
+        filterHtml += '</div>';
+      }
+      
+      filterHtml += '</div>';
+      return filterHtml;
+    })() : `${statusFilterBar}${monthFilterBar}`}
     ${searchBar}
     <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.refreshSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
     <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.refreshSelectMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
