@@ -895,10 +895,13 @@ function rTable(type,m) {
   }</div>` : '';
 
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const monthFilterBar = (type==='purchases'||type==='expenses'||type==='sales') ? (function() {
+  const monthFilterTypes = ['purchases','expenses','sales','inventory','grading'];
+  const monthDateField = {purchases:'date',expenses:'date',sales:'date',inventory:'dateAdded',grading:'dateSubmitted'};
+  const monthFilterBar = monthFilterTypes.includes(type) ? (function() {
+    const dateKey = monthDateField[type] || 'date';
     const months = {};
     data.forEach(function(r) {
-      const d = r.date || '';
+      const d = r[dateKey] || '';
       if (d && d.length >= 7) {
         const ym = d.slice(0, 7);
         if (!months[ym]) months[ym] = 0;
@@ -914,7 +917,7 @@ function rTable(type,m) {
     return `<div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
       <button class="btn btn-sm" style="font-size:10px;padding:4px 10px;${!window.monthFilter?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.monthFilter='';render()">All<span style="font-size:9px;opacity:.7;margin-left:3px">${data.length}</span></button>
       <select onchange="window.monthFilter=this.value;render()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:4px 8px;font-size:11px;font-family:'DM Sans',sans-serif">
-        <option value="">Month...</option>
+        <option value="">Select Month</option>
         ${sortedMonths.map(function(ym) {
           const p = ym.split('-');
           const label = monthNames[parseInt(p[1])-1] + ' ' + p[0].slice(2);
@@ -2735,9 +2738,13 @@ function filterData(data, type) {
   if (type === 'grading' && window.gradingCompanyFilter) {
     result = result.filter(row => (row.company || '') === window.gradingCompanyFilter);
   }
-  // Apply month filter for purchases, expenses, sales
-  if ((type === 'purchases' || type === 'expenses' || type === 'sales') && window.monthFilter) {
-    result = result.filter(row => (row.date || '').startsWith(window.monthFilter));
+  // Apply month filter
+  if (window.monthFilter) {
+    const mfDateKey = {purchases:'date',expenses:'date',sales:'date',inventory:'dateAdded',grading:'dateSubmitted'};
+    const dk = mfDateKey[type];
+    if (dk) {
+      result = result.filter(row => (row[dk] || '').startsWith(window.monthFilter));
+    }
   }
   // Apply advanced filters
   const af = window.advFilter;
