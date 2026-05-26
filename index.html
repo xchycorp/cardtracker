@@ -3374,16 +3374,6 @@ function rAnalytics(m) {
             html += '<td class="r mono" style="padding:5px 6px">' + act.units + '</td>';
             html += '<td style="padding:5px 6px;text-align:center"><button class="btn btn-sm" style="font-size:9px;padding:2px 6px" onclick="window._fcEditMonth=\'' + ym + '\';render()">' + (hasForecast ? '✏️' : '📌 Lock') + '</button></td>';
           } else {
-            html += '<td class="r mono" style="padding:5px 6px">' + fmtD(num(fc.rev)) + '</td>';
-            html += '<td class="r mono" style="padding:5px 6px">' + fmtD(act.rev) + '</td>';
-            html += '<td class="r mono" style="padding:5px 6px;color:' + (revVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (revVar >= 0 ? '+' : '') + fmtD(revVar) + '</td>';
-            html += '<td class="r mono" style="padding:5px 6px">' + fmtD(num(fc.net)) + '</td>';
-            html += '<td class="r mono" style="padding:5px 6px;color:' + (act.net >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtD(act.net) + '</td>';
-            html += '<td class="r mono" style="padding:5px 6px;color:' + (netVar >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (netVar >= 0 ? '+' : '') + fmtD(netVar) + '</td>';
-            html += '<td class="r mono" style="padding:5px 6px">' + num(fc.units) + '</td>';
-            html += '<td class="r mono" style="padding:5px 6px">' + act.units + '</td>';
-            html += '<td style="padding:5px 6px;text-align:center"><button class="btn btn-sm" style="font-size:9px;padding:2px 6px" onclick="window._fcEditMonth=\'' + ym + '\';render()">✏️</button></td>';
-          } else {
             html += '<td class="r mono" style="padding:5px 6px;color:var(--text-faint)">—</td>';
             html += '<td class="r mono" style="padding:5px 6px">' + (act.rev ? fmtD(act.rev) : '$0') + '</td>';
             html += '<td class="r mono" style="padding:5px 6px">—</td>';
