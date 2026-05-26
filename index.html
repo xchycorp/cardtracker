@@ -574,20 +574,31 @@ function renderAnalyticsCharts(m) {
           callbacks: {
             afterBody: function(items) {
               var idx = items[0]?.dataIndex;
+              var dsIdx = items[0]?.datasetIndex;
               if (idx === undefined) return '';
               var md = tooltipData[idx];
               if (!md) return '';
-              return [
-                '',
-                '── Breakdown ──',
-                'Fees: $' + md.fees.toFixed(2),
-                'COGS: $' + md.cogs.toFixed(2),
-                'Expenses: $' + md.exp.toFixed(2),
-                'Total Costs: $' + (md.fees + md.cogs + md.grade + md.exp).toFixed(2),
-                '',
-                'Margin: ' + (md.rev ? (md.net / md.rev * 100).toFixed(1) + '%' : '—'),
-                'Units: ' + md.units
-              ];
+              if (dsIdx === 0) {
+                // Revenue bar — show where the money came from
+                return [
+                  '',
+                  'Units Sold: ' + md.units,
+                  'Avg Sale: $' + (md.units ? (md.rev / md.units).toFixed(2) : '0')
+                ];
+              } else {
+                // Net Income bar — show cost breakdown
+                return [
+                  '',
+                  '── Cost Breakdown ──',
+                  'Selling Fees: $' + md.fees.toFixed(2),
+                  'COGS: $' + md.cogs.toFixed(2),
+                  'Expenses: $' + md.exp.toFixed(2),
+                  'Total Costs: $' + (md.fees + md.cogs + md.exp).toFixed(2),
+                  '',
+                  'Net Margin: ' + (md.rev ? (md.net / md.rev * 100).toFixed(1) + '%' : '—'),
+                  'Units: ' + md.units
+                ];
+              }
             }
           }
         }
@@ -3482,29 +3493,23 @@ function rAnalytics(m) {
       <div style="height:280px;position:relative"><canvas id="chAnalyticsMonthly"></canvas></div>
       ${sortedMonths.length?`
       <div style="margin-top:14px;overflow-x:auto">
-        <table style="width:100%;font-size:11px">
-          <thead><tr><th style="text-align:left">Month</th><th class="r">Revenue</th><th class="r">Profit</th><th class="r">Margin</th><th class="r">Units</th><th class="r">MoM Rev</th></tr></thead>
+        <table style="width:100%;font-size:10px">
+          <thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:4px 6px">Month</th><th class="r" style="padding:4px 6px">Revenue</th><th class="r" style="padding:4px 6px">Fees</th><th class="r" style="padding:4px 6px">COGS</th><th class="r" style="padding:4px 6px">Grading</th><th class="r" style="padding:4px 6px">Expenses</th><th class="r" style="padding:4px 6px">Net Income</th><th class="r" style="padding:4px 6px">Margin</th><th class="r" style="padding:4px 6px">Units</th></tr></thead>
           <tbody>
-            ${sortedMonths.slice(-12).reverse().map(function(ym, idx, arr) {
-              const p = ym.split('-');
-              const label = monthNames[parseInt(p[1])-1] + ' ' + p[0];
-              const rev = monthlyRev[ym] || 0;
-              const prof = monthlyProf[ym] || 0;
-              const units = monthlyUnits[ym] || 0;
-              const margin = rev ? (prof/rev) : 0;
-              // Previous month in real chronological order
-              const ymIdx = sortedMonths.indexOf(ym);
-              const prevYmKey = ymIdx > 0 ? sortedMonths[ymIdx-1] : null;
-              const prevRevVal = prevYmKey ? (monthlyRev[prevYmKey] || 0) : 0;
-              const momChange = prevYmKey && prevRevVal ? ((rev - prevRevVal)/prevRevVal)*100 : null;
-              const momStr = momChange === null ? '—' : (momChange >= 0 ? '+' : '') + momChange.toFixed(1) + '%';
-              const momColor = momChange === null ? 'var(--text-faint)' : (momChange >= 0 ? 'var(--green)' : 'var(--red)');
-              return '<tr><td><strong>' + label + '</strong></td>' +
-                '<td class="r mono">' + fmt(rev) + '</td>' +
-                '<td class="r mono ' + (prof>=0?'pos':'neg') + '">' + fmt(prof) + '</td>' +
-                '<td class="r mono">' + (rev?pct(margin):'—') + '</td>' +
-                '<td class="r mono">' + units + '</td>' +
-                '<td class="r mono" style="color:' + momColor + '">' + momStr + '</td></tr>';
+            ${sortedMonths.slice(-12).reverse().map(function(ym) {
+              const p = monthlyPL[ym];
+              const pp = ym.split('-');
+              const label = monthNames[parseInt(pp[1])-1] + ' ' + pp[0].slice(2);
+              return '<tr style="border-bottom:1px solid var(--border)">' +
+                '<td style="padding:4px 6px;font-weight:600">' + label + '</td>' +
+                '<td class="r mono" style="padding:4px 6px">' + fmtD(p.rev) + '</td>' +
+                '<td class="r mono" style="padding:4px 6px;color:var(--text-dim)">' + fmtD(p.platFee + p.conFee + p.ship) + '</td>' +
+                '<td class="r mono" style="padding:4px 6px;color:var(--text-dim)">' + fmtD(p.cogs) + '</td>' +
+                '<td class="r mono" style="padding:4px 6px;color:var(--text-dim)">' + fmtD(p.gradeCost) + '</td>' +
+                '<td class="r mono" style="padding:4px 6px;color:var(--text-dim)">' + fmtD(p.exp) + '</td>' +
+                '<td class="r mono" style="padding:4px 6px;font-weight:700;color:' + (p.net >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtD(p.net) + '</td>' +
+                '<td class="r mono" style="padding:4px 6px">' + (p.rev ? pct(p.net / p.rev) : '—') + '</td>' +
+                '<td class="r mono" style="padding:4px 6px">' + p.units + '</td></tr>';
             }).join('')}
           </tbody>
         </table>
