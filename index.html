@@ -3051,7 +3051,7 @@ function rAnalytics(m) {
     monthlyProf[ym] = (monthlyProf[ym] || 0) + prof;
     monthlyUnits[ym] = (monthlyUnits[ym] || 0) + 1;
   });
-  const sortedMonths = Object.keys(monthlyRev).sort();
+  // sortedMonths already defined above from periodPL block
   const thisYM = todayStr.slice(0, 7);
   
   // Current month vs prior month
