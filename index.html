@@ -682,7 +682,7 @@ const SCHEMAS = {
       {k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'_profit',l:'Profit',w:80,r:1,render:(_,row)=>{const p2=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return`<strong class="${p2>=0?'pos':'neg'}">${fmt(p2)}</strong>`;},sortVal:row=>num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis)},
       {k:'_margin',l:'Margin',w:70,r:1,render:(_,row)=>{const sp=num(row.salePrice);const p2=sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis);return sp?`<span class="${p2>=0?'pos':'neg'}">${pct(p2/sp)}</span>`:'—';},sortVal:row=>{const sp=num(row.salePrice);return sp?(sp-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-num(row.costBasis))/sp:-999;}},
-      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const cardCost=num(row.costBasis);const linkedCard=row.cardId?D.inventory.find(c=>c.id===row.cardId):null;const gradeCost=linkedCard?num(linkedCard.gradingCost):0;const totalCost=cardCost+gradeCost;const profit=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cardCost;return totalCost?`<span class="${profit>=0?'pos':'neg'}">${pct(profit/totalCost)}</span>`:'—';},sortVal:row=>{const cardCost=num(row.costBasis);const linkedCard=row.cardId?D.inventory.find(c=>c.id===row.cardId):null;const gradeCost=linkedCard?num(linkedCard.gradingCost):0;const totalCost=cardCost+gradeCost;return totalCost?(num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cardCost)/totalCost:-999;}}
+      {k:'_roi',l:'Return',w:70,r:1,render:(_,row)=>{const cardCost=num(row.costBasis);const linkedCard=row.cardId?D.inventory.find(c=>c.id===row.cardId):null;const gradeCost=linkedCard?num(linkedCard.gradingCost):0;const totalCost=cardCost+gradeCost;const profit=num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cardCost;return totalCost?`<span class="${profit>=0?'pos':'neg'}">${pct(profit/totalCost)}</span>`:'—';},sortVal:row=>{const cardCost=num(row.costBasis);const linkedCard=row.cardId?D.inventory.find(c=>c.id===row.cardId):null;const gradeCost=linkedCard?num(linkedCard.gradingCost):0;const totalCost=cardCost+gradeCost;return totalCost?(num(row.salePrice)-num(row.platformFee)-num(row.consignFee)-num(row.shipCost)-cardCost)/totalCost:-999;}}
     ],
     fields:[
       {k:'cardName',l:'Card Name (or search inventory)',type:'cardpicker',required:true},{k:'cardId',l:'Card ID',type:'hidden'},
@@ -880,13 +880,13 @@ function rTable(type,m) {
     :type==='grading'?` <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="openGradeUpdate()">📥 Grade Update</button>`
     :'';
   // Apply search and sort
-  // Default sort by date (ascending/oldest first) when no sort selected
+  // Default sort by date (descending/newest first) when no sort selected
   const originalData = D[type]; // Keep reference to original for correct idxMap
   if (!window.sortCol) {
     const dateFields = {inventory:'dateAdded', sales:'date', purchases:'date', grading:'dateSubmitted', sealed:'dateAcquired', expenses:'date', capital:'date'};
     const dateCol = dateFields[type];
     if (dateCol) {
-      data = [...data].sort((a, b) => String(a[dateCol]||'').localeCompare(String(b[dateCol]||'')));
+      data = [...data].sort((a, b) => String(b[dateCol]||'').localeCompare(String(a[dateCol]||'')));
     }
   }
   const filtered = filterData(data, type);
@@ -1120,9 +1120,17 @@ function rTable(type,m) {
           fees: sorted.reduce(function(s,r){return s+num(r.platformFee)+num(r.consignFee)},0),
           shipCost: sorted.reduce(function(s,r){return s+num(r.shipCost)},0),
           costBasis: sorted.reduce(function(s,r){return s+num(r.costBasis)},0),
-          profit: sorted.reduce(function(s,r){return s+num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis)},0)
+          profit: sorted.reduce(function(s,r){return s+num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis)},0),
+          totalInvested: sorted.reduce(function(s,r){
+            var cardCost=num(r.costBasis);
+            var linked=r.cardId?D.inventory.find(function(c){return c.id===r.cardId}):null;
+            var gc=linked?num(linked.gradingCost):0;
+            return s+cardCost+gc;
+          },0)
         };
-        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' sales</td><td></td><td class="r" style="padding:6px 8px">' + fmt(totals.salePrice) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.fees) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.shipCost) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.costBasis) + '</td><td class="r" style="padding:6px 8px;color:' + (totals.profit>=0?'var(--green)':'var(--red)') + '">' + fmt(totals.profit) + '</td><td></td><td></td><td></td></tr></tfoot>';
+        var wROI = totals.totalInvested ? totals.profit / totals.totalInvested : 0;
+        var margin = totals.salePrice ? totals.profit / totals.salePrice : 0;
+        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' sales</td><td></td><td class="r" style="padding:6px 8px">' + fmt(totals.salePrice) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.fees) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.shipCost) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.costBasis) + '</td><td class="r" style="padding:6px 8px;color:' + (totals.profit>=0?'var(--green)':'var(--red)') + '">' + fmt(totals.profit) + '</td><td class="r" style="padding:6px 8px">' + pct(margin) + '</td><td class="r" style="padding:6px 8px;color:' + (wROI>=0?'var(--green)':'var(--red)') + '">' + pct(wROI) + '</td><td></td></tr></tfoot>';
       }
       if (type === 'purchases') {
         totals = {
@@ -1206,6 +1214,14 @@ window.saveSettingStr = function(key, value) {
   D.settings[key]=String(value||'');
   saveData();
   showToast('Setting saved & synced');
+};
+
+window.autoBalanceSheet = function() {
+  var m2 = M();
+  var adj = (num(D.settings.openingBalAdj) || 0) + m2.balanceCheck;
+  if (confirm('This will add an Opening Balance Adjustment of ' + fmtD(m2.balanceCheck) + ' to make the balance sheet balance. This accounts for pre-system activity. Continue?')) {
+    saveSetting('openingBalAdj', adj);
+  }
 };
 
 window.saveForecast = function(ym) {
@@ -2981,6 +2997,40 @@ function rAnalytics(m) {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   const daysBetween = function(d1, d2) { return Math.floor((new Date(d2) - new Date(d1)) / 86400000); };
+  
+  // Helper to compute P&L for a date range
+  function periodPL(startStr, endStr) {
+    const s = D.sales.filter(r => r.date && r.date >= startStr && r.date <= endStr);
+    const e = D.expenses.filter(r => r.date && r.date >= startStr && r.date <= endStr);
+    const rev = s.reduce((t, r) => t + num(r.salePrice), 0);
+    const platFee = s.reduce((t, r) => t + num(r.platformFee), 0);
+    const conFee = s.reduce((t, r) => t + num(r.consignFee), 0);
+    const ship = s.reduce((t, r) => t + num(r.shipCost), 0);
+    const cogs = s.reduce((t, r) => t + num(r.costBasis), 0);
+    const netRev = rev - platFee - conFee - ship;
+    const exp = e.reduce((t, r) => t + num(r.amount), 0);
+    const gradeCost = s.reduce((t, r) => {
+      if (!r.cardId) return t;
+      const card = D.inventory.find(c => c.id === r.cardId);
+      return t + (card ? num(card.gradingCost) : 0);
+    }, 0);
+    const gross = netRev - cogs - gradeCost;
+    const net = gross - exp;
+    return { rev, platFee, conFee, ship, netRev, cogs, gradeCost, gross, exp, net, units: s.length };
+  }
+  
+  // Monthly P&L buckets
+  const monthlyPL = {};
+  const allMonths = new Set();
+  D.sales.forEach(r => { if (r.date && r.date.length >= 7) allMonths.add(r.date.slice(0, 7)); });
+  D.expenses.forEach(r => { if (r.date && r.date.length >= 7) allMonths.add(r.date.slice(0, 7)); });
+  const sortedMonths = Array.from(allMonths).sort();
+  sortedMonths.forEach(ym => {
+    const start = ym + '-01';
+    const endDate = new Date(parseInt(ym.slice(0, 4)), parseInt(ym.slice(5, 7)), 0);
+    const end = endDate.toISOString().slice(0, 10);
+    monthlyPL[ym] = periodPL(start, end);
+  });
   
   // Build monthly buckets for sales
   const monthlyRev = {};
@@ -6047,7 +6097,7 @@ function rFinancials(m) {
       <div style="margin-top:8px;padding:10px 14px;background:rgba(255,71,87,.08);border:1px solid rgba(255,71,87,.2);border-radius:var(--radius-sm);font-size:11px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="color:var(--red)">⚠️ Off by <strong>${fmtD(Math.abs(m.balanceCheck))}</strong> — Assets (${fmtD(m.totalAssets)}) ≠ Liabilities (${fmtD(m.totalLiabilities)}) + Equity (${fmtD(m.totalEquity)})</span>
-          <button class="btn btn-sm" style="font-size:10px;white-space:nowrap" onclick="if(confirm('This will add an Opening Balance Adjustment of ${fmtD(m.balanceCheck)} to make the balance sheet balance. This accounts for pre-system activity. Continue?')){saveSetting('openingBalAdj',${(num(m.sett.openingBalAdj)||0)+m.balanceCheck})}">⚖️ Auto-Balance</button>
+          <button class="btn btn-sm" style="font-size:10px;white-space:nowrap" onclick="autoBalanceSheet()">⚖️ Auto-Balance</button>
         </div>
         <div style="color:var(--text-dim);margin-top:4px">This gap is from pre-system transactions. Click Auto-Balance to add an opening adjustment.</div>
       </div>
