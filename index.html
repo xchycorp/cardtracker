@@ -3266,7 +3266,12 @@ function rAnalytics(m) {
     
     <div class="panel" style="margin-top:14px">
       <h3 style="color:var(--green)">📋 Forecast vs Actuals</h3>
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Set monthly forecasts, then track actual performance against them. Forecasts are locked once set.</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">
+        Future months auto-forecast based on your trailing 3-month sales trend (shown in <em>italics~</em>).<br>
+        Click <strong>📌 Lock</strong> to accept an auto-forecast as your target, or click to enter your own numbers.<br>
+        Click <strong>+ Set</strong> on past months to set retroactive targets.<br>
+        <span style="color:var(--green)">Green variance</span> = ahead of forecast. <span style="color:var(--red)">Red variance</span> = behind forecast.
+      </div>
       ${(function() {
         if (!D.forecasts) D.forecasts = {};
         var today = new Date();
@@ -3341,14 +3346,14 @@ function rAnalytics(m) {
         html += '<div style="overflow-x:auto"><table style="width:100%;font-size:10px;border-collapse:collapse">';
         html += '<thead><tr style="border-bottom:2px solid var(--border)">';
         html += '<th style="text-align:left;padding:5px 6px;color:var(--text-dim)">Month</th>';
-        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">FC Rev</th>';
-        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Act Rev</th>';
-        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Var</th>';
-        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">FC Net</th>';
-        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Act Net</th>';
-        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Var</th>';
-        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">FC Units</th>';
-        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Act Units</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Forecast Rev</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Actual Rev</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Variance</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Forecast Net</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Actual Net</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Variance</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Forecast Units</th>';
+        html += '<th class="r" style="padding:5px 6px;color:var(--text-dim)">Actual Units</th>';
         html += '<th style="padding:5px 6px;width:80px"></th>';
         html += '</tr></thead><tbody>';
         
