@@ -1079,59 +1079,78 @@ function rTable(type,m) {
     </tbody>
     ${(function() {
       if (!sorted.length) return '';
-      var totals = {};
-      // Calculate totals based on table type
+      // Build footer cells aligned to schema columns
+      var cols = s.cols;
+      var numCols = cols.length;
+      // Extra columns: checkbox (grading/refresh select), action buttons
+      var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.refreshSelectMode));
+      var actionCols = 1; // edit/delete buttons column
+      if (type==='inventory') actionCols = 3; // status dropdown + edit + delete
+      
+      // Compute totals
+      var colTotals = {};
       if (type === 'inventory') {
-        totals = {
-          count: sorted.length,
-          costBasis: sorted.reduce(function(s,r){return s+num(r.costBasis)},0),
-          gradingCost: sorted.reduce(function(s,r){return s+num(r.gradingCost)},0),
-          marketValue: sorted.reduce(function(s,r){return s+num(r.marketValue)},0)
-        };
-        var extraCols = (window.gradingSelectMode||window.refreshSelectMode) ? '<td></td>' : '';
-        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)">' + extraCols + '<td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' cards</td><td></td><td></td><td></td><td class="r" style="padding:6px 8px">' + fmt(totals.costBasis) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.gradingCost) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.marketValue) + '</td><td></td></tr></tfoot>';
+        colTotals['costBasis'] = sorted.reduce(function(s,r){return s+num(r.costBasis)},0);
+        colTotals['gradingCost'] = sorted.reduce(function(s,r){return s+num(r.gradingCost)},0);
+        colTotals['marketValue'] = sorted.reduce(function(s,r){return s+num(r.marketValue)},0);
+        colTotals['_label'] = sorted.length + ' cards';
+        colTotals['_labelCol'] = 'cardName';
       }
       if (type === 'sales') {
-        totals = {
-          count: sorted.length,
-          salePrice: sorted.reduce(function(s,r){return s+num(r.salePrice)},0),
-          fees: sorted.reduce(function(s,r){return s+num(r.platformFee)+num(r.consignFee)},0),
-          shipCost: sorted.reduce(function(s,r){return s+num(r.shipCost)},0),
-          costBasis: sorted.reduce(function(s,r){return s+num(r.costBasis)},0),
-          profit: sorted.reduce(function(s,r){return s+num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis)},0),
-          totalInvested: sorted.reduce(function(s,r){
-            var cardCost=num(r.costBasis);
-            var linked=r.cardId?D.inventory.find(function(c){return c.id===r.cardId}):null;
-            var gc=linked?num(linked.gradingCost):0;
-            return s+cardCost+gc;
-          },0)
-        };
-        var wROI = totals.totalInvested ? totals.profit / totals.totalInvested : 0;
-        var margin = totals.salePrice ? totals.profit / totals.salePrice : 0;
-        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' sales</td><td></td><td class="r" style="padding:6px 8px">' + fmt(totals.salePrice) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.fees) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.shipCost) + '</td><td class="r" style="padding:6px 8px">' + fmt(totals.costBasis) + '</td><td class="r" style="padding:6px 8px;color:' + (totals.profit>=0?'var(--green)':'var(--red)') + '">' + fmt(totals.profit) + '</td><td class="r" style="padding:6px 8px">' + pct(margin) + '</td><td class="r" style="padding:6px 8px;color:' + (wROI>=0?'var(--green)':'var(--red)') + '">' + pct(wROI) + '</td><td></td></tr></tfoot>';
+        colTotals['salePrice'] = sorted.reduce(function(s,r){return s+num(r.salePrice)},0);
+        colTotals['platformFee'] = sorted.reduce(function(s,r){return s+num(r.platformFee)+num(r.consignFee)},0);
+        colTotals['shipCost'] = sorted.reduce(function(s,r){return s+num(r.shipCost)},0);
+        colTotals['costBasis'] = sorted.reduce(function(s,r){return s+num(r.costBasis)},0);
+        var totalProfit = sorted.reduce(function(s,r){return s+num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis)},0);
+        colTotals['_profit'] = totalProfit;
+        var totalInvested = sorted.reduce(function(s,r){var cc=num(r.costBasis);var lc=r.cardId?D.inventory.find(function(c){return c.id===r.cardId}):null;return s+cc+(lc?num(lc.gradingCost):0)},0);
+        colTotals['_margin'] = colTotals['salePrice'] ? (totalProfit / colTotals['salePrice']) : 0;
+        colTotals['_roi'] = totalInvested ? (totalProfit / totalInvested) : 0;
+        colTotals['_label'] = sorted.length + ' sales';
+        colTotals['_labelCol'] = 'cardName';
       }
       if (type === 'purchases') {
-        totals = {
-          count: sorted.length,
-          grandTotal: sorted.reduce(function(s,r){return s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax))},0)
-        };
-        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' purchases</td>' + '<td></td>'.repeat(s.cols.length - 4) + '<td class="r" style="padding:6px 8px">' + fmt(totals.grandTotal) + '</td><td></td></tr></tfoot>';
+        colTotals['grandTotal'] = sorted.reduce(function(s,r){return s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax))},0);
+        colTotals['_label'] = sorted.length + ' purchases';
+        colTotals['_labelCol'] = 'vendor';
       }
       if (type === 'expenses') {
-        totals = {
-          count: sorted.length,
-          amount: sorted.reduce(function(s,r){return s+num(r.amount)},0)
-        };
-        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' expenses</td><td></td><td class="r" style="padding:6px 8px">' + fmt(totals.amount) + '</td><td></td></tr></tfoot>';
+        colTotals['amount'] = sorted.reduce(function(s,r){return s+num(r.amount)},0);
+        colTotals['_label'] = sorted.length + ' expenses';
+        colTotals['_labelCol'] = 'description';
       }
       if (type === 'grading') {
-        totals = {
-          count: sorted.length,
-          totalCost: sorted.reduce(function(s,r){return s+num(r.totalCost)},0)
-        };
-        return '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)"><td style="padding:6px 8px"></td><td style="padding:6px 8px;font-size:11px;color:var(--text-dim)">' + totals.count + ' entries</td>' + '<td></td>'.repeat(3) + '<td class="r" style="padding:6px 8px">' + fmt(totals.totalCost) + '</td>' + '<td></td>'.repeat(s.cols.length - 5) + '<td></td></tr></tfoot>';
+        colTotals['totalCost'] = sorted.reduce(function(s,r){return s+num(r.totalCost)},0);
+        colTotals['gradingFee'] = sorted.reduce(function(s,r){return s+num(r.gradingFee)},0);
+        colTotals['_label'] = sorted.length + ' entries';
+        colTotals['_labelCol'] = 'cardName';
       }
-      return '';
+      
+      var html = '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)">';
+      if (hasCheckbox) html += '<td></td>';
+      
+      cols.forEach(function(col) {
+        var k = col.k;
+        if (k === colTotals['_labelCol']) {
+          html += '<td style="padding:6px 8px;font-size:11px;color:var(--accent)">' + colTotals['_label'] + '</td>';
+        } else if (k === '_profit' && colTotals['_profit'] !== undefined) {
+          html += '<td class="r" style="padding:6px 8px;color:' + (colTotals['_profit']>=0?'var(--green)':'var(--red)') + '">' + fmt(colTotals['_profit']) + '</td>';
+        } else if (k === '_margin' && colTotals['_margin'] !== undefined) {
+          html += '<td class="r" style="padding:6px 8px">' + pct(colTotals['_margin']) + '</td>';
+        } else if (k === '_roi' && colTotals['_roi'] !== undefined) {
+          html += '<td class="r" style="padding:6px 8px;color:' + (colTotals['_roi']>=0?'var(--green)':'var(--red)') + '">' + pct(colTotals['_roi']) + '</td>';
+        } else if (colTotals[k] !== undefined) {
+          html += '<td class="r" style="padding:6px 8px">' + fmt(colTotals[k]) + '</td>';
+        } else {
+          html += '<td></td>';
+        }
+      });
+      
+      // Action columns
+      for (var ac = 0; ac < actionCols; ac++) html += '<td></td>';
+      
+      html += '</tr></tfoot>';
+      return html;
     })()}
     </table></div>`;
 }
