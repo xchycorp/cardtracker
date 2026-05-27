@@ -1084,8 +1084,7 @@ function rTable(type,m) {
       var numCols = cols.length;
       // Extra columns: checkbox (grading/refresh select), action buttons
       var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.refreshSelectMode));
-      var actionCols = 1; // edit/delete buttons column
-      if (type==='inventory') actionCols = 3; // status dropdown + edit + delete
+      var actionCols = 1; // All action buttons are in one <td>
       
       // Compute totals
       var colTotals = {};
@@ -1112,7 +1111,7 @@ function rTable(type,m) {
       if (type === 'purchases') {
         colTotals['grandTotal'] = sorted.reduce(function(s,r){return s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax))},0);
         colTotals['_label'] = sorted.length + ' purchases';
-        colTotals['_labelCol'] = 'vendor';
+        colTotals['_labelCol'] = 'source';
       }
       if (type === 'expenses') {
         colTotals['amount'] = sorted.reduce(function(s,r){return s+num(r.amount)},0);
@@ -1121,7 +1120,7 @@ function rTable(type,m) {
       }
       if (type === 'grading') {
         colTotals['totalCost'] = sorted.reduce(function(s,r){return s+num(r.totalCost)},0);
-        colTotals['gradingFee'] = sorted.reduce(function(s,r){return s+num(r.gradingFee)},0);
+        colTotals['preValue'] = sorted.reduce(function(s,r){return s+num(r.preValue)},0);
         colTotals['_label'] = sorted.length + ' entries';
         colTotals['_labelCol'] = 'cardName';
       }
