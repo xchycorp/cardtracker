@@ -1079,75 +1079,70 @@ function rTable(type,m) {
     </tbody>
     ${(function() {
       if (!sorted.length) return '';
-      // Build footer cells aligned to schema columns
       var cols = s.cols;
-      var numCols = cols.length;
-      // Extra columns: checkbox (grading/refresh select), action buttons
       var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.refreshSelectMode));
-      var actionCols = 1; // All action buttons are in one <td>
-      
-      // Compute totals
-      var colTotals = {};
-      if (type === 'inventory') {
-        colTotals['costBasis'] = sorted.reduce(function(s,r){return s+num(r.costBasis)},0);
-        colTotals['gradingCost'] = sorted.reduce(function(s,r){return s+num(r.gradingCost)},0);
-        colTotals['marketValue'] = sorted.reduce(function(s,r){return s+num(r.marketValue)},0);
-        colTotals['_label'] = sorted.length + ' cards';
-        colTotals['_labelCol'] = 'cardName';
-      }
-      if (type === 'sales') {
-        colTotals['salePrice'] = sorted.reduce(function(s,r){return s+num(r.salePrice)},0);
-        colTotals['platformFee'] = sorted.reduce(function(s,r){return s+num(r.platformFee)+num(r.consignFee)},0);
-        colTotals['shipCost'] = sorted.reduce(function(s,r){return s+num(r.shipCost)},0);
-        colTotals['costBasis'] = sorted.reduce(function(s,r){return s+num(r.costBasis)},0);
-        var totalProfit = sorted.reduce(function(s,r){return s+num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis)},0);
-        colTotals['_profit'] = totalProfit;
-        var totalInvested = sorted.reduce(function(s,r){var cc=num(r.costBasis);var lc=r.cardId?D.inventory.find(function(c){return c.id===r.cardId}):null;return s+cc+(lc?num(lc.gradingCost):0)},0);
-        colTotals['_margin'] = colTotals['salePrice'] ? (totalProfit / colTotals['salePrice']) : 0;
-        colTotals['_roi'] = totalInvested ? (totalProfit / totalInvested) : 0;
-        colTotals['_label'] = sorted.length + ' sales';
-        colTotals['_labelCol'] = 'cardName';
-      }
-      if (type === 'purchases') {
-        colTotals['grandTotal'] = sorted.reduce(function(s,r){return s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax))},0);
-        colTotals['_label'] = sorted.length + ' purchases';
-        colTotals['_labelCol'] = 'source';
-      }
-      if (type === 'expenses') {
-        colTotals['amount'] = sorted.reduce(function(s,r){return s+num(r.amount)},0);
-        colTotals['_label'] = sorted.length + ' expenses';
-        colTotals['_labelCol'] = 'description';
-      }
-      if (type === 'grading') {
-        colTotals['totalCost'] = sorted.reduce(function(s,r){return s+num(r.totalCost)},0);
-        colTotals['preValue'] = sorted.reduce(function(s,r){return s+num(r.preValue)},0);
-        colTotals['_label'] = sorted.length + ' entries';
-        colTotals['_labelCol'] = 'cardName';
-      }
-      
       var html = '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)">';
       if (hasCheckbox) html += '<td></td>';
       
-      cols.forEach(function(col) {
-        var k = col.k;
-        if (k === colTotals['_labelCol']) {
-          html += '<td style="padding:6px 8px;font-size:11px;color:var(--accent)">' + colTotals['_label'] + '</td>';
-        } else if (k === '_profit' && colTotals['_profit'] !== undefined) {
-          html += '<td class="r" style="padding:6px 8px;color:' + (colTotals['_profit']>=0?'var(--green)':'var(--red)') + '">' + fmt(colTotals['_profit']) + '</td>';
-        } else if (k === '_margin' && colTotals['_margin'] !== undefined) {
-          html += '<td class="r" style="padding:6px 8px">' + pct(colTotals['_margin']) + '</td>';
-        } else if (k === '_roi' && colTotals['_roi'] !== undefined) {
-          html += '<td class="r" style="padding:6px 8px;color:' + (colTotals['_roi']>=0?'var(--green)':'var(--red)') + '">' + pct(colTotals['_roi']) + '</td>';
-        } else if (colTotals[k] !== undefined) {
-          html += '<td class="r" style="padding:6px 8px">' + fmt(colTotals[k]) + '</td>';
+      // Build a map of column index to key
+      var colKeys = cols.map(function(c) { return c.k; });
+      
+      // Compute values to display in footer by column key
+      var footerVals = {};
+      
+      if (type === 'inventory') {
+        footerVals['cardName'] = {text: sorted.length + ' cards', style: 'color:var(--accent)'};
+        footerVals['costBasis'] = {text: fmt(sorted.reduce(function(s,r){return s+num(r.costBasis)},0)), style: ''};
+        footerVals['gradingCost'] = {text: fmt(sorted.reduce(function(s,r){return s+num(r.gradingCost)},0)), style: ''};
+        footerVals['marketValue'] = {text: fmt(sorted.reduce(function(s,r){return s+num(r.marketValue)},0)), style: ''};
+      }
+      if (type === 'sales') {
+        var tSale = sorted.reduce(function(s,r){return s+num(r.salePrice)},0);
+        var tFees = sorted.reduce(function(s,r){return s+num(r.platformFee)+num(r.consignFee)},0);
+        var tShip = sorted.reduce(function(s,r){return s+num(r.shipCost)},0);
+        var tCost = sorted.reduce(function(s,r){return s+num(r.costBasis)},0);
+        var tProfit = sorted.reduce(function(s,r){return s+num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost)-num(r.costBasis)},0);
+        var tInvested = sorted.reduce(function(s,r){var cc=num(r.costBasis);var lc=r.cardId?D.inventory.find(function(c){return c.id===r.cardId}):null;return s+cc+(lc?num(lc.gradingCost):0)},0);
+        footerVals['cardName'] = {text: sorted.length + ' sales', style: 'color:var(--accent)'};
+        footerVals['salePrice'] = {text: fmt(tSale), style: ''};
+        footerVals['platformFee'] = {text: fmt(tFees), style: ''};
+        footerVals['shipCost'] = {text: fmt(tShip), style: ''};
+        footerVals['costBasis'] = {text: fmt(tCost), style: ''};
+        footerVals['_profit'] = {text: fmt(tProfit), style: 'color:' + (tProfit>=0?'var(--green)':'var(--red)')};
+        footerVals['_margin'] = {text: tSale ? pct(tProfit/tSale) : '—', style: ''};
+        footerVals['_roi'] = {text: tInvested ? pct(tProfit/tInvested) : '—', style: 'color:' + (tProfit>=0?'var(--green)':'var(--red)')};
+      }
+      if (type === 'purchases') {
+        var tGrand = sorted.reduce(function(s,r){return s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax))},0);
+        footerVals['description'] = {text: sorted.length + ' purchases', style: 'color:var(--accent)'};
+        footerVals['grandTotal'] = {text: fmt(tGrand), style: ''};
+      }
+      if (type === 'expenses') {
+        var tAmt = sorted.reduce(function(s,r){return s+num(r.amount)},0);
+        footerVals['description'] = {text: sorted.length + ' expenses', style: 'color:var(--accent)'};
+        footerVals['amount'] = {text: fmt(tAmt), style: ''};
+      }
+      if (type === 'grading') {
+        var tCostG = sorted.reduce(function(s,r){return s+num(r.totalCost)},0);
+        var tPreV = sorted.reduce(function(s,r){return s+num(r.preValue)},0);
+        footerVals['cardName'] = {text: sorted.length + ' entries', style: 'color:var(--accent)'};
+        footerVals['totalCost'] = {text: fmt(tCostG), style: ''};
+        footerVals['preValue'] = {text: fmt(tPreV), style: ''};
+      }
+      
+      // Render each column cell
+      colKeys.forEach(function(k) {
+        var fv = footerVals[k];
+        if (fv) {
+          var align = cols.find(function(c){return c.k===k}).r ? ' class="r"' : '';
+          html += '<td' + align + ' style="padding:6px 8px;font-size:11px;' + fv.style + '">' + fv.text + '</td>';
         } else {
           html += '<td></td>';
         }
       });
       
-      // Action columns
-      for (var ac = 0; ac < actionCols; ac++) html += '<td></td>';
-      
+      // Action column
+      html += '<td></td>';
       html += '</tr></tfoot>';
       return html;
     })()}
