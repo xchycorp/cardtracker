@@ -1133,9 +1133,10 @@ function rTable(type,m) {
       // Render each column cell
       colKeys.forEach(function(k) {
         var fv = footerVals[k];
+        var col = cols.find(function(c){return c.k===k});
         if (fv) {
-          var align = cols.find(function(c){return c.k===k}).r ? ' class="r"' : '';
-          html += '<td' + align + ' style="padding:6px 8px;font-size:11px;' + fv.style + '">' + fv.text + '</td>';
+          var alignStyle = col && col.r ? 'text-align:right;' : '';
+          html += '<td style="padding:6px 8px;font-size:11px;' + alignStyle + fv.style + '">' + fv.text + '</td>';
         } else {
           html += '<td></td>';
         }
