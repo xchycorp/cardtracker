@@ -789,6 +789,9 @@ function renderTableRow(type, row, i, s) {
   if (type === 'inventory' && window.refreshSelectMode && window.refreshSelectedCards.has(i)) {
     html += ' style="background:rgba(0,214,143,.08)"';
   }
+  if (type === 'inventory' && window.batchStatusMode && window.batchSelectedCards.has(i)) {
+    html += ' style="background:rgba(78,124,255,.08)"';
+  }
   html += '>';
   
   // Grading checkbox column
@@ -811,6 +814,12 @@ function renderTableRow(type, row, i, s) {
     } else {
       html += '<td style="text-align:center"><span style="color:var(--text-faint);font-size:10px">—</span></td>';
     }
+  }
+  
+  // Batch status checkbox column
+  if (type === 'inventory' && window.batchStatusMode) {
+    const isChecked = window.batchSelectedCards.has(i);
+    html += '<td style="text-align:center"><input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="toggleBatchCard(' + i + ')" style="width:18px;height:18px;cursor:pointer;accent-color:var(--blue)"></td>';
   }
   
   // Data columns
@@ -1006,7 +1015,7 @@ function rTable(type,m) {
       </div>
     </div>` : '';
 
-  const refreshBar = type==='inventory' && (window.ebayState.appId||window.poketraceState.apiKey) ?
+  const refreshBar = type==='inventory' && !window.batchStatusMode && (window.ebayState.appId||window.poketraceState.apiKey) ?
     (window.refreshSelectMode ?
     `<div style="background:linear-gradient(135deg,rgba(0,214,143,.1),rgba(78,124,255,.06));border:1px solid var(--green);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <span style="font-size:12px;font-weight:600;color:var(--green)">💰 ${window.refreshSelectedCards.size} selected</span>
@@ -1018,11 +1027,22 @@ function rTable(type,m) {
     `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <button class="btn btn-sm" onclick="refreshAllMarketValues()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">💰 Refresh${window.statusFilter ? ' (' + window.statusFilter + ')' : ' All'}</button>
       <button class="btn btn-sm" onclick="startRefreshSelect()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">☑ Select</button>
+      <button class="btn btn-sm" onclick="startBatchStatus()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">📋 Batch Status</button>
       <span style="font-size:10px;color:var(--text-faint)">Refresh all${window.statusFilter ? ' ' + window.statusFilter.toLowerCase() : ' unsold'} or select specific cards</span>
     </div>`) : '';
+  
+  const batchBar = type === 'inventory' && window.batchStatusMode ?
+    `<div style="background:linear-gradient(135deg,rgba(78,124,255,.1),rgba(168,85,247,.06));border:1px solid var(--blue);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:600;color:var(--blue)">📋 ${window.batchSelectedCards.size} selected</span>
+      <button class="btn btn-sm" onclick="batchSelectAllVisible()" style="font-size:10px">☑ All</button>
+      <button class="btn btn-sm" onclick="window.batchSelectedCards=new Set();render()" style="font-size:10px">☐ None</button>
+      <button class="btn btn-accent btn-sm" onclick="executeBatchStatus()" style="font-size:10px" ${!window.batchSelectedCards.size?'disabled':''}>⚡ Change ${window.batchSelectedCards.size} Cards</button>
+      <button class="btn btn-sm" onclick="window.batchStatusMode=false;window.batchSelectedCards=new Set();render()" style="font-size:10px">✕ Cancel</button>
+    </div>` : '';
 
   return `${spendingBar}<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
     ${refreshBar}
+    ${batchBar}
     ${gradingToolbar}
     ${(type==='inventory'||type==='grading') ? (function() {
       // Combined status/company + month filter in one row
@@ -1074,13 +1094,13 @@ function rTable(type,m) {
       return filterHtml;
     })() : `${statusFilterBar}${monthFilterBar}`}
     ${searchBar}
-    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.refreshSelectMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
-    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.refreshSelectMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
+    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.refreshSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.batchStatusMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
+    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.refreshSelectMode||window.batchStatusMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
     </tbody>
     ${(function() {
       if (!sorted.length) return '';
       var cols = s.cols;
-      var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.refreshSelectMode));
+      var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.refreshSelectMode||window.batchStatusMode));
       var html = '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)">';
       if (hasCheckbox) html += '<td></td>';
       
@@ -2610,9 +2630,174 @@ window.quickStatus = function(idx, newStatus) {
   if (!newStatus) return;
   const card = D.inventory[idx];
   const oldStatus = card.status;
-  card.status = newStatus;
+  
+  // If changing to Submitted, prompt for grading company and fee
+  if (newStatus === 'Submitted' && oldStatus !== 'Submitted') {
+    var company = prompt('Grading company? (PSA, CGC, BGS, SGC)', card.gradingCompany || 'PSA');
+    if (!company) return;
+    var fee = prompt('Grading fee per card ($)?', '22');
+    if (fee === null) return;
+    fee = parseFloat(fee) || 0;
+    
+    card.status = 'Submitted';
+    card.gradingCompany = company;
+    if (fee) card.gradingCost = fee;
+    
+    // Create grading entry if none exists
+    var hasEntry = D.grading.some(function(g) { return g.cardId === card.id; });
+    if (!hasEntry) {
+      D.grading.push({
+        id: nextId('G'),
+        cardName: card.cardName || '',
+        cardId: card.id || '',
+        company: company,
+        serviceLevel: '',
+        dateSubmitted: new Date().toISOString().slice(0, 10),
+        dateReturned: '',
+        gradingFee: fee,
+        shipTo: 0, shipBack: 0,
+        totalCost: fee,
+        preCondition: '',
+        gradeReceived: '',
+        preValue: num(card.marketValue) || num(card.costBasis) || 0,
+        postValue: 0,
+        action: 'New Grade',
+        notes: 'Quick status change'
+      });
+    }
+  } else if (newStatus === 'Graded' && oldStatus !== 'Graded') {
+    // If changing to Graded, prompt for grade received
+    var grade = prompt('Grade received? (e.g. 9, 10, 8.5)', '');
+    if (grade === null) return;
+    card.status = 'Graded';
+    if (grade) card.grade = grade;
+    
+    // Update linked grading entry
+    var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+    if (gEntry) {
+      gEntry.gradeReceived = grade;
+      gEntry.dateReturned = new Date().toISOString().slice(0, 10);
+    }
+  } else {
+    card.status = newStatus;
+  }
+  
   saveData();
-  showToast(`${card.cardName}: ${oldStatus} → ${newStatus}`);
+  showToast(card.cardName + ': ' + oldStatus + ' → ' + newStatus);
+  render();
+};
+
+// Batch status change
+window.batchStatusMode = false;
+window.batchSelectedCards = new Set();
+
+window.startBatchStatus = function() {
+  window.batchStatusMode = !window.batchStatusMode;
+  window.batchSelectedCards = new Set();
+  render();
+};
+
+window.toggleBatchCard = function(idx) {
+  if (window.batchSelectedCards.has(idx)) {
+    window.batchSelectedCards.delete(idx);
+  } else {
+    window.batchSelectedCards.add(idx);
+  }
+  render();
+};
+
+window.batchSelectAll = function(sorted, idxMap) {
+  if (window.batchSelectedCards.size === sorted.length) {
+    window.batchSelectedCards = new Set();
+  } else {
+    window.batchSelectedCards = new Set(idxMap);
+  }
+  render();
+};
+
+window.batchSelectAllVisible = function() {
+  // Select/deselect all currently visible (filtered) inventory cards
+  var data = D.inventory;
+  var filtered = filterData(data, 'inventory');
+  var allSelected = filtered.every(function(r) { return window.batchSelectedCards.has(data.indexOf(r)); });
+  if (allSelected) {
+    window.batchSelectedCards = new Set();
+  } else {
+    filtered.forEach(function(r) { window.batchSelectedCards.add(data.indexOf(r)); });
+  }
+  render();
+};
+
+window.executeBatchStatus = function() {
+  var count = window.batchSelectedCards.size;
+  if (!count) { showToast('No cards selected'); return; }
+  
+  var newStatus = prompt('New status for ' + count + ' cards?\n(Raw, Submitted, Graded, Listed, Hold, Cracked)', 'Submitted');
+  if (!newStatus) return;
+  
+  var company = '';
+  var fee = 0;
+  var grade = '';
+  
+  if (newStatus === 'Submitted') {
+    company = prompt('Grading company? (PSA, CGC, BGS, SGC)', 'PSA');
+    if (!company) return;
+    var feeStr = prompt('Grading fee per card ($)?', '22');
+    if (feeStr === null) return;
+    fee = parseFloat(feeStr) || 0;
+  }
+  if (newStatus === 'Graded') {
+    grade = prompt('Grade received for all cards? (e.g. 9, 10)', '');
+    if (grade === null) return;
+  }
+  
+  var processed = 0;
+  window.batchSelectedCards.forEach(function(idx) {
+    var card = D.inventory[idx];
+    if (!card) return;
+    var oldStatus = card.status;
+    card.status = newStatus;
+    
+    if (newStatus === 'Submitted') {
+      card.gradingCompany = company;
+      if (fee) card.gradingCost = fee;
+      var hasEntry = D.grading.some(function(g) { return g.cardId === card.id; });
+      if (!hasEntry) {
+        D.grading.push({
+          id: nextId('G'),
+          cardName: card.cardName || '',
+          cardId: card.id || '',
+          company: company,
+          serviceLevel: '',
+          dateSubmitted: new Date().toISOString().slice(0, 10),
+          dateReturned: '',
+          gradingFee: fee,
+          shipTo: 0, shipBack: 0,
+          totalCost: fee,
+          preCondition: '',
+          gradeReceived: '',
+          preValue: num(card.marketValue) || num(card.costBasis) || 0,
+          postValue: 0,
+          action: 'New Grade',
+          notes: 'Batch status change'
+        });
+      }
+    }
+    if (newStatus === 'Graded' && grade) {
+      card.grade = grade;
+      var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+      if (gEntry) {
+        gEntry.gradeReceived = grade;
+        gEntry.dateReturned = new Date().toISOString().slice(0, 10);
+      }
+    }
+    processed++;
+  });
+  
+  saveData();
+  window.batchStatusMode = false;
+  window.batchSelectedCards = new Set();
+  showToast('✅ ' + processed + ' cards → ' + newStatus + (company ? ' (' + company + ')' : ''));
   render();
 };
 
