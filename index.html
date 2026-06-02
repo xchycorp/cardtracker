@@ -134,7 +134,22 @@ function backfillGradingEntries() {
     }
   });
   
-  if (created || datesFixed || companiesFixed || gradingFixed) {
+  // One-time fix: grading entries dated 2026-06-02 → 2026-05-31
+  var dateFixed = 0;
+  D.grading.forEach(function(g) {
+    if (g.dateSubmitted === '2026-06-02') {
+      g.dateSubmitted = '2026-05-31';
+      dateFixed++;
+    }
+  });
+  // Also fix inventory dateAdded if it was set to 2026-06-02 from the same batch
+  D.inventory.forEach(function(card) {
+    if (card.status === 'Submitted' && card.dateAdded === '2026-06-02') {
+      card.dateAdded = '2026-05-31';
+    }
+  });
+  
+  if (created || datesFixed || companiesFixed || gradingFixed || dateFixed) {
     saveData();
     render();
     var msg = [];
@@ -142,6 +157,7 @@ function backfillGradingEntries() {
     if (datesFixed) msg.push(datesFixed + ' card dates backfilled');
     if (companiesFixed) msg.push(companiesFixed + ' grading companies backfilled');
     if (gradingFixed) msg.push(gradingFixed + ' CGC grading fees fixed ($15)');
+    if (dateFixed) msg.push(dateFixed + ' grading dates fixed (06/02 → 05/31)');
     showToast('📋 ' + msg.join(', '));
   }
 }
@@ -343,6 +359,7 @@ function saveData() {
 const num = v => { if (typeof v === 'number') return v; const n = parseFloat(String(v||'').replace(/[$,()]/g,'')); return isNaN(n)?0:n; };
 const fmt = v => '$' + Math.round(v).toLocaleString();
 const fmtD = v => '$' + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+const fmtDate = function(v) { if(!v)return'—';const p=String(v).split('-');return p.length>=3?p[1]+'/'+p[2]+'/'+p[0].slice(2):p.length>=2?p[1]+'/'+p[0].slice(2):v; };
 const pct = v => (v*100).toFixed(1)+'%';
 const badge = s => { const c = String(s||'').toLowerCase().replace(/\s/g,''); return `<span class="badge b-${c}">${s||''}</span>`; };
 
@@ -632,7 +649,7 @@ const SCHEMAS = {
   inventory: {
     title:'Card Inventory',addLabel:'+ Add Card',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:80,render:v=>{if(!v)return'—';const parts=String(v).split('-');if(parts.length>=3)return parts[1]+'/'+parts[2]+'/'+parts[0].slice(2);if(parts.length>=2)return parts[1]+'/'+parts[0].slice(2);return v;}},{k:'cardName',l:'Card Name',w:160},
+      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:80,render:fmtDate},{k:'cardName',l:'Card Name',w:160},
       {k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
       {k:'grade',l:'Grade',w:90,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';return(co||gr)?`<strong style="color:var(--yellow)">${co}${co&&gr?' ':''}${gr}</strong>`:'—';}},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
@@ -653,7 +670,7 @@ const SCHEMAS = {
   sales: {
     title:'Sales Log',addLabel:'+ Log Sale',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'cardName',l:'Card',w:180,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';const gradeStr=(co||gr)?` <span style="color:var(--yellow);font-weight:600">${co}${co&&gr?' ':''}${gr}</span>`:'';return(row.cardName||'')+gradeStr;}},
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:80,render:fmtDate},{k:'cardName',l:'Card',w:180,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';const gradeStr=(co||gr)?` <span style="color:var(--yellow);font-weight:600">${co}${co&&gr?' ':''}${gr}</span>`:'';return(row.cardName||'')+gradeStr;}},
       {k:'platform',l:'Platform',w:90},{k:'salePrice',l:'Sale$',w:80,r:1,render:v=>fmt(num(v))},
       {k:'platformFee',l:'Fees',w:70,r:1,render:(_,row)=>fmt(num(row.platformFee)+num(row.consignFee))},
       {k:'shipCost',l:'Ship$',w:70,r:1,render:v=>fmt(num(v))},
@@ -679,7 +696,7 @@ const SCHEMAS = {
   purchases: {
     title:'Purchase Log',addLabel:'+ Add Purchase',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'source',l:'Source',w:120},
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:80,render:fmtDate},{k:'source',l:'Source',w:120},
       {k:'description',l:'Description',w:170},{k:'category',l:'Category',w:100},
       {k:'qty',l:'Qty',w:50,r:1},{k:'unitCost',l:'Unit$',w:80,r:1,render:v=>fmt(num(v))},
       {k:'_total',l:'Total',w:80,r:1,render:(_,row)=>fmt(num(row.qty)*num(row.unitCost))},
@@ -701,7 +718,7 @@ const SCHEMAS = {
   grading: {
     title:'Grading Log',addLabel:'+ Add Submission',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'dateSubmitted',l:'Submitted',w:90},{k:'cardName',l:'Card',w:150},
+      {k:'id',l:'ID',w:70},{k:'dateSubmitted',l:'Submitted',w:80,render:fmtDate},{k:'cardName',l:'Card',w:150},
       {k:'company',l:'Grader',w:70},{k:'gradeReceived',l:'Grade',w:60,render:v=>v?`<strong style="color:var(--yellow)">${v}</strong>`:'—'},
       {k:'totalCost',l:'Fee',w:70,r:1,render:v=>fmt(num(v))},
       {k:'preValue',l:'Pre$',w:70,r:1,render:v=>fmt(num(v))},{k:'postValue',l:'Post$',w:70,r:1,render:v=>num(v)?fmt(num(v)):'—'},
@@ -725,7 +742,7 @@ const SCHEMAS = {
   sealed: {
     title:'Sealed Product',addLabel:'+ Add Sealed',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'dateAcquired',l:'Date',w:90},{k:'productName',l:'Product',w:180},
+      {k:'id',l:'ID',w:70},{k:'dateAcquired',l:'Date',w:80,render:fmtDate},{k:'productName',l:'Product',w:180},
       {k:'productType',l:'Type',w:100},{k:'status',l:'Status',w:80,render:v=>badge(v)},
       {k:'purchasePrice',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'salePrice',l:'Sale$',w:80,r:1,render:v=>num(v)?fmt(num(v)):'—'},
@@ -745,7 +762,7 @@ const SCHEMAS = {
   expenses: {
     title:'Business Expenses',addLabel:'+ Add Expense',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},{k:'category',l:'Category',w:130},
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:80,render:fmtDate},{k:'category',l:'Category',w:130},
       {k:'description',l:'Description',w:200},{k:'amount',l:'Amount',w:90,r:1,render:v=>fmt(num(v))},
       {k:'vendor',l:'Vendor',w:120},{k:'payMethod',l:'Payment',w:90},
       {k:'receipt',l:'📎',w:40,render:(_,row)=>{if(row.receipt==='Yes'){const hasImg=getReceiptImage(row.id);return hasImg?`<span style="cursor:pointer;font-size:14px" onclick="event.stopPropagation();viewReceipt('${row.id}')" title="View receipt">🧾</span>`:'<span style="color:var(--green);font-size:10px">Yes</span>';}return'<span style="color:var(--text-faint);font-size:10px">—</span>';}}
@@ -762,7 +779,7 @@ const SCHEMAS = {
   capital: {
     title:'Capital Transactions',addLabel:'+ Add Transaction',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:90},
+      {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:80,render:fmtDate},
       {k:'type',l:'Type',w:100,render:v=>v==='Contribution'?'<span class="badge b-listed">Contribution</span>':v==='Draw'?'<span class="badge b-cracked">Draw</span>':`<span class="badge b-hold">${v||''}</span>`},
       {k:'amount',l:'Amount',w:100,r:1,render:(v,row)=>{const a=num(v);return`<span class="${row.type==='Contribution'?'pos':'neg'}">${fmt(a)}</span>`;}},
       {k:'description',l:'Description',w:250},{k:'method',l:'Method',w:120}
