@@ -1032,12 +1032,69 @@ function rTable(type,m) {
     </div>`) : '';
   
   const batchBar = type === 'inventory' && window.batchStatusMode ?
-    `<div style="background:linear-gradient(135deg,rgba(78,124,255,.1),rgba(168,85,247,.06));border:1px solid var(--blue);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <span style="font-size:12px;font-weight:600;color:var(--blue)">📋 ${window.batchSelectedCards.size} selected</span>
-      <button class="btn btn-sm" onclick="batchSelectAllVisible()" style="font-size:10px">☑ All</button>
-      <button class="btn btn-sm" onclick="window.batchSelectedCards=new Set();render()" style="font-size:10px">☐ None</button>
-      <button class="btn btn-accent btn-sm" onclick="executeBatchStatus()" style="font-size:10px" ${!window.batchSelectedCards.size?'disabled':''}>⚡ Change ${window.batchSelectedCards.size} Cards</button>
-      <button class="btn btn-sm" onclick="window.batchStatusMode=false;window.batchSelectedCards=new Set();render()" style="font-size:10px">✕ Cancel</button>
+    `<div style="background:linear-gradient(135deg,rgba(78,124,255,.1),rgba(168,85,247,.06));border:1px solid var(--blue);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:${window.batchFormVisible?'10':'0'}px">
+        <span style="font-size:12px;font-weight:600;color:var(--blue)">📋 ${window.batchSelectedCards.size} selected</span>
+        <button class="btn btn-sm" onclick="batchSelectAllVisible()" style="font-size:10px">☑ All</button>
+        <button class="btn btn-sm" onclick="window.batchSelectedCards=new Set();render()" style="font-size:10px">☐ None</button>
+        ${!window.batchFormVisible ? `<button class="btn btn-accent btn-sm" onclick="showBatchForm()" style="font-size:10px" ${!window.batchSelectedCards.size?'disabled':''}>⚡ Change ${window.batchSelectedCards.size} Cards</button>` : ''}
+        <button class="btn btn-sm" onclick="window.batchStatusMode=false;window.batchSelectedCards=new Set();window.batchFormVisible=false;render()" style="font-size:10px">✕ Cancel</button>
+      </div>
+      ${window.batchFormVisible ? `
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;padding:10px;background:rgba(0,0,0,.15);border-radius:var(--radius-sm)">
+        <div>
+          <label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:3px">New Status</label>
+          <select id="batch_status" class="search-input" style="font-size:12px;padding:6px 10px;min-width:120px" onchange="window.batchFormData.status=this.value;render()">
+            <option value="Raw" ${window.batchFormData.status==='Raw'?'selected':''}>Raw</option>
+            <option value="Submitted" ${window.batchFormData.status==='Submitted'?'selected':''}>Submitted</option>
+            <option value="Graded" ${window.batchFormData.status==='Graded'?'selected':''}>Graded</option>
+            <option value="Listed" ${window.batchFormData.status==='Listed'?'selected':''}>Listed</option>
+            <option value="Hold" ${window.batchFormData.status==='Hold'?'selected':''}>Hold</option>
+            <option value="Cracked" ${window.batchFormData.status==='Cracked'?'selected':''}>Cracked</option>
+          </select>
+        </div>
+        ${window.batchFormData.status==='Submitted'||window.batchFormData.status==='Graded' ? `
+        <div>
+          <label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:3px">Grading Company</label>
+          <select id="batch_company" class="search-input" style="font-size:12px;padding:6px 10px;min-width:90px">
+            <option value="PSA" ${window.batchFormData.company==='PSA'?'selected':''}>PSA</option>
+            <option value="CGC" ${window.batchFormData.company==='CGC'?'selected':''}>CGC</option>
+            <option value="BGS" ${window.batchFormData.company==='BGS'?'selected':''}>BGS</option>
+            <option value="SGC" ${window.batchFormData.company==='SGC'?'selected':''}>SGC</option>
+          </select>
+        </div>
+        ` : ''}
+        ${window.batchFormData.status==='Submitted' ? `
+        <div>
+          <label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:3px">Fee per Card ($)</label>
+          <input type="number" id="batch_fee" class="search-input" style="font-size:12px;padding:6px 10px;width:80px" value="${window.batchFormData.fee}" step="0.01">
+        </div>
+        ` : ''}
+        ${window.batchFormData.status==='Graded' ? `
+        <div>
+          <label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:3px">Grade Received</label>
+          <select id="batch_grade" class="search-input" style="font-size:12px;padding:6px 10px;min-width:80px">
+            <option value="">—</option>
+            <option value="10">10</option>
+            <option value="9.5">9.5</option>
+            <option value="9">9</option>
+            <option value="8.5">8.5</option>
+            <option value="8">8</option>
+            <option value="7.5">7.5</option>
+            <option value="7">7</option>
+            <option value="6">6</option>
+            <option value="5">5</option>
+            <option value="4">4</option>
+            <option value="3">3</option>
+            <option value="2">2</option>
+            <option value="1">1</option>
+          </select>
+        </div>
+        ` : ''}
+        <button class="btn btn-accent btn-sm" onclick="executeBatchStatus()" style="font-size:12px;padding:6px 14px">✅ Apply to ${window.batchSelectedCards.size} Cards</button>
+        <button class="btn btn-sm" onclick="cancelBatchForm()" style="font-size:10px">Cancel</button>
+      </div>
+      ` : ''}
     </div>` : '';
 
   return `${spendingBar}<div class="panel"><h3><span>${s.title}</span><span class="right">${addBtn}${quickAddBtn}</span></h3>
@@ -2716,7 +2773,6 @@ window.batchSelectAll = function(sorted, idxMap) {
 };
 
 window.batchSelectAllVisible = function() {
-  // Select/deselect all currently visible (filtered) inventory cards
   var data = D.inventory;
   var filtered = filterData(data, 'inventory');
   var allSelected = filtered.every(function(r) { return window.batchSelectedCards.has(data.indexOf(r)); });
@@ -2728,27 +2784,39 @@ window.batchSelectAllVisible = function() {
   render();
 };
 
+window.batchFormVisible = false;
+window.batchFormData = { status: 'Submitted', company: 'PSA', fee: '22', grade: '' };
+
+window.showBatchForm = function() {
+  if (!window.batchSelectedCards.size) { showToast('No cards selected'); return; }
+  window.batchFormVisible = true;
+  render();
+};
+
+window.cancelBatchForm = function() {
+  window.batchFormVisible = false;
+  render();
+};
+
 window.executeBatchStatus = function() {
   var count = window.batchSelectedCards.size;
   if (!count) { showToast('No cards selected'); return; }
   
-  var newStatus = prompt('New status for ' + count + ' cards?\n(Raw, Submitted, Graded, Listed, Hold, Cracked)', 'Submitted');
-  if (!newStatus) return;
+  // Read from form fields
+  var newStatus = document.getElementById('batch_status').value;
+  if (!newStatus) { showToast('Select a status'); return; }
   
   var company = '';
   var fee = 0;
   var grade = '';
   
   if (newStatus === 'Submitted') {
-    company = prompt('Grading company? (PSA, CGC, BGS, SGC)', 'PSA');
-    if (!company) return;
-    var feeStr = prompt('Grading fee per card ($)?', '22');
-    if (feeStr === null) return;
-    fee = parseFloat(feeStr) || 0;
+    company = document.getElementById('batch_company').value;
+    fee = parseFloat(document.getElementById('batch_fee').value) || 0;
   }
   if (newStatus === 'Graded') {
-    grade = prompt('Grade received for all cards? (e.g. 9, 10)', '');
-    if (grade === null) return;
+    company = document.getElementById('batch_company') ? document.getElementById('batch_company').value : '';
+    grade = document.getElementById('batch_grade').value;
   }
   
   var processed = 0;
@@ -2797,6 +2865,7 @@ window.executeBatchStatus = function() {
   saveData();
   window.batchStatusMode = false;
   window.batchSelectedCards = new Set();
+  window.batchFormVisible = false;
   showToast('✅ ' + processed + ' cards → ' + newStatus + (company ? ' (' + company + ')' : ''));
   render();
 };
