@@ -510,32 +510,22 @@ window.render = function render() {
 // OVERVIEW
 // ============================================================
 function rOverview(m) {
-  const totalCapital = m.startingCash + m.totalContributions;
   return `
     <div class="metrics">
       <div class="mc" style="border-left-color:var(--blue)"><div class="lbl">Total Revenue</div><div class="val">${fmt(m.tSale)}</div><div class="sub" style="color:var(--text-dim)">${m.sc} sales</div></div>
-      <div class="mc" style="border-left-color:${m.gross>=0?'var(--green)':'var(--red)'}"><div class="lbl">Gross Profit</div><div class="val ${m.gross>=0?'pos':'neg'}">${fmt(m.gross)}</div><div class="sub" style="color:${m.gm>=.3?'var(--green)':'var(--yellow)'}">${pct(m.gm)} gross margin</div></div>
-      <div class="mc" style="border-left-color:${m.net>=0?'var(--green)':'var(--red)'}"><div class="lbl">Net Income</div><div class="val ${m.net>=0?'pos':'neg'}">${fmt(m.net)}</div><div class="sub" style="color:var(--text-dim)">After ${fmt(m.tExp)} expenses</div></div>
-      <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Net Margin</div><div class="val">${m.tSale?pct(m.nm):'—'}</div><div class="sub" style="color:var(--text-dim)">% of revenue kept</div></div>
-    </div>
-    <div class="metrics">
-      <div class="mc" style="border-left-color:var(--accent)"><div class="lbl">Total Capital In</div><div class="val">${fmt(totalCapital)}</div><div class="sub" style="color:var(--text-dim)">${fmt(m.startingCash)} starting + ${fmt(m.totalContributions)} added</div></div>
+      <div class="mc" style="border-left-color:${m.net>=0?'var(--green)':'var(--red)'}"><div class="lbl">Net Income</div><div class="val ${m.net>=0?'pos':'neg'}">${fmt(m.net)}</div><div class="sub" style="color:var(--text-dim)">${m.tSale?pct(m.nm):' — '} net margin</div></div>
       <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Cash on Hand</div><div class="val">${fmt(m.cashBalance)}</div><div class="sub" style="color:${m.cashBalance>=0?'var(--green)':'var(--red)'}">Available cash</div></div>
-      <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Inventory (Cost)</div><div class="val">${fmt(m.invCost)}</div><div class="sub" style="color:var(--text-dim);font-size:10px">${m.ac} cards · ${['Raw','Submitted','Graded','Listed','Hold'].filter(st=>m.statusCounts[st]).map(st=>m.statusCounts[st]+' '+st.toLowerCase()).join(' · ')}</div></div>
+      <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Weighted ROI</div><div class="val">${(m.tCOGS+m.tGrade)?pct(m.gross/(m.tCOGS+m.tGrade)):'—'}</div><div class="sub" style="color:var(--text-dim)">profit ÷ total invested</div></div>
     </div>
     <div class="metrics">
-      <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Avg Sale Price</div><div class="val">${m.sc?fmt(m.tSale/m.sc):'—'}</div><div class="sub" style="color:var(--text-dim)">per card sold</div></div>
+      <div class="mc" style="border-left-color:var(--purple)"><div class="lbl">Inventory</div><div class="val">${fmt(m.invCost)}</div><div class="sub" style="color:var(--text-dim);font-size:10px">${m.ac} cards · ${['Raw','Submitted','Graded','Listed','Hold'].filter(st=>m.statusCounts[st]).map(st=>m.statusCounts[st]+' '+st.toLowerCase()).join(' · ')}</div></div>
+      <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Cards Sold</div><div class="val">${m.sc}</div><div class="sub" style="color:var(--text-dim)">${m.sc?'Avg '+fmt(m.tSale/m.sc)+' per sale':'No sales yet'}</div></div>
       <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Avg Profit/Card</div><div class="val ${m.avgP>=0?'pos':'neg'}">${m.sc?fmt(m.avgP):'—'}</div><div class="sub" style="color:var(--text-dim)">after all fees</div></div>
-      <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Weighted ROI</div><div class="val">${(m.tCOGS+m.tGrade)?pct(m.gross/(m.tCOGS+m.tGrade)):'—'}</div><div class="sub" style="color:var(--text-dim)">profit ÷ total invested</div></div>
-      <div class="mc" style="border-left-color:var(--red)"><div class="lbl">Top Expense</div><div class="val" style="font-size:14px">${Object.keys(m.expByCat).length?Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1])[0][0]:'—'}</div><div class="sub" style="color:var(--text-dim)">${Object.keys(m.expByCat).length?fmt(Object.entries(m.expByCat).sort((a,b)=>b[1]-a[1])[0][1]):'No expenses'}</div></div>
-    </div>
-    <div class="charts-grid">
-      <div class="panel chart-card"><h3>Revenue & Profit by Platform</h3><div class="chart-wrap"><canvas id="ch1"></canvas></div></div>
-      <div class="panel chart-card"><h3>Inventory by Status</h3><div class="chart-wrap"><canvas id="ch2"></canvas></div></div>
+      <div class="mc" style="border-left-color:var(--accent)"><div class="lbl">Gross Margin</div><div class="val">${m.tSale?pct(m.gm):'—'}</div><div class="sub" style="color:var(--text-dim)">before operating expenses</div></div>
     </div>
     <div class="charts-grid">
       <div class="panel chart-card"><h3>Monthly Sales Trend</h3><div class="chart-wrap"><canvas id="ch3"></canvas></div></div>
-      <div class="panel chart-card"><h3>Inventory by Card Type</h3><div class="chart-wrap"><canvas id="ch4"></canvas></div></div>
+      <div class="panel chart-card"><h3>Inventory by Status</h3><div class="chart-wrap"><canvas id="ch2"></canvas></div></div>
     </div>`;
 }
 
@@ -638,16 +628,13 @@ function renderAnalyticsCharts(m) {
 
 function renderCharts(m) {
   destroyCharts();
-  const p=Object.keys(m.byPlat);
-  if(p.length){charts.c1=new Chart(document.getElementById('ch1'),{type:'bar',data:{labels:p,datasets:[{label:'Revenue',data:p.map(x=>m.byPlat[x].rev),backgroundColor:'#4E7CFF',borderRadius:6},{label:'Profit',data:p.map(x=>m.byPlat[x].prof),backgroundColor:'#00D68F',borderRadius:6}]},options:cOpts()});}
+  // Inventory by Status donut
   const st=Object.keys(m.statusCounts);
   const sc2={Raw:'#FFBE0B',Submitted:'#A855F7',Graded:'#4E7CFF',Listed:'#06D6A0',Hold:'#7878A0',Cracked:'#FF4757',Sold:'#00D68F'};
   if(st.length){charts.c2=new Chart(document.getElementById('ch2'),{type:'doughnut',data:{labels:st,datasets:[{data:st.map(s=>m.statusCounts[s]),backgroundColor:st.map(s=>sc2[s]||'#7878A0'),borderWidth:0}]},options:pOpts()});}
+  // Monthly Sales Trend
   const mo=Object.keys(m.monthly).sort();
   if(mo.length){charts.c3=new Chart(document.getElementById('ch3'),{type:'line',data:{labels:mo,datasets:[{label:'Revenue',data:mo.map(x=>m.monthly[x].rev),borderColor:'#4E7CFF',backgroundColor:'#4E7CFF22',fill:true,tension:.3},{label:'Profit',data:mo.map(x=>m.monthly[x].prof),borderColor:'#00D68F',backgroundColor:'#00D68F22',fill:true,tension:.3}]},options:cOpts()});}
-  const ty=Object.keys(m.invByType);
-  const tc=['#FF3366','#4E7CFF','#00D68F','#FFBE0B','#A855F7','#06D6A0'];
-  if(ty.length){charts.c4=new Chart(document.getElementById('ch4'),{type:'doughnut',data:{labels:ty,datasets:[{data:ty.map(t=>m.invByType[t]),backgroundColor:tc,borderWidth:0}]},options:pOpts()});}
 }
 
 // ============================================================
