@@ -324,7 +324,7 @@ window.gradingFeePerCard = '';
 window.refreshSelectMode = false;
 window.refreshSelectedCards = new Set();
 window.monthFilter = '';
-window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'' };
+window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'', payStatus:'' };
 window.showAdvFilter = false;
 window._fcYear = new Date().getFullYear();
 window._fcEditMonth = '';
@@ -389,6 +389,15 @@ function M() {
   const tShip=sales.reduce((s,r)=>s+num(r.shipCost),0);
   const tCOGS=sales.reduce((s,r)=>s+num(r.costBasis),0);
   const netRev=tSale-tPlatFee-tConFee-tShip;
+  // Accounts Receivable — pending sales (not yet paid out)
+  const pendingSales=sales.filter(r=>(r.paymentStatus||'Received')==='Pending');
+  const receivable=pendingSales.reduce((s,r)=>s+num(r.salePrice)-num(r.platformFee)-num(r.consignFee)-num(r.shipCost),0);
+  // Cash received from sales (only Received payments)
+  const receivedSales=sales.filter(r=>(r.paymentStatus||'Received')==='Received');
+  const tSaleReceived=receivedSales.reduce((s,r)=>s+num(r.salePrice),0);
+  const tPlatFeeReceived=receivedSales.reduce((s,r)=>s+num(r.platformFee),0);
+  const tConFeeReceived=receivedSales.reduce((s,r)=>s+num(r.consignFee),0);
+  const tShipReceived=receivedSales.reduce((s,r)=>s+num(r.shipCost),0);
   // Grading costs split: sold cards only for P&L, total for cash flow
   const tGradeAll=gr.reduce((s,r)=>s+num(r.totalCost),0);
   // Grading cost on sold cards: look up each sale's linked card
@@ -430,18 +439,18 @@ function M() {
   const tPurchases=D.purchases.reduce((s,r)=>s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax)),0);
   const paidGrading=gr.filter(r=>r.dateReturned).reduce((s,r)=>s+num(r.totalCost),0);
   // Cash = Starting Cash + Contributions - Draws + Sales Revenue - All Fees - Purchases - Expenses - All Grading Fees
-  const cashBalance=startingCash+totalContributions-totalDraws+tSale-tPlatFee-tConFee-tShip-tPurchases-tExp-paidGrading-unpaidGrading;
+  const cashBalance=startingCash+totalContributions-totalDraws+tSaleReceived-tPlatFeeReceived-tConFeeReceived-tShipReceived-tPurchases-tExp-paidGrading-unpaidGrading;
   // For the balance sheet, Total Equity = Contributions + Retained Earnings - Draws
   // Total Assets should = Total Liabilities + Total Equity
   // We show cash, inventory, and other assets separately, but note the balance sheet
   // may not perfectly balance if purchase totals don't match inventory cost basis assignments
-  const totalAssets=cashBalance+invCost+otherAssets;
+  const totalAssets=cashBalance+invCost+otherAssets+receivable;
   const openingBalAdj = num(sett.openingBalAdj) || 0;
   const totalEquity=startingCash+totalContributions-totalDraws+net+openingBalAdj;
   const balanceCheck=totalAssets-totalLiabilities-totalEquity;
   const totalInvested = startingCash + totalContributions + tPurchases;
   const bizROI = totalInvested ? net / totalInvested : 0;
-  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,tGradeAll,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI,cashBalance,unpaidGrading,tPurchases,paidGrading,totalAssets,totalEquity,balanceCheck};
+  return {tSale,netRev,tCOGS,gross,tExp,net,gm,nm,sc,avgP,invCost,invMkt,ac:active.length,statusCounts,byPlat,invByType,monthly,expByCat,gradData,tPlatFee,tConFee,tShip,tGrade,tGradeAll,gc:gr.length,totalContributions,totalDraws,startingCash,otherAssets,totalLiabilities,sett,totalInvested,bizROI,cashBalance,unpaidGrading,tPurchases,paidGrading,totalAssets,totalEquity,balanceCheck,receivable,pendingSalesCount:pendingSales.length,tSaleReceived};
 }
 
 // ============================================================
@@ -671,7 +680,7 @@ const SCHEMAS = {
     title:'Sales Log',addLabel:'+ Log Sale',
     cols:[
       {k:'id',l:'ID',w:70},{k:'date',l:'Date',w:80,render:fmtDate},{k:'cardName',l:'Card',w:180,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';const gradeStr=(co||gr)?` <span style="color:var(--yellow);font-weight:600">${co}${co&&gr?' ':''}${gr}</span>`:'';return(row.cardName||'')+gradeStr;}},
-      {k:'platform',l:'Platform',w:90},{k:'salePrice',l:'Sale$',w:80,r:1,render:v=>fmt(num(v))},
+      {k:'platform',l:'Platform',w:90},{k:'paymentStatus',l:'Paid',w:60,render:v=>{const s2=v||'Received';return s2==='Pending'?'<span style="color:var(--yellow);font-weight:600">⏳</span>':'<span style="color:var(--green)">✓</span>';}},{k:'salePrice',l:'Sale$',w:80,r:1,render:v=>fmt(num(v))},
       {k:'platformFee',l:'Fees',w:70,r:1,render:(_,row)=>fmt(num(row.platformFee)+num(row.consignFee))},
       {k:'shipCost',l:'Ship$',w:70,r:1,render:v=>fmt(num(v))},
       {k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
@@ -683,6 +692,7 @@ const SCHEMAS = {
       {k:'cardName',l:'Card Name (or search inventory)',type:'cardpicker',required:true},{k:'cardId',l:'Card ID',type:'hidden'},
       {k:'date',l:'Sale Date',type:'date'},
       {k:'platform',l:'Platform',type:'select',opts:['eBay','Card Show','Consignment']},
+      {k:'paymentStatus',l:'Payment Status',type:'select',opts:['Received','Pending']},
       {k:'salePrice',l:'Sale Price ($)',type:'number'},{k:'platformFee',l:'Platform Fee ($)',type:'number'},
       {k:'consignFee',l:'Consignment Fee ($)',type:'number'},{k:'shipCost',l:'Shipping Cost ($)',type:'number'},
       {k:'costBasis',l:'Cost Basis ($)',type:'number'},
@@ -951,7 +961,7 @@ function rTable(type,m) {
 
   const af = window.advFilter;
   const afActive = function(v) { return v !== '' && v !== '0' && v !== 0; };
-  const hasAdvFilter = afActive(af.minPrice) || afActive(af.maxPrice) || afActive(af.minProfit) || afActive(af.minMargin) || afActive(af.minROI) || af.category;
+  const hasAdvFilter = afActive(af.minPrice) || afActive(af.maxPrice) || afActive(af.minProfit) || afActive(af.minMargin) || afActive(af.minROI) || af.category || af.payStatus;
   const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter || window.monthFilter || hasAdvFilter;
   const advFilterTypes = ['inventory','sales','expenses','purchases'];
   const showAdvToggle = advFilterTypes.includes(type);
@@ -979,6 +989,12 @@ function rTable(type,m) {
           <input type="number" class="search-input" style="width:70px;font-size:11px;padding:4px 8px" value="${af.minMargin}" onchange="window.advFilter.minMargin=this.value;render()" placeholder="Min"></div>
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Min ROI %</label>
           <input type="number" class="search-input" style="width:70px;font-size:11px;padding:4px 8px" value="${af.minROI}" onchange="window.advFilter.minROI=this.value;render()" placeholder="Min"></div>
+        <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Payment</label>
+          <select class="search-input" style="font-size:11px;padding:4px 8px" onchange="window.advFilter.payStatus=this.value;render()">
+            <option value="">All</option>
+            <option ${af.payStatus==='Received'?'selected':''}>Received</option>
+            <option ${af.payStatus==='Pending'?'selected':''}>Pending</option>
+          </select></div>
         `:''}
         ${type==='expenses'?`
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Category</label>
@@ -3137,7 +3153,7 @@ window.toggleSort = function(col) {
   }
   render();
 };
-window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; window.monthFilter = ''; window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'' }; window.showAdvFilter = false; render(); };
+window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; window.monthFilter = ''; window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'', payStatus:'' }; window.showAdvFilter = false; render(); };
 
 function filterData(data, type) {
   let result = data;
@@ -3198,6 +3214,9 @@ function filterData(data, type) {
   }
   if (af.category && type === 'expenses') {
     result = result.filter(row => (row.category || 'Other') === af.category);
+  }
+  if (af.payStatus && type === 'sales') {
+    result = result.filter(row => (row.paymentStatus || 'Received') === af.payStatus);
   }
   // Apply text search
   if (window.searchTerm) {
@@ -6317,6 +6336,7 @@ function rFinancials(m) {
       <div class="fin-row indent"><span class="lbl">Card Inventory (at cost)</span><span class="amt">${fmtD(m.invCost)}</span></div>
       <div class="fin-row indent"><span class="lbl">Card Inventory (market)*</span><span class="amt" style="font-style:italic;color:var(--text-dim)">${fmtD(m.invMkt)}</span></div>
       <div class="fin-row indent"><span class="lbl">Supplies & Equipment</span><span class="amt">${fmtD(m.otherAssets)}</span></div>
+      ${m.receivable?`<div class="fin-row indent"><span class="lbl">Accounts Receivable (${m.pendingSalesCount} pending sales)</span><span class="amt" style="color:var(--yellow)">${fmtD(m.receivable)}</span></div>`:''}
       <div class="fin-row bold bt"><span class="lbl">Total Assets</span><span class="amt">${fmtD(m.totalAssets)}</span></div>
       <div style="height:10px"></div>
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">LIABILITIES</span></div>
@@ -6367,9 +6387,10 @@ function rFinancials(m) {
     <h3 style="color:var(--purple)">💰 Cash Flow <button class="btn btn-sm" onclick="exportPDF('cashflow')">📄 PDF</button></h3>
     <div class="fin-grid"><div>
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">CASH IN</span></div>
-      <div class="fin-row indent"><span class="lbl">Card Sales (Gross)</span><span class="amt pos">${fmtD(m.tSale)}</span></div>
+      <div class="fin-row indent"><span class="lbl">Card Sales (Received)</span><span class="amt pos">${fmtD(m.tSaleReceived)}</span></div>
+      ${m.receivable?`<div class="fin-row indent"><span class="lbl" style="color:var(--text-dim)">Pending Sales (not yet received)</span><span class="amt" style="color:var(--yellow)">${fmtD(m.receivable)}</span></div>`:''}
       <div class="fin-row indent"><span class="lbl">Owner Contributions</span><span class="amt pos">${fmtD(m.totalContributions)}</span></div>
-      <div class="fin-row bold bt"><span class="lbl">Total Cash In</span><span class="amt">${fmtD(m.tSale+m.totalContributions)}</span></div>
+      <div class="fin-row bold bt"><span class="lbl">Total Cash In</span><span class="amt">${fmtD(m.tSaleReceived+m.totalContributions)}</span></div>
     </div><div>
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">CASH OUT</span></div>
       <div class="fin-row indent"><span class="lbl">Card Purchases</span><span class="amt neg">(${fmtD(m.tPurchases)})</span></div>
