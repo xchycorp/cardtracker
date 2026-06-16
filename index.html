@@ -522,7 +522,7 @@ function rOverview(m) {
       <div class="mc" style="border-left-color:var(--accent)"><div class="lbl">Total Capital In</div><div class="val">${fmt(totalCapital)}</div><div class="sub" style="color:var(--text-dim)">${fmt(m.startingCash)} starting + ${fmt(m.totalContributions)} added</div></div>
       <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Cash on Hand</div><div class="val">${fmt(m.cashBalance)}</div><div class="sub" style="color:${m.cashBalance>=0?'var(--green)':'var(--red)'}">Available cash</div></div>
       <div class="mc" style="border-left-color:var(--purple)"><div class="lbl">Inventory (Cost)</div><div class="val">${fmt(m.invCost)}</div><div class="sub" style="color:var(--text-dim)">${m.ac} cards</div></div>
-      <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Inventory (Market)</div><div class="val">${fmt(m.invMkt)}</div><div class="sub" style="color:var(--text-dim);font-size:10px">${['Raw','Submitted','Graded','Listed','Hold'].filter(st=>m.statusCounts[st]).map(st=>m.statusCounts[st]+' '+st.toLowerCase()).join(' · ')}</div></div>
+      <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Inventory (Cost)</div><div class="val">${fmt(m.invCost)}</div><div class="sub" style="color:var(--text-dim);font-size:10px">${['Raw','Submitted','Graded','Listed','Hold'].filter(st=>m.statusCounts[st]).map(st=>m.statusCounts[st]+' '+st.toLowerCase()).join(' · ')}</div></div>
     </div>
     <div class="metrics">
       <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Avg Sale Price</div><div class="val">${m.sc?fmt(m.tSale/m.sc):'—'}</div><div class="sub" style="color:var(--text-dim)">per card sold</div></div>
@@ -661,8 +661,7 @@ const SCHEMAS = {
       {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:80,render:fmtDate},{k:'cardName',l:'Card Name',w:160,render:(_,row)=>{const name=row.cardName||'';const prev=row.prevCompany&&row.prevGrade?` <span style="font-size:9px;color:var(--text-faint);font-style:italic">(ex-${row.prevCompany} ${row.prevGrade})</span>`:'';return name+prev;}},
       {k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
       {k:'grade',l:'Grade',w:90,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';return(co||gr)?`<strong style="color:var(--yellow)">${co}${co&&gr?' ':''}${gr}</strong>`:'—';}},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
-      {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
-      {k:'marketValue',l:'Market',w:80,r:1,render:v=>num(v)?fmt(num(v)):'—'}
+      {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))}
     ],
     fields:[
       {k:'cardName',l:'Card Name',type:'pokemonsearch',required:true},
@@ -833,17 +832,6 @@ function renderTableRow(type, row, i, s) {
     }
   }
   
-  // Refresh select checkbox column
-  if (type === 'inventory' && window.refreshSelectMode) {
-    const isEligible = row.status !== 'Sold';
-    const isChecked = window.refreshSelectedCards.has(i);
-    if (isEligible) {
-      html += '<td style="text-align:center"><input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="toggleRefreshCard(' + i + ')" style="width:18px;height:18px;cursor:pointer;accent-color:var(--green)"></td>';
-    } else {
-      html += '<td style="text-align:center"><span style="color:var(--text-faint);font-size:10px">—</span></td>';
-    }
-  }
-  
   // Batch status checkbox column
   if (type === 'inventory' && window.batchStatusMode) {
     const isChecked = window.batchSelectedCards.has(i);
@@ -864,9 +852,6 @@ function renderTableRow(type, row, i, s) {
       html += '<option value="' + st + '"' + (row.status === st ? ' disabled' : '') + '>' + st + '</option>';
     });
     html += '</select> ';
-    if (row.status !== 'Sold' && (window.poketraceState.apiKey || window.ebayState.appId)) {
-      html += '<button class="btn btn-sm" onclick="event.stopPropagation();refreshSinglePrice(' + i + ')" title="Refresh price" style="font-size:10px;padding:4px 6px">🔄</button> ';
-    }
   }
   html += '<button class="btn btn-sm" onclick="openEdit(\'' + type + '\',' + i + ')">✏️</button> ';
   html += '<button class="btn btn-sm btn-danger" onclick="if(confirm(\'Delete?\'))delRow(\'' + type + '\',' + i + ')">🗑</button>';
@@ -1049,21 +1034,10 @@ function rTable(type,m) {
       </div>
     </div>` : '';
 
-  const refreshBar = type==='inventory' && !window.batchStatusMode && (window.ebayState.appId||window.poketraceState.apiKey) ?
-    (window.refreshSelectMode ?
-    `<div style="background:linear-gradient(135deg,rgba(0,214,143,.1),rgba(78,124,255,.06));border:1px solid var(--green);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <span style="font-size:12px;font-weight:600;color:var(--green)">💰 ${window.refreshSelectedCards.size} selected</span>
-      <button class="btn btn-sm" onclick="refreshSelectAll()" style="font-size:10px">☑ All</button>
-      <button class="btn btn-sm" onclick="refreshDeselectAll()" style="font-size:10px">☐ None</button>
-      <button class="btn btn-accent btn-sm" onclick="refreshSelectedPrices()" style="font-size:10px" ${!window.refreshSelectedCards.size?'disabled':''}>💰 Refresh ${window.refreshSelectedCards.size} Cards</button>
-      <button class="btn btn-sm" onclick="cancelRefreshSelect()" style="font-size:10px">✕ Cancel</button>
-    </div>` :
+  const refreshBar = type==='inventory' && !window.batchStatusMode ?
     `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <button class="btn btn-sm" onclick="refreshAllMarketValues()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">💰 Refresh${window.statusFilter ? ' (' + window.statusFilter + ')' : ' All'}</button>
-      <button class="btn btn-sm" onclick="startRefreshSelect()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">☑ Select</button>
       <button class="btn btn-sm" onclick="startBatchStatus()" style="font-size:10px;padding:4px 10px;color:var(--text-dim);border-color:var(--border)">📋 Batch Status</button>
-      <span style="font-size:10px;color:var(--text-faint)">Refresh all${window.statusFilter ? ' ' + window.statusFilter.toLowerCase() : ' unsold'} or select specific cards</span>
-    </div>`) : '';
+    </div>` : '';
   
   const batchBar = type === 'inventory' && window.batchStatusMode ?
     `<div style="background:linear-gradient(135deg,rgba(78,124,255,.1),rgba(168,85,247,.06));border:1px solid var(--blue);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px">
@@ -1185,13 +1159,13 @@ function rTable(type,m) {
       return filterHtml;
     })() : `${statusFilterBar}${monthFilterBar}`}
     ${searchBar}
-    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.refreshSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.batchStatusMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
-    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.refreshSelectMode||window.batchStatusMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
+    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.batchStatusMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
+    <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.batchStatusMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
     </tbody>
     ${(function() {
       if (!sorted.length) return '';
       var cols = s.cols;
-      var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.refreshSelectMode||window.batchStatusMode));
+      var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.batchStatusMode));
       var html = '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)">';
       if (hasCheckbox) html += '<td></td>';
       
@@ -1205,7 +1179,6 @@ function rTable(type,m) {
         footerVals['cardName'] = {text: sorted.length + ' cards', style: 'color:var(--accent)'};
         footerVals['costBasis'] = {text: fmt(sorted.reduce(function(s,r){return s+num(r.costBasis)},0)), style: ''};
         footerVals['gradingCost'] = {text: fmt(sorted.reduce(function(s,r){return s+num(r.gradingCost)},0)), style: ''};
-        footerVals['marketValue'] = {text: fmt(sorted.reduce(function(s,r){return s+num(r.marketValue)},0)), style: ''};
       }
       if (type === 'sales') {
         var tSale = sorted.reduce(function(s,r){return s+num(r.salePrice)},0);
@@ -6335,7 +6308,6 @@ function rFinancials(m) {
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">ASSETS</span></div>
       <div class="fin-row indent"><span class="lbl">Cash (Auto-calculated)</span><span class="amt">${fmtD(m.cashBalance)}</span></div>
       <div class="fin-row indent"><span class="lbl">Card Inventory (at cost)</span><span class="amt">${fmtD(m.invCost)}</span></div>
-      <div class="fin-row indent"><span class="lbl">Card Inventory (market)*</span><span class="amt" style="font-style:italic;color:var(--text-dim)">${fmtD(m.invMkt)}</span></div>
       <div class="fin-row indent"><span class="lbl">Supplies & Equipment</span><span class="amt">${fmtD(m.otherAssets)}</span></div>
       ${m.receivable?`<div class="fin-row indent"><span class="lbl">Accounts Receivable (${m.pendingSalesCount} pending sales)</span><span class="amt" style="color:var(--yellow)">${fmtD(m.receivable)}</span></div>`:''}
       <div class="fin-row bold bt"><span class="lbl">Total Assets</span><span class="amt">${fmtD(m.totalAssets)}</span></div>
