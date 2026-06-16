@@ -658,7 +658,7 @@ const SCHEMAS = {
   inventory: {
     title:'Card Inventory',addLabel:'+ Add Card',
     cols:[
-      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:80,render:fmtDate},{k:'cardName',l:'Card Name',w:160},
+      {k:'id',l:'ID',w:70},{k:'dateAdded',l:'Date',w:80,render:fmtDate},{k:'cardName',l:'Card Name',w:160,render:(_,row)=>{const name=row.cardName||'';const prev=row.prevCompany&&row.prevGrade?` <span style="font-size:9px;color:var(--text-faint);font-style:italic">(ex-${row.prevCompany} ${row.prevGrade})</span>`:'';return name+prev;}},
       {k:'cardType',l:'Type',w:80},{k:'status',l:'Status',w:80,render:v=>badge(v)},
       {k:'grade',l:'Grade',w:90,render:(_,row)=>{const co=row.gradingCompany||'';const gr=row.grade||'';return(co||gr)?`<strong style="color:var(--yellow)">${co}${co&&gr?' ':''}${gr}</strong>`:'—';}},{k:'costBasis',l:'Cost',w:80,r:1,render:v=>fmt(num(v))},
       {k:'gradingCost',l:'Grade$',w:70,r:1,render:v=>fmt(num(v))},
@@ -672,6 +672,7 @@ const SCHEMAS = {
       {k:'costBasis',l:'Cost Basis ($)',type:'number'},{k:'gradingCost',l:'Grading Cost ($)',type:'number'},
       {k:'marketValue',l:'Market Value ($)',type:'number'},{k:'dateAdded',l:'Date Added',type:'date'},
       {k:'platform',l:'Platform Listed'},{k:'listPrice',l:'List Price ($)',type:'number'},
+      {k:'prevCompany',l:'Previous Grading Co.',type:'select',opts:['','PSA','CGC','BGS','SGC']},{k:'prevGrade',l:'Previous Grade',placeholder:'e.g. 8, 9, Auth'},
       {k:'notes',l:'Notes',type:'textarea',full:true}
     ],
     idPrefix:'C'
