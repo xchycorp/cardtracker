@@ -595,36 +595,7 @@ function rOverview(m) {
           });
         });
         
-        // Inventory additions — group by date (last 60 days)
-        var cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - 60);
-        var cutoffStr = cutoff.toISOString().slice(0, 10);
-        var invBatches = {};
-        D.inventory.forEach(function(r) {
-          if (!r.dateAdded || r.dateAdded < cutoffStr) return;
-          if (r.status === 'Sold') return;
-          var key = r.dateAdded;
-          if (!invBatches[key]) invBatches[key] = { date: r.dateAdded, count: 0, totalCost: 0, cards: [] };
-          invBatches[key].count++;
-          invBatches[key].totalCost += num(r.costBasis);
-          invBatches[key].cards.push(r.cardName || 'card');
-        });
-        Object.values(invBatches).forEach(function(b) {
-          var text = b.count === 1
-            ? 'Added <strong>' + b.cards[0] + '</strong> to inventory'
-            : b.count + ' cards added to inventory';
-          events.push({
-            date: b.date,
-            icon: '📦',
-            text: text,
-            amount: b.totalCost ? '-' + fmtD(b.totalCost) : '',
-            amountColor: 'var(--text-dim)',
-            detail: '',
-            detailColor: ''
-          });
-        });
-        
-        // Grading submissions (batch — group by date+company)
+        // Grading submissions — group by date+company
         var gradingBatches = {};
         D.grading.forEach(function(r) {
           var key = (r.dateSubmitted || '') + '|' + (r.company || '');
@@ -638,8 +609,8 @@ function rOverview(m) {
             date: b.date,
             icon: '📋',
             text: b.count + ' cards submitted to <strong>' + b.company + '</strong>',
-            amount: '-' + fmtD(b.totalCost),
-            amountColor: 'var(--text-dim)',
+            amount: b.totalCost ? '-' + fmtD(b.totalCost) : '',
+            amountColor: 'var(--red)',
             detail: 'grading fees',
             detailColor: 'var(--text-dim)'
           });
