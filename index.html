@@ -809,7 +809,7 @@ const SCHEMAS = {
       {k:'platform',l:'Platform',type:'select',opts:['eBay','Card Show','Consignment']},
       {k:'paymentStatus',l:'Payment Status',type:'select',opts:['Received','Pending']},
       {k:'salePrice',l:'Sale Price ($)',type:'number'},{k:'platformFee',l:'Platform Fee ($)',type:'number'},
-      {k:'consignFee',l:'Consignment Fee ($)',type:'number'},{k:'shipCost',l:'Shipping Cost ($)',type:'number'},
+      {k:'consignPayout',l:'Consignment Payout ($)',type:'number',placeholder:'Your payout amount'},{k:'consignFee',l:'Consignment Fee ($)',type:'number'},{k:'shipCost',l:'Shipping Cost ($)',type:'number'},
       {k:'costBasis',l:'Cost Basis ($)',type:'number'},
       {k:'ebayShipping',l:'Buyer-Paid Shipping ($)',type:'number',placeholder:'For 1099-K reconciliation'},
       {k:'ebayTax',l:'eBay-Collected Tax ($)',type:'number',placeholder:'For 1099-K reconciliation'},
@@ -1241,12 +1241,14 @@ function rTable(type,m) {
         // Grading status filter: Waiting vs Graded
         var waitingCount = data.filter(function(r){return !r.gradeReceived}).length;
         var gradedCount = data.filter(function(r){return !!r.gradeReceived}).length;
+        filterHtml += '<span style="font-size:9px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px;margin-right:4px">Status</span>';
         [['','All',data.length],['waiting','Waiting',waitingCount],['graded','Graded',gradedCount]].forEach(function(item) {
           var isActive = window.gradingStatusFilter === item[0];
-          filterHtml += '<button class="btn btn-sm" style="font-size:10px;padding:4px 8px;' + (isActive?'background:var(--accent);color:#fff;border-color:var(--accent)':'') + '" onclick="window.gradingStatusFilter=\'' + item[0] + '\';render()">' + item[1] + '<span style="font-size:9px;opacity:.7;margin-left:3px">' + item[2] + '</span></button>';
+          filterHtml += '<button class="btn btn-sm" style="font-size:10px;padding:4px 8px;' + (isActive?'background:var(--green);color:#fff;border-color:var(--green)':'') + '" onclick="window.gradingStatusFilter=\'' + item[0] + '\';render()">' + item[1] + '<span style="font-size:9px;opacity:.7;margin-left:3px">' + item[2] + '</span></button>';
         });
-        filterHtml += '<span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>';
+        filterHtml += '<span style="width:1px;height:20px;background:var(--border);margin:0 8px"></span>';
         // Company filter
+        filterHtml += '<span style="font-size:9px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px;margin-right:4px">Company</span>';
         ['','PSA','CGC','BGS','SGC'].forEach(function(co) {
           var isActive = window.gradingCompanyFilter === co;
           var label = co || 'All';
@@ -1603,6 +1605,15 @@ window.saveModal = async function() {
     }
   });
   if(s.onSave)s.onSave(row);
+  
+  // Auto-calculate consignment fee from payout
+  if(window.modal.type==='sales' && num(row.consignPayout) > 0 && num(row.salePrice) > 0) {
+    row.consignFee = Math.round((num(row.salePrice) - num(row.consignPayout)) * 100) / 100;
+    delete row.consignPayout; // Don't store payout, just the calculated fee
+  }
+  if(window.modal.type==='sales') {
+    delete row.consignPayout; // Clean up even if not used
+  }
   
   if(window.modal.type==='sales' && window.modal.data._linkedInvIdx !== undefined){
     if(window.modal.data.gradingCompany) row.gradingCompany = window.modal.data.gradingCompany;
