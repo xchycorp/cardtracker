@@ -1524,6 +1524,10 @@ window.saveForecast = function(ym) {
 window.openAdd = function(type) { window.modal={type,mode:'add',data:{date:new Date().toISOString().slice(0,10),dateAdded:new Date().toISOString().slice(0,10),dateAcquired:new Date().toISOString().slice(0,10),dateSubmitted:new Date().toISOString().slice(0,10)}};window.editIdx=null;render(); };
 window.openEdit = function(type,idx) {
   window.modal={type,mode:'edit',data:{...D[type][idx]}};window.editIdx=idx;
+  // Back-calculate consignment payout if missing
+  if (type === 'sales' && num(window.modal.data.consignFee) > 0 && !num(window.modal.data.consignPayout)) {
+    window.modal.data.consignPayout = Math.round((num(window.modal.data.salePrice) - num(window.modal.data.consignFee)) * 100) / 100;
+  }
   // Load receipt image from localStorage for expenses and purchases
   if ((type === 'expenses' || type === 'purchases') && D[type][idx].receipt === 'Yes') {
     const img = getReceiptImage(D[type][idx].id);
