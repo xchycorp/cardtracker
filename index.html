@@ -311,6 +311,7 @@ window.sortCol = null;
 window.sortDir = 'asc';
 window.statusFilter = '';
 window.gradingCompanyFilter = '';
+window.gradingStatusFilter = '';
 window.quickEntryMode = false;
 window.quickEntryRows = [];
 window.quickSalesMode = false;
@@ -476,7 +477,7 @@ window.render = function render() {
       ${['overview','inventory','grading','sales','spending','tools','financials'].map(t2=>{
         const labels={overview:'Overview',tools:'Tools',inventory:'Inventory',grading:'Grading',sales:'Sales',spending:'Spending',financials:'Financials'};
         const counts={inventory:m.ac,sales:m.sc,grading:m.gc,spending:D.purchases.length+D.expenses.length};
-        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.gradingCompanyFilter='';window.monthFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
+        return `<button class="tab ${window.tab===t2?'active':''}" onclick="window.searchTerm='';window.sortCol=null;window.sortDir='asc';window.statusFilter='';window.gradingCompanyFilter='';window.gradingStatusFilter='';window.monthFilter='';window.tab='${t2}';render()">${labels[t2]}${counts[t2]!==undefined?`<span class="cnt">${counts[t2]}</span>`:''}</button>`;
       }).join('')}
     </div>
     <div id="content">${
@@ -1062,7 +1063,7 @@ function rTable(type,m) {
   const af = window.advFilter;
   const afActive = function(v) { return v !== '' && v !== '0' && v !== 0; };
   const hasAdvFilter = afActive(af.minPrice) || afActive(af.maxPrice) || afActive(af.minProfit) || afActive(af.minMargin) || afActive(af.minROI) || af.category || af.payStatus;
-  const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter || window.monthFilter || hasAdvFilter;
+  const hasActiveFilter = window.searchTerm || window.statusFilter || window.gradingCompanyFilter || window.gradingStatusFilter || window.monthFilter || hasAdvFilter;
   const advFilterTypes = ['inventory','sales','expenses','purchases'];
   const showAdvToggle = advFilterTypes.includes(type);
   const searchBar = `<div style="margin-bottom:10px">
@@ -1237,6 +1238,15 @@ function rTable(type,m) {
       }
       
       if (type === 'grading') {
+        // Grading status filter: Waiting vs Graded
+        var waitingCount = data.filter(function(r){return !r.gradeReceived}).length;
+        var gradedCount = data.filter(function(r){return !!r.gradeReceived}).length;
+        [['','All',data.length],['waiting','Waiting',waitingCount],['graded','Graded',gradedCount]].forEach(function(item) {
+          var isActive = window.gradingStatusFilter === item[0];
+          filterHtml += '<button class="btn btn-sm" style="font-size:10px;padding:4px 8px;' + (isActive?'background:var(--accent);color:#fff;border-color:var(--accent)':'') + '" onclick="window.gradingStatusFilter=\'' + item[0] + '\';render()">' + item[1] + '<span style="font-size:9px;opacity:.7;margin-left:3px">' + item[2] + '</span></button>';
+        });
+        filterHtml += '<span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>';
+        // Company filter
         ['','PSA','CGC','BGS','SGC'].forEach(function(co) {
           var isActive = window.gradingCompanyFilter === co;
           var label = co || 'All';
@@ -3288,7 +3298,7 @@ window.toggleSort = function(col) {
   }
   render();
 };
-window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; window.monthFilter = ''; window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'', payStatus:'' }; window.showAdvFilter = false; render(); };
+window.clearSearch = function() { window.searchTerm = ''; window.sortCol = null; window.sortDir = 'asc'; window.statusFilter = ''; window.gradingCompanyFilter = ''; window.gradingStatusFilter = ''; window.monthFilter = ''; window.advFilter = { minPrice:'', maxPrice:'', minProfit:'', minMargin:'', minROI:'', category:'', payStatus:'' }; window.showAdvFilter = false; render(); };
 
 function filterData(data, type) {
   let result = data;
@@ -3299,6 +3309,14 @@ function filterData(data, type) {
   // Apply grading company filter for grading tab
   if (type === 'grading' && window.gradingCompanyFilter) {
     result = result.filter(row => (row.company || '') === window.gradingCompanyFilter);
+  }
+  // Apply grading status filter
+  if (type === 'grading' && window.gradingStatusFilter) {
+    if (window.gradingStatusFilter === 'waiting') {
+      result = result.filter(row => !row.gradeReceived);
+    } else if (window.gradingStatusFilter === 'graded') {
+      result = result.filter(row => !!row.gradeReceived);
+    }
   }
   // Apply month filter
   if (window.monthFilter) {
