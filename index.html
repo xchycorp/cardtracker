@@ -1648,10 +1648,6 @@ window.saveModal = async function() {
   // Auto-calculate consignment fee from payout
   if(window.modal.type==='sales' && num(row.consignPayout) > 0 && num(row.salePrice) > 0) {
     row.consignFee = Math.round((num(row.salePrice) - num(row.consignPayout)) * 100) / 100;
-    delete row.consignPayout; // Don't store payout, just the calculated fee
-  }
-  if(window.modal.type==='sales') {
-    delete row.consignPayout; // Clean up even if not used
   }
   
   if(window.modal.type==='sales' && window.modal.data._linkedInvIdx !== undefined){
