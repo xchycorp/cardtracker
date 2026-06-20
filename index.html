@@ -967,6 +967,10 @@ function renderTableRow(type, row, i, s) {
       html += '<option value="' + st + '"' + (row.status === st ? ' disabled' : '') + '>' + st + '</option>';
     });
     html += '</select> ';
+    // Log Sale button (only for unsold cards)
+    if (row.status !== 'Sold') {
+      html += '<button class="btn btn-sm" onclick="event.stopPropagation();logSaleFromInventory(' + i + ')" title="Log Sale" style="font-size:10px;padding:4px 6px;color:var(--green)">💰</button> ';
+    }
   }
   html += '<button class="btn btn-sm" onclick="openEdit(\'' + type + '\',' + i + ')">✏️</button> ';
   html += '<button class="btn btn-sm btn-danger" onclick="if(confirm(\'Delete?\'))delRow(\'' + type + '\',' + i + ')">🗑</button>';
@@ -1428,6 +1432,35 @@ window.autoBalanceSheet = function() {
   if (confirm('This will add an Opening Balance Adjustment of ' + fmtD(m2.balanceCheck) + ' to make the balance sheet balance. This accounts for pre-system activity. Continue?')) {
     saveSetting('openingBalAdj', adj);
   }
+};
+
+window.logSaleFromInventory = function(idx) {
+  var card = D.inventory[idx];
+  if (!card) return;
+  
+  // Open sales modal pre-filled with card data
+  window.modal = {
+    type: 'sales',
+    mode: 'add',
+    data: {
+      cardName: card.cardName || '',
+      cardId: card.id || '',
+      _linkedInvIdx: idx,
+      date: new Date().toISOString().slice(0, 10),
+      platform: 'Consignment',
+      costBasis: num(card.costBasis),
+      gradingCompany: card.gradingCompany || '',
+      grade: card.grade || '',
+      salePrice: 0,
+      platformFee: 0,
+      consignFee: 0,
+      consignPayout: 0,
+      shipCost: 0,
+      paymentStatus: 'Pending',
+      notes: ''
+    }
+  };
+  render();
 };
 
 window.applyPSAImport = function() {
