@@ -1414,6 +1414,41 @@ window.autoBalanceSheet = function() {
   }
 };
 
+window.applyPSAImport = function() {
+  var matched = window._psaImportData || [];
+  if (!matched.length) { showToast('No matches to apply'); return; }
+  
+  var today = new Date().toISOString().slice(0, 10);
+  var updated = 0;
+  
+  matched.forEach(function(m2) {
+    var card = m2.card;
+    var psa = m2.psa;
+    
+    // Update inventory card
+    card.status = 'Graded';
+    card.grade = psa.grade;
+    card.gradingCompany = 'PSA';
+    if (psa.certId) card.certId = psa.certId;
+    
+    // Update linked grading entry
+    var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+    if (gEntry) {
+      gEntry.gradeReceived = psa.grade;
+      gEntry.dateReturned = today;
+      if (psa.certId) gEntry.certId = psa.certId;
+    }
+    
+    updated++;
+  });
+  
+  saveData();
+  window._psaImportData = null;
+  window.modal = null;
+  render();
+  showToast('✅ ' + updated + ' cards updated with PSA grades');
+};
+
 window.saveForecast = function(ym) {
   if (!D.forecasts) D.forecasts = {};
   var rev = parseFloat(document.getElementById('fc_rev').value) || 0;
@@ -1448,6 +1483,18 @@ window.openEdit = function(type,idx) {
 
 function rModal() {
   if(!window.modal) return '';
+  
+  // Custom modal for PSA import
+  if (window.modal.type === '_psaImport') {
+    return `<div class="modal-bg" onclick="if(event.target===this){window.modal=null;render();}">
+      <div class="modal" style="max-width:800px">
+        <h2>${window.modal._customTitle || 'Import'}<button class="close" onclick="window.modal=null;render()">&times;</button></h2>
+        ${window.modal._customHTML || ''}
+        <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">${window.modal._customButtons || ''}</div>
+      </div>
+    </div>`;
+  }
+  
   const s=SCHEMAS[window.modal.type];
   const title=window.modal.mode==='add'?s.addLabel:`Edit ${s.title.replace(/s$/,'')}`;
   return `<div class="modal-bg" onclick="if(event.target===this){window.modal=null;render();}">
@@ -7277,6 +7324,130 @@ window.handleImport = function(e) {
   reader.onload=function(ev){
     try{
       const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true});
+      
+      // Detect PSA grade results file
+      const firstSheet = wb.SheetNames[0];
+      const firstWs = wb.Sheets[firstSheet];
+      const firstJson = XLSX.utils.sheet_to_json(firstWs, {header:1, defval:''});
+      const firstHeaders = (firstJson[0] || []).map(h => String(h || '').trim());
+      
+      if (firstHeaders.includes('PSA Grade') || firstHeaders.includes('PSA Certification Id')) {
+        // PSA grade results import
+        const rows = XLSX.utils.sheet_to_json(firstWs);
+        const psaCards = rows.filter(r => r['PSA Grade']).map(r => {
+          const gradeText = String(r['PSA Grade'] || '');
+          var gradeNum = '';
+          if (gradeText.includes('GEM MINT 10') || gradeText.includes('GEM-MT 10')) gradeNum = '10';
+          else if (gradeText.includes('MINT 9') || gradeText.includes('MT 9')) gradeNum = '9';
+          else if (gradeText.includes('NEAR MINT-MINT 8') || gradeText.includes('NM-MT 8')) gradeNum = '8';
+          else if (gradeText.includes('NEAR MINT 7') || gradeText.includes('NM 7')) gradeNum = '7';
+          else if (gradeText.includes('6')) gradeNum = '6';
+          else if (gradeText.includes('5')) gradeNum = '5';
+          else if (gradeText.includes('AUTH')) gradeNum = 'Auth';
+          else { var m2 = gradeText.match(/(\d+)/); if (m2) gradeNum = m2[1]; }
+          
+          return {
+            psaName: String(r['Card'] || ''),
+            grade: gradeNum,
+            gradeText: gradeText,
+            certId: String(r['PSA Certification Id'] || ''),
+            submissionId: String(r['PSA Submission Id'] || r['PCS Submission #'] || ''),
+            declaredValue: String(r['Declared Value'] || '').replace('$','').replace(',','')
+          };
+        });
+        
+        if (!psaCards.length) { showToast('No graded cards found in PSA file'); return; }
+        
+        // Match PSA cards to inventory
+        var submitted = D.inventory.filter(c => c.status === 'Submitted' && (c.gradingCompany || '').toUpperCase() === 'PSA');
+        var matched = [];
+        var unmatched = [];
+        
+        // Matching: extract keywords from PSA name, compare to inventory card names
+        function normalizeForMatch(name) {
+          return String(name || '').toUpperCase()
+            .replace(/[^A-Z0-9\s]/g, ' ')
+            .replace(/\b(POKEMON|CARD|FULL ART|HOLO|REVERSE|PROMO|BLACK STAR)\b/g, '')
+            .replace(/\b\d{4}\b/g, '') // remove years
+            .replace(/\s+/g, ' ').trim();
+        }
+        
+        function matchScore(psaName, invName) {
+          var pWords = normalizeForMatch(psaName).split(' ').filter(w => w.length > 1);
+          var iWords = normalizeForMatch(invName).split(' ').filter(w => w.length > 1);
+          var hits = pWords.filter(w => iWords.some(iw => iw.includes(w) || w.includes(iw))).length;
+          return pWords.length ? hits / pWords.length : 0;
+        }
+        
+        var usedInvIds = new Set();
+        psaCards.forEach(function(psa) {
+          var bestMatch = null;
+          var bestScore = 0;
+          submitted.forEach(function(card) {
+            if (usedInvIds.has(card.id)) return;
+            var score = matchScore(psa.psaName, card.cardName);
+            if (score > bestScore) { bestScore = score; bestMatch = card; }
+          });
+          if (bestMatch && bestScore >= 0.3) {
+            matched.push({ psa: psa, card: bestMatch, score: bestScore });
+            usedInvIds.add(bestMatch.id);
+          } else {
+            unmatched.push(psa);
+          }
+        });
+        
+        // Show preview modal
+        var html = '<div style="max-height:70vh;overflow-y:auto;font-size:11px">';
+        html += '<div style="margin-bottom:12px;padding:10px;background:rgba(0,214,143,.08);border:1px solid var(--green);border-radius:var(--radius-sm)">';
+        html += '<strong style="color:var(--green)">' + psaCards.length + ' cards</strong> in PSA file · ';
+        html += '<strong style="color:var(--green)">' + matched.length + ' matched</strong> to inventory · ';
+        html += '<strong style="color:' + (unmatched.length ? 'var(--red)' : 'var(--text-dim)') + '">' + unmatched.length + ' unmatched</strong>';
+        html += '</div>';
+        
+        if (matched.length) {
+          html += '<table style="width:100%;border-collapse:collapse;margin-bottom:12px"><thead><tr style="border-bottom:2px solid var(--border)">';
+          html += '<th style="text-align:left;padding:4px 6px">PSA Card</th>';
+          html += '<th style="text-align:left;padding:4px 6px">→ Inventory Match</th>';
+          html += '<th style="padding:4px 6px">Grade</th>';
+          html += '<th style="padding:4px 6px">Cert #</th>';
+          html += '</tr></thead><tbody>';
+          matched.forEach(function(m2) {
+            html += '<tr style="border-bottom:1px solid var(--border)">';
+            html += '<td style="padding:4px 6px;font-size:10px;color:var(--text-dim)">' + m2.psa.psaName.slice(0, 50) + '</td>';
+            html += '<td style="padding:4px 6px"><strong>' + m2.card.cardName + '</strong> (' + m2.card.id + ')</td>';
+            html += '<td style="padding:4px 6px;text-align:center;font-weight:700;color:var(--green)">' + m2.psa.gradeText + '</td>';
+            html += '<td style="padding:4px 6px;text-align:center;font-size:10px">' + m2.psa.certId + '</td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+        }
+        
+        if (unmatched.length) {
+          html += '<div style="margin-bottom:8px;font-weight:600;color:var(--yellow)">⚠️ Unmatched cards (will be skipped):</div>';
+          html += '<div style="font-size:10px;color:var(--text-dim)">';
+          unmatched.forEach(function(u) {
+            html += '<div style="padding:2px 0">' + u.psaName + ' — ' + u.gradeText + ' (Cert: ' + u.certId + ')</div>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+        
+        // Store matched data for apply
+        window._psaImportData = matched;
+        
+        // Show in modal
+        window.modal = {
+          type: '_psaImport',
+          mode: 'add',
+          data: {},
+          _customTitle: 'PSA Grade Results Import',
+          _customHTML: html,
+          _customButtons: '<button class="btn btn-accent" onclick="applyPSAImport()">✅ Apply ' + matched.length + ' Grades</button> <button class="btn" onclick="window.modal=null;render()">Cancel</button>'
+        };
+        render();
+        return;
+      }
+      
       const readSheet=(name)=>{const ws=wb.Sheets[name];if(!ws)return[];const json=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});if(!json.length)return[];let hdrIdx=0;const r0=json[0]||[];const r0ok=r0.some(c=>String(c||'').match(/ID|Name|Date|Setting|Prefix|Type|Card|Amount/i));if(!r0ok&&json.length>2){const r2=json[2]||[];if(r2.some(c=>String(c||'').match(/ID|Name|Date/i)))hdrIdx=2;}const headers=json[hdrIdx]||[];return json.slice(hdrIdx+1).filter(r=>r&&!r.every(c=>c===''||c===null)).map(row=>{const obj={};headers.forEach((h,i)=>{if(h)obj[String(h).trim()]=row[i]!==undefined?row[i]:'';});return obj;});};
       const mapInv=r=>({id:r['Card ID']||'',dateAdded:r['Date Added']||'',cardName:r['Card Name']||'',setSeries:r['Set/Series']||'',cardType:r['Card Type']||'',status:r['Status']||'',grade:r['Condition/Grade']||'',gradingCompany:r['Grading Co.']||'',costBasis:num(r['Cost Basis ($)']),gradingCost:num(r['Grading Cost ($)']),marketValue:num(r['Current Market Value ($)']),platform:r['Platform Listed']||'',listPrice:num(r['List Price ($)']),_tcgdexId:r['TCGdex ID']||'',notes:r['Notes']||''});
       const mapSale=r=>({id:r['Sale ID']||'',cardId:r['Card ID']||'',date:r['Date']||'',cardName:r['Card Name']||'',cardType:r['Card Type']||'',gradingCompany:r['Grading Co.']||'',grade:r['Grade']||'',platform:r['Platform']||'',salePrice:num(r['Sale Price ($)']),platformFee:num(r['Platform Fee ($)']),consignFee:num(r['Consignment Fee ($)']),shipCost:num(r['Actual Shipping Cost ($)']),costBasis:num(r['Cost Basis ($)']),ebayShipping:num(r['Buyer-Paid Shipping ($)']),ebayTax:num(r['eBay-Collected Tax ($)']),buyer:r['Buyer Info']||'',ebayTransactionId:r['eBay Transaction ID']||'',notes:r['Notes']||''});
