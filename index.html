@@ -149,7 +149,16 @@ function backfillGradingEntries() {
     }
   });
   
-  if (created || datesFixed || companiesFixed || gradingFixed || dateFixed) {
+  // One-time fix: sales dated 2026-06-20 → 2026-06-03
+  var salesDateFixed = 0;
+  D.sales.forEach(function(s2) {
+    if (s2.date === '2026-06-20') {
+      s2.date = '2026-06-03';
+      salesDateFixed++;
+    }
+  });
+  
+  if (created || datesFixed || companiesFixed || gradingFixed || dateFixed || salesDateFixed) {
     saveData();
     render();
     var msg = [];
@@ -158,6 +167,7 @@ function backfillGradingEntries() {
     if (companiesFixed) msg.push(companiesFixed + ' grading companies backfilled');
     if (gradingFixed) msg.push(gradingFixed + ' CGC grading fees fixed ($15)');
     if (dateFixed) msg.push(dateFixed + ' grading dates fixed (06/02 → 05/31)');
+    if (salesDateFixed) msg.push(salesDateFixed + ' sales dates fixed (06/20 → 06/03)');
     showToast('📋 ' + msg.join(', '));
   }
 }
@@ -3421,11 +3431,21 @@ function filterData(data, type) {
   if (af.payStatus && type === 'sales') {
     result = result.filter(row => (row.paymentStatus || 'Received') === af.payStatus);
   }
-  // Apply text search
+  // Apply text search — multi-word AND: all terms must match somewhere
   if (window.searchTerm) {
-    const term = window.searchTerm.toLowerCase();
+    const terms = window.searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 0);
     result = result.filter(row => {
-      return Object.values(row).some(v => String(v).toLowerCase().includes(term));
+      // Build searchable string from all row values
+      var searchStr = Object.values(row).map(v => String(v).toLowerCase()).join(' ');
+      // For sales, also include linked inventory card fields (cert, grade, company)
+      if (type === 'sales' && row.cardId) {
+        var linkedCard = D.inventory.find(function(c) { return c.id === row.cardId; });
+        if (linkedCard) {
+          searchStr += ' ' + (linkedCard.certId || '') + ' ' + (linkedCard.gradingCompany || '') + ' ' + (linkedCard.grade || '') + ' ' + (linkedCard.cardName || '');
+          searchStr = searchStr.toLowerCase();
+        }
+      }
+      return terms.every(t => searchStr.includes(t));
     });
   }
   return result;
