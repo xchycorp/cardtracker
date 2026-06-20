@@ -523,6 +523,159 @@ function rOverview(m) {
       <div class="mc" style="border-left-color:var(--green)"><div class="lbl">Avg Profit/Card</div><div class="val ${m.avgP>=0?'pos':'neg'}">${m.sc?fmt(m.avgP):'—'}</div><div class="sub" style="color:var(--text-dim)">after all fees</div></div>
       <div class="mc" style="border-left-color:var(--accent)"><div class="lbl">Gross Margin</div><div class="val">${m.tSale?pct(m.gm):'—'}</div><div class="sub" style="color:var(--text-dim)">before operating expenses</div></div>
     </div>
+    <div class="panel" style="margin-bottom:14px">
+      <h3 style="color:var(--text);font-size:14px;margin-bottom:10px">📋 Recent Activity</h3>
+      ${(function() {
+        var events = [];
+        
+        // Sales — group by date + platform
+        var salesBatches = {};
+        D.sales.forEach(function(r) {
+          var key = (r.date || '') + '|' + (r.platform || 'Other');
+          if (!salesBatches[key]) salesBatches[key] = { date: r.date || '', platform: r.platform || 'Other', count: 0, totalRev: 0, totalProfit: 0, cards: [] };
+          var amt = num(r.salePrice);
+          var profit = amt - num(r.platformFee) - num(r.consignFee) - num(r.shipCost) - num(r.costBasis);
+          salesBatches[key].count++;
+          salesBatches[key].totalRev += amt;
+          salesBatches[key].totalProfit += profit;
+          salesBatches[key].cards.push(r.cardName || 'card');
+        });
+        Object.values(salesBatches).forEach(function(b) {
+          if (!b.date) return;
+          var text = b.count === 1 
+            ? 'Sold <strong>' + b.cards[0] + '</strong> on ' + b.platform
+            : b.count + ' cards sold via <strong>' + b.platform + '</strong>';
+          events.push({
+            date: b.date,
+            icon: '💰',
+            text: text,
+            amount: '+' + fmtD(b.totalRev),
+            amountColor: 'var(--green)',
+            detail: fmtD(b.totalProfit) + ' profit',
+            detailColor: b.totalProfit >= 0 ? 'var(--green)' : 'var(--red)'
+          });
+        });
+        
+        // Purchases — group by date + vendor
+        var purchBatches = {};
+        D.purchases.forEach(function(r) {
+          var key = (r.date || '') + '|' + (r.source || r.vendor || 'Other');
+          if (!purchBatches[key]) purchBatches[key] = { date: r.date || '', source: r.source || r.vendor || '—', count: 0, totalAmt: 0, descriptions: [] };
+          var amt = num(r.grandTotal) || (num(r.qty) * num(r.unitCost) + num(r.shipping) + num(r.tax));
+          purchBatches[key].count++;
+          purchBatches[key].totalAmt += amt;
+          if (r.description) purchBatches[key].descriptions.push(r.description);
+        });
+        Object.values(purchBatches).forEach(function(b) {
+          if (!b.date) return;
+          var text = b.count === 1
+            ? 'Purchased from <strong>' + b.source + '</strong>' + (b.descriptions[0] ? ' — ' + b.descriptions[0] : '')
+            : b.count + ' purchases from <strong>' + b.source + '</strong>';
+          events.push({
+            date: b.date,
+            icon: '🛒',
+            text: text,
+            amount: '-' + fmtD(b.totalAmt),
+            amountColor: 'var(--red)',
+            detail: '',
+            detailColor: ''
+          });
+        });
+        
+        // Expenses
+        D.expenses.forEach(function(r) {
+          events.push({
+            date: r.date || '',
+            icon: '💸',
+            text: (r.category || 'Expense') + (r.description ? ' — ' + r.description : ''),
+            amount: '-' + fmtD(num(r.amount)),
+            amountColor: 'var(--red)',
+            detail: '',
+            detailColor: ''
+          });
+        });
+        
+        // Inventory additions — group by date (last 60 days)
+        var cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 60);
+        var cutoffStr = cutoff.toISOString().slice(0, 10);
+        var invBatches = {};
+        D.inventory.forEach(function(r) {
+          if (!r.dateAdded || r.dateAdded < cutoffStr) return;
+          if (r.status === 'Sold') return;
+          var key = r.dateAdded;
+          if (!invBatches[key]) invBatches[key] = { date: r.dateAdded, count: 0, totalCost: 0, cards: [] };
+          invBatches[key].count++;
+          invBatches[key].totalCost += num(r.costBasis);
+          invBatches[key].cards.push(r.cardName || 'card');
+        });
+        Object.values(invBatches).forEach(function(b) {
+          var text = b.count === 1
+            ? 'Added <strong>' + b.cards[0] + '</strong> to inventory'
+            : b.count + ' cards added to inventory';
+          events.push({
+            date: b.date,
+            icon: '📦',
+            text: text,
+            amount: b.totalCost ? '-' + fmtD(b.totalCost) : '',
+            amountColor: 'var(--text-dim)',
+            detail: '',
+            detailColor: ''
+          });
+        });
+        
+        // Grading submissions (batch — group by date+company)
+        var gradingBatches = {};
+        D.grading.forEach(function(r) {
+          var key = (r.dateSubmitted || '') + '|' + (r.company || '');
+          if (!gradingBatches[key]) gradingBatches[key] = { date: r.dateSubmitted || '', company: r.company || '', count: 0, totalCost: 0 };
+          gradingBatches[key].count++;
+          gradingBatches[key].totalCost += num(r.totalCost);
+        });
+        Object.values(gradingBatches).forEach(function(b) {
+          if (!b.date) return;
+          events.push({
+            date: b.date,
+            icon: '📋',
+            text: b.count + ' cards submitted to <strong>' + b.company + '</strong>',
+            amount: '-' + fmtD(b.totalCost),
+            amountColor: 'var(--text-dim)',
+            detail: 'grading fees',
+            detailColor: 'var(--text-dim)'
+          });
+        });
+        
+        // Capital contributions/draws
+        (D.capital || []).forEach(function(r) {
+          var isContrib = (r.type || '').toLowerCase().includes('contribution') || num(r.amount) > 0;
+          events.push({
+            date: r.date || '',
+            icon: isContrib ? '🏦' : '💳',
+            text: (r.type || 'Capital') + (r.notes ? ' — ' + r.notes : ''),
+            amount: (isContrib ? '+' : '-') + fmtD(Math.abs(num(r.amount))),
+            amountColor: isContrib ? 'var(--green)' : 'var(--red)',
+            detail: '',
+            detailColor: ''
+          });
+        });
+        
+        // Sort by date descending, take top 15
+        events.sort(function(a, b) { return (b.date || '').localeCompare(a.date || ''); });
+        events = events.slice(0, 15);
+        
+        if (!events.length) return '<div style="color:var(--text-dim);text-align:center;padding:16px;font-size:12px">No activity yet. Start by adding inventory, logging sales, or recording purchases.</div>';
+        
+        return '<div style="font-size:11px">' + events.map(function(e) {
+          return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">' +
+            '<span style="font-size:13px;width:20px;text-align:center;flex-shrink:0">' + e.icon + '</span>' +
+            '<span style="color:var(--text-dim);font-size:10px;width:62px;flex-shrink:0">' + fmtDate(e.date) + '</span>' +
+            '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + e.text + '</span>' +
+            '<span style="text-align:right;flex-shrink:0;min-width:75px;font-weight:600;color:' + e.amountColor + '">' + e.amount + '</span>' +
+            (e.detail ? '<span style="text-align:right;flex-shrink:0;min-width:60px;font-size:10px;color:' + e.detailColor + '">' + e.detail + '</span>' : '<span style="min-width:60px"></span>') +
+          '</div>';
+        }).join('') + '</div>';
+      })()}
+    </div>
     <div class="charts-grid">
       <div class="panel chart-card"><h3>Monthly Sales Trend</h3><div class="chart-wrap"><canvas id="ch3"></canvas></div></div>
       <div class="panel chart-card"><h3>Inventory by Status</h3><div class="chart-wrap"><canvas id="ch2"></canvas></div></div>
