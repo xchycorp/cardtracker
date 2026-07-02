@@ -3663,6 +3663,18 @@ function rAnalytics(m) {
     return '<span style="color:' + color + ';font-size:10px;font-weight:600">' + arrow + ' ' + Math.abs(change).toFixed(1) + '%</span>';
   };
 
+  // TTM profit from monthlyPL (consistent with P&L table)
+  var ttmNetFromPL = 0;
+  var ttmRevFromPL = 0;
+  var ttmCutoff2 = new Date(); ttmCutoff2.setFullYear(ttmCutoff2.getFullYear() - 1);
+  var ttmCutoffYM = ttmCutoff2.toISOString().slice(0, 7);
+  sortedMonths.forEach(function(ym) {
+    if (ym >= ttmCutoffYM && monthlyPL[ym]) {
+      ttmNetFromPL += monthlyPL[ym].net;
+      ttmRevFromPL += monthlyPL[ym].rev;
+    }
+  });
+
   return rFinancialsSubTabs() + `
     <div class="panel">
       <h3 style="color:var(--cyan)">📊 Performance Overview</h3>
@@ -3700,29 +3712,29 @@ function rAnalytics(m) {
       <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px">Rolling windows smooth out single-month noise</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px">
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
-          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">TTM Revenue</div>
+          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">12-Month Revenue</div>
           <div style="font-size:18px;font-weight:700">${fmt(ttmRev)}</div>
           <div style="font-size:10px;color:var(--text-faint);margin-top:4px">${ttm.length} sales · last 365 days</div>
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
-          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">TTM Profit</div>
-          <div style="font-size:18px;font-weight:700;color:${ttmProf>=0?'var(--green)':'var(--red)'}">${fmt(ttmProf)}</div>
-          <div style="font-size:10px;color:var(--text-faint);margin-top:4px">${ttmRev ? pct(ttmProf/ttmRev) : '—'} margin</div>
+          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">12-Month Net Income</div>
+          <div style="font-size:18px;font-weight:700;color:${ttmNetFromPL>=0?'var(--green)':'var(--red)'}">${fmt(ttmNetFromPL)}</div>
+          <div style="font-size:10px;color:var(--text-faint);margin-top:4px">${ttmRevFromPL ? pct(ttmNetFromPL/ttmRevFromPL) : '—'} net margin</div>
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
-          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">90-Day Rev</div>
+          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">90-Day Revenue</div>
           <div style="font-size:18px;font-weight:700">${fmt(t90Rev)}</div>
           <div style="font-size:10px;color:var(--text-faint);margin-top:4px">${t90Sales.length} sales</div>
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
-          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">30-Day Rev</div>
+          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">30-Day Revenue</div>
           <div style="font-size:18px;font-weight:700">${fmt(t30Rev)}</div>
           <div style="font-size:10px;color:var(--text-faint);margin-top:4px">${t30Sales.length} sales</div>
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
-          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">30-Day Burn</div>
+          <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">30-Day Expenses</div>
           <div style="font-size:18px;font-weight:700;color:var(--yellow)">${fmt(t30Burn)}</div>
-          <div style="font-size:10px;color:var(--text-faint);margin-top:4px">Expenses last 30d</div>
+          <div style="font-size:10px;color:var(--text-faint);margin-top:4px">Operating costs last 30d</div>
         </div>
       </div>
     </div>
