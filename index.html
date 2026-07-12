@@ -3684,24 +3684,24 @@ function rAnalytics(m) {
           <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Revenue This Month</div>
           <div style="font-size:22px;font-weight:700">${fmt(currRev)}</div>
           <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--text-dim)">
-            <span>MoM ${changeIndicator(pctChange(currRev, prevRev))}</span>
-            <span>YoY ${changeIndicator(pctChange(currRev, yoyRev))}</span>
+            <span><span style="text-transform:none">MoM</span> ${changeIndicator(pctChange(currRev, prevRev))}</span>
+            <span><span style="text-transform:none">YoY</span> ${changeIndicator(pctChange(currRev, yoyRev))}</span>
           </div>
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px">
           <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Profit This Month</div>
           <div style="font-size:22px;font-weight:700;color:${currProf>=0?'var(--green)':'var(--red)'}">${fmt(currProf)}</div>
           <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--text-dim)">
-            <span>MoM ${changeIndicator(pctChange(currProf, prevProf))}</span>
-            <span>YoY ${changeIndicator(pctChange(currProf, yoyProf))}</span>
+            <span><span style="text-transform:none">MoM</span> ${changeIndicator(pctChange(currProf, prevProf))}</span>
+            <span><span style="text-transform:none">YoY</span> ${changeIndicator(pctChange(currProf, yoyProf))}</span>
           </div>
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px">
           <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Units Sold This Month</div>
           <div style="font-size:22px;font-weight:700">${currUnits}</div>
           <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--text-dim)">
-            <span>MoM ${changeIndicator(pctChange(currUnits, prevUnits))}</span>
-            <span>YoY ${changeIndicator(pctChange(currUnits, yoyUnits))}</span>
+            <span><span style="text-transform:none">MoM</span> ${changeIndicator(pctChange(currUnits, prevUnits))}</span>
+            <span><span style="text-transform:none">YoY</span> ${changeIndicator(pctChange(currUnits, yoyUnits))}</span>
           </div>
         </div>
       </div>
@@ -6663,8 +6663,8 @@ function rFinancials(m) {
           <th class="r" style="padding:6px 8px;color:var(--text-dim)">Net Income</th>
           <th class="r" style="padding:6px 8px;color:var(--text-dim)">Margin</th>
           <th class="r" style="padding:6px 8px;color:var(--text-dim)">Units</th>
-          <th class="r" style="padding:6px 8px;color:var(--text-dim)">MoM Rev</th>
-          <th class="r" style="padding:6px 8px;color:var(--text-dim)">MoM Net</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)"><span style="text-transform:none">MoM</span> Rev</th>
+          <th class="r" style="padding:6px 8px;color:var(--text-dim)"><span style="text-transform:none">MoM</span> Net</th>
         </tr></thead>
         <tbody>
           ${sortedMonths.slice(-12).reverse().map(function(ym) {
@@ -6693,73 +6693,131 @@ function rFinancials(m) {
     </details>
     
     <details>
-    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--purple);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📊 Expense Ratios — Where Every Dollar Goes</summary>
+    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--purple);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📊 Cost Structure — Revenue Waterfall</summary>
     ${(function() {
       var totalRev = m.tSale;
       if (!totalRev) return '<div style="color:var(--text-dim);text-align:center;padding:20px">No revenue data yet</div>';
-      var totalFees = m.tPlatFee + m.tConFee;
-      var totalShip = m.tShip;
       var totalCOGS = m.tCOGS;
       var totalGrade = m.tGrade;
+      var totalFees = m.tPlatFee + m.tConFee;
+      var totalShip = m.tShip;
       var totalExp = m.tExp;
       var totalNet = m.net;
+      var grossProfit = totalRev - totalCOGS - totalGrade;
+      var contribProfit = grossProfit - totalFees - totalShip;
       
-      var ratios = [
-        { label: 'Card Cost (COGS)', amount: totalCOGS, color: 'var(--red)' },
-        { label: 'Grading Fees', amount: totalGrade, color: 'var(--yellow)' },
-        { label: 'Platform & Consignment Fees', amount: totalFees, color: 'var(--blue)' },
-        { label: 'Shipping Costs', amount: totalShip, color: 'var(--cyan)' },
-        { label: 'Operating Expenses', amount: totalExp, color: 'var(--purple)' },
-        { label: 'Net Income (kept)', amount: totalNet, color: 'var(--green)' }
+      var pct2 = function(v) { return totalRev ? (v / totalRev * 100).toFixed(1) + '%' : '—'; };
+      
+      var html = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">How revenue flows from top line to bottom line — each level deducts a cost category</div>';
+      
+      // Visual bar
+      var barItems = [
+        { label: 'COGS', amount: totalCOGS + totalGrade, color: 'var(--red)' },
+        { label: 'Selling', amount: totalFees + totalShip, color: 'var(--blue)' },
+        { label: 'OpEx', amount: totalExp, color: 'var(--purple)' },
+        { label: 'Net Income', amount: totalNet, color: 'var(--green)' }
       ];
-      
-      var html = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Percentage of gross revenue allocated to each cost category</div>';
-      
-      // Visual bar chart
       html += '<div style="display:flex;height:28px;border-radius:var(--radius-sm);overflow:hidden;margin-bottom:16px">';
-      ratios.forEach(function(r2) {
+      barItems.forEach(function(r2) {
         var pctVal = totalRev ? (r2.amount / totalRev * 100) : 0;
         if (pctVal > 0) {
-          html += '<div style="width:' + pctVal + '%;background:' + r2.color + ';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;min-width:' + (pctVal > 5 ? '0' : '0') + 'px" title="' + r2.label + ': ' + pctVal.toFixed(1) + '%">' + (pctVal > 6 ? pctVal.toFixed(0) + '%' : '') + '</div>';
+          html += '<div style="width:' + pctVal + '%;background:' + r2.color + ';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff" title="' + r2.label + ': ' + pctVal.toFixed(1) + '%">' + (pctVal > 6 ? r2.label + ' ' + pctVal.toFixed(0) + '%' : '') + '</div>';
         }
       });
       html += '</div>';
       
-      // Table breakdown
-      html += '<table style="width:100%;font-size:11px"><tbody>';
-      ratios.forEach(function(r2) {
-        var pctVal = totalRev ? (r2.amount / totalRev * 100) : 0;
-        html += '<tr style="border-bottom:1px solid var(--border)">';
-        html += '<td style="padding:6px 8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + r2.color + ';margin-right:8px;vertical-align:middle"></span>' + r2.label + '</td>';
-        html += '<td class="r mono" style="padding:6px 8px">' + fmtD(r2.amount) + '</td>';
-        html += '<td class="r mono" style="padding:6px 8px;font-weight:700;color:' + r2.color + '">' + pctVal.toFixed(1) + '%</td>';
-        html += '<td style="padding:6px 8px;width:40%"><div style="background:var(--border);border-radius:2px;height:8px;overflow:hidden"><div style="height:100%;width:' + Math.min(pctVal, 100) + '%;background:' + r2.color + ';border-radius:2px"></div></div></td>';
-        html += '</tr>';
-      });
-      // Total row
-      var totalCosts = totalCOGS + totalGrade + totalFees + totalShip + totalExp;
-      html += '<tr style="border-top:2px solid var(--border);font-weight:700">';
-      html += '<td style="padding:6px 8px">Total Costs</td>';
-      html += '<td class="r mono" style="padding:6px 8px;color:var(--red)">' + fmtD(totalCosts) + '</td>';
-      html += '<td class="r mono" style="padding:6px 8px">' + (totalRev ? (totalCosts / totalRev * 100).toFixed(1) : '0') + '%</td>';
-      html += '<td></td></tr>';
+      // Waterfall table
+      html += '<table style="width:100%;font-size:11px;border-collapse:collapse"><tbody>';
+      
+      // Revenue
+      html += '<tr style="border-bottom:2px solid var(--border);font-weight:700"><td style="padding:8px 8px">Revenue</td><td class="r mono" style="padding:8px 8px">' + fmtD(totalRev) + '</td><td class="r mono" style="padding:8px 8px">100.0%</td><td></td></tr>';
+      
+      // COGS section header
+      html += '<tr><td colspan="4" style="padding:8px 8px 2px;font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px">Cost of Goods Sold</td></tr>';
+      html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px 4px 20px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--red);margin-right:6px;vertical-align:middle"></span>Card Cost</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">(' + fmtD(totalCOGS) + ')</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">' + pct2(totalCOGS) + '</td><td></td></tr>';
+      html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px 4px 20px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--yellow);margin-right:6px;vertical-align:middle"></span>Grading Fees</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">(' + fmtD(totalGrade) + ')</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">' + pct2(totalGrade) + '</td><td></td></tr>';
+      
+      // Gross Profit
+      var gpColor = grossProfit >= 0 ? 'var(--green)' : 'var(--red)';
+      html += '<tr style="border-bottom:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.02)"><td style="padding:8px 8px">Gross Profit</td><td class="r mono" style="padding:8px 8px;color:' + gpColor + '">' + fmtD(grossProfit) + '</td><td class="r mono" style="padding:8px 8px;color:' + gpColor + '">' + pct2(grossProfit) + '</td><td style="padding:8px 8px;font-size:10px;color:var(--text-dim)">Gross Margin</td></tr>';
+      
+      // Selling Costs section header
+      html += '<tr><td colspan="4" style="padding:8px 8px 2px;font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px">Selling Costs</td></tr>';
+      html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px 4px 20px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--blue);margin-right:6px;vertical-align:middle"></span>Platform & Consignment Fees</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">(' + fmtD(totalFees) + ')</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">' + pct2(totalFees) + '</td><td></td></tr>';
+      html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px 4px 20px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--cyan);margin-right:6px;vertical-align:middle"></span>Shipping Costs</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">(' + fmtD(totalShip) + ')</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">' + pct2(totalShip) + '</td><td></td></tr>';
+      
+      // Operating Income (after selling costs)
+      var opIncColor = contribProfit >= 0 ? 'var(--green)' : 'var(--red)';
+      html += '<tr style="border-bottom:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.02)"><td style="padding:8px 8px">Operating Income</td><td class="r mono" style="padding:8px 8px;color:' + opIncColor + '">' + fmtD(contribProfit) + '</td><td class="r mono" style="padding:8px 8px;color:' + opIncColor + '">' + pct2(contribProfit) + '</td><td style="padding:8px 8px;font-size:10px;color:var(--text-dim)">After selling costs</td></tr>';
+      
+      // Operating Expenses section header
+      html += '<tr><td colspan="4" style="padding:8px 8px 2px;font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px">Operating Expenses</td></tr>';
+      // Individual expense categories
+      if (Object.keys(m.expByCat).length) {
+        Object.entries(m.expByCat).sort(function(a,b){return b[1]-a[1]}).forEach(function(entry) {
+          html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px 4px 20px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--purple);margin-right:6px;vertical-align:middle"></span>' + entry[0] + '</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">(' + fmtD(entry[1]) + ')</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">' + pct2(entry[1]) + '</td><td></td></tr>';
+        });
+      } else {
+        html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px 4px 20px;color:var(--text-dim)">No expenses recorded</td><td></td><td></td><td></td></tr>';
+      }
+      html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px 4px 20px;font-weight:600">Total Operating Expenses</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">(' + fmtD(totalExp) + ')</td><td class="r mono" style="padding:4px 8px;color:var(--text-dim)">' + pct2(totalExp) + '</td><td></td></tr>';
+      
+      // Net Income
+      var netColor = totalNet >= 0 ? 'var(--green)' : 'var(--red)';
+      html += '<tr style="border-top:3px solid var(--border);font-weight:700;font-size:12px"><td style="padding:10px 8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--green);margin-right:6px;vertical-align:middle"></span>Net Income</td><td class="r mono" style="padding:10px 8px;color:' + netColor + '">' + fmtD(totalNet) + '</td><td class="r mono" style="padding:10px 8px;color:' + netColor + ';font-size:13px">' + pct2(totalNet) + '</td><td style="padding:10px 8px;font-size:10px;color:var(--text-dim)">Net Margin</td></tr>';
+      
       html += '</tbody></table>';
       
-      // Per-category expense breakdown
-      if (Object.keys(m.expByCat).length) {
-        html += '<div style="margin-top:14px;font-weight:600;font-size:11px;margin-bottom:8px">Operating Expense Breakdown</div>';
-        html += '<table style="width:100%;font-size:11px"><tbody>';
-        Object.entries(m.expByCat).sort(function(a,b){return b[1]-a[1]}).forEach(function(entry) {
-          var pctVal = totalRev ? (entry[1] / totalRev * 100) : 0;
-          html += '<tr style="border-bottom:1px solid var(--border)">';
-          html += '<td style="padding:4px 8px;padding-left:20px;color:var(--text-dim)">' + entry[0] + '</td>';
-          html += '<td class="r mono" style="padding:4px 8px">' + fmtD(entry[1]) + '</td>';
-          html += '<td class="r mono" style="padding:4px 8px;color:var(--text-dim)">' + pctVal.toFixed(1) + '%</td>';
-          html += '</tr>';
-        });
-        html += '</tbody></table>';
-      }
+      return html;
+    })()}
+    </details>
+    
+    <details>
+    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--purple);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📊 Monthly Expense Ratios — Trend</summary>
+    ${(function() {
+      var months12 = sortedMonths.slice(-12).reverse();
+      if (!months12.length) return '<div style="color:var(--text-dim);text-align:center;padding:20px">No data yet</div>';
       
+      var html = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Each cost category as a percentage of that month\'s revenue — track efficiency trends over time</div>';
+      html += '<div style="overflow-x:auto"><table style="width:100%;font-size:10px;border-collapse:collapse">';
+      html += '<thead><tr style="border-bottom:2px solid var(--border)">';
+      html += '<th style="text-align:left;padding:5px 6px;text-transform:none">Month</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none">Revenue</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--red)">COGS %</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--yellow)">Grading %</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--blue)">Fees %</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--cyan)">Ship %</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--purple)">OpEx %</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--green)">Net Margin</th>';
+      html += '</tr></thead><tbody>';
+      
+      months12.forEach(function(ym) {
+        var p = monthlyPL[ym];
+        if (!p || !p.rev) return;
+        var pp = ym.split('-');
+        var label = monthNames[parseInt(pp[1])-1] + ' ' + pp[0].slice(2);
+        var rev = p.rev;
+        var cogsR = ((p.cogs + p.gradeCost) / rev * 100);
+        var gradeR = (p.gradeCost / rev * 100);
+        var cogsOnlyR = (p.cogs / rev * 100);
+        var feeR = ((p.platFee + p.conFee + p.ship) / rev * 100);
+        var shipR = (p.ship / rev * 100);
+        var expR = (p.exp / rev * 100);
+        var netR = (p.net / rev * 100);
+        
+        html += '<tr style="border-bottom:1px solid var(--border)">';
+        html += '<td style="padding:5px 6px;font-weight:600">' + label + '</td>';
+        html += '<td class="r mono" style="padding:5px 6px">' + fmt(rev) + '</td>';
+        html += '<td class="r mono" style="padding:5px 6px">' + cogsOnlyR.toFixed(1) + '%</td>';
+        html += '<td class="r mono" style="padding:5px 6px">' + gradeR.toFixed(1) + '%</td>';
+        html += '<td class="r mono" style="padding:5px 6px">' + feeR.toFixed(1) + '%</td>';
+        html += '<td class="r mono" style="padding:5px 6px">' + shipR.toFixed(1) + '%</td>';
+        html += '<td class="r mono" style="padding:5px 6px">' + expR.toFixed(1) + '%</td>';
+        html += '<td class="r mono" style="padding:5px 6px;font-weight:700;color:' + (netR >= 0 ? 'var(--green)' : 'var(--red)') + '">' + netR.toFixed(1) + '%</td>';
+        html += '</tr>';
+      });
+      
+      html += '</tbody></table></div>';
       return html;
     })()}
     </details>
@@ -6792,8 +6850,8 @@ function rFinancials(m) {
         '<th class="r" style="padding:6px 8px;color:var(--text-dim)">' + thisLabel + '</th>' +
         '<th class="r" style="padding:6px 8px;color:var(--text-dim)">' + prevLabel + '</th>' +
         '<th class="r" style="padding:6px 8px;color:var(--text-dim)">' + yoyLabel + '</th>' +
-        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">MoM</th>' +
-        '<th class="r" style="padding:6px 8px;color:var(--text-dim)">YoY</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim);text-transform:none">MoM</th>' +
+        '<th class="r" style="padding:6px 8px;color:var(--text-dim);text-transform:none">YoY</th>' +
       '</tr></thead><tbody>' +
         compRow('Gross Revenue', 'rev', false) +
         compRow('Selling Fees', 'platFee', true) +
