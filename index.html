@@ -525,7 +525,7 @@ function rOverview(m) {
     <div class="metrics">
       <div class="mc" style="border-left-color:var(--blue)"><div class="lbl">Total Revenue</div><div class="val">${fmt(m.tSale)}</div><div class="sub" style="color:var(--text-dim)">${m.sc} sales</div></div>
       <div class="mc" style="border-left-color:${m.net>=0?'var(--green)':'var(--red)'}"><div class="lbl">Net Income</div><div class="val ${m.net>=0?'pos':'neg'}">${fmt(m.net)}</div><div class="sub" style="color:var(--text-dim)">${m.tSale?pct(m.nm):' — '} net margin</div></div>
-      <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Cash on Hand</div><div class="val">${fmt(m.cashBalance)}</div><div class="sub" style="color:${m.cashBalance>=0?'var(--green)':'var(--red)'}">Available cash</div></div>
+      <div class="mc" style="border-left-color:var(--cyan)"><div class="lbl">Cash on Hand</div><div class="val">${fmt(m.cashBalance)}</div><div class="sub" style="color:${m.cashBalance>=0?'var(--green)':'var(--red)'}; font-size:10px">${m.receivable ? '+ ' + fmt(m.receivable) + ' pending = <strong>' + fmt(m.cashBalance + m.receivable) + '</strong> total' : 'Available cash'}</div></div>
       <div class="mc" style="border-left-color:var(--yellow)"><div class="lbl">Weighted ROI</div><div class="val">${(m.tCOGS+m.tGrade)?pct(m.gross/(m.tCOGS+m.tGrade)):'—'}</div><div class="sub" style="color:var(--text-dim)">profit ÷ total invested</div></div>
     </div>
     <div class="metrics">
@@ -6693,6 +6693,78 @@ function rFinancials(m) {
     </details>
     
     <details>
+    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--purple);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📊 Expense Ratios — Where Every Dollar Goes</summary>
+    ${(function() {
+      var totalRev = m.tSale;
+      if (!totalRev) return '<div style="color:var(--text-dim);text-align:center;padding:20px">No revenue data yet</div>';
+      var totalFees = m.tPlatFee + m.tConFee;
+      var totalShip = m.tShip;
+      var totalCOGS = m.tCOGS;
+      var totalGrade = m.tGrade;
+      var totalExp = m.tExp;
+      var totalNet = m.net;
+      
+      var ratios = [
+        { label: 'Card Cost (COGS)', amount: totalCOGS, color: 'var(--red)' },
+        { label: 'Grading Fees', amount: totalGrade, color: 'var(--yellow)' },
+        { label: 'Platform & Consignment Fees', amount: totalFees, color: 'var(--blue)' },
+        { label: 'Shipping Costs', amount: totalShip, color: 'var(--cyan)' },
+        { label: 'Operating Expenses', amount: totalExp, color: 'var(--purple)' },
+        { label: 'Net Income (kept)', amount: totalNet, color: 'var(--green)' }
+      ];
+      
+      var html = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Percentage of gross revenue allocated to each cost category</div>';
+      
+      // Visual bar chart
+      html += '<div style="display:flex;height:28px;border-radius:var(--radius-sm);overflow:hidden;margin-bottom:16px">';
+      ratios.forEach(function(r2) {
+        var pctVal = totalRev ? (r2.amount / totalRev * 100) : 0;
+        if (pctVal > 0) {
+          html += '<div style="width:' + pctVal + '%;background:' + r2.color + ';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;min-width:' + (pctVal > 5 ? '0' : '0') + 'px" title="' + r2.label + ': ' + pctVal.toFixed(1) + '%">' + (pctVal > 6 ? pctVal.toFixed(0) + '%' : '') + '</div>';
+        }
+      });
+      html += '</div>';
+      
+      // Table breakdown
+      html += '<table style="width:100%;font-size:11px"><tbody>';
+      ratios.forEach(function(r2) {
+        var pctVal = totalRev ? (r2.amount / totalRev * 100) : 0;
+        html += '<tr style="border-bottom:1px solid var(--border)">';
+        html += '<td style="padding:6px 8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + r2.color + ';margin-right:8px;vertical-align:middle"></span>' + r2.label + '</td>';
+        html += '<td class="r mono" style="padding:6px 8px">' + fmtD(r2.amount) + '</td>';
+        html += '<td class="r mono" style="padding:6px 8px;font-weight:700;color:' + r2.color + '">' + pctVal.toFixed(1) + '%</td>';
+        html += '<td style="padding:6px 8px;width:40%"><div style="background:var(--border);border-radius:2px;height:8px;overflow:hidden"><div style="height:100%;width:' + Math.min(pctVal, 100) + '%;background:' + r2.color + ';border-radius:2px"></div></div></td>';
+        html += '</tr>';
+      });
+      // Total row
+      var totalCosts = totalCOGS + totalGrade + totalFees + totalShip + totalExp;
+      html += '<tr style="border-top:2px solid var(--border);font-weight:700">';
+      html += '<td style="padding:6px 8px">Total Costs</td>';
+      html += '<td class="r mono" style="padding:6px 8px;color:var(--red)">' + fmtD(totalCosts) + '</td>';
+      html += '<td class="r mono" style="padding:6px 8px">' + (totalRev ? (totalCosts / totalRev * 100).toFixed(1) : '0') + '%</td>';
+      html += '<td></td></tr>';
+      html += '</tbody></table>';
+      
+      // Per-category expense breakdown
+      if (Object.keys(m.expByCat).length) {
+        html += '<div style="margin-top:14px;font-weight:600;font-size:11px;margin-bottom:8px">Operating Expense Breakdown</div>';
+        html += '<table style="width:100%;font-size:11px"><tbody>';
+        Object.entries(m.expByCat).sort(function(a,b){return b[1]-a[1]}).forEach(function(entry) {
+          var pctVal = totalRev ? (entry[1] / totalRev * 100) : 0;
+          html += '<tr style="border-bottom:1px solid var(--border)">';
+          html += '<td style="padding:4px 8px;padding-left:20px;color:var(--text-dim)">' + entry[0] + '</td>';
+          html += '<td class="r mono" style="padding:4px 8px">' + fmtD(entry[1]) + '</td>';
+          html += '<td class="r mono" style="padding:4px 8px;color:var(--text-dim)">' + pctVal.toFixed(1) + '%</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+      }
+      
+      return html;
+    })()}
+    </details>
+    
+    <details>
     <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--cyan);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📋 Comparative P&L — This Month vs Last Month vs YoY</summary>
     ${(function() {
       const thisMonth = monthlyPL[thisYM] || {rev:0,platFee:0,conFee:0,ship:0,netRev:0,cogs:0,gradeCost:0,gross:0,exp:0,net:0,units:0};
@@ -6821,6 +6893,20 @@ function rFinancials(m) {
         ['Net Income', ytd.net, pytd.net]
       ];
       
+      // YTD Margins
+      var ytdGrossMargin = ytd.rev ? (ytd.gross / ytd.rev * 100) : 0;
+      var pytdGrossMargin = pytd.rev ? (pytd.gross / pytd.rev * 100) : 0;
+      var ytdNetMargin = ytd.rev ? (ytd.net / ytd.rev * 100) : 0;
+      var pytdNetMargin = pytd.rev ? (pytd.net / pytd.rev * 100) : 0;
+      
+      // YTD Expense Ratios
+      var ytdCogsRatio = ytd.rev ? ((ytd.cogs + ytd.gradeCost) / ytd.rev * 100) : 0;
+      var pytdCogsRatio = pytd.rev ? ((pytd.cogs + pytd.gradeCost) / pytd.rev * 100) : 0;
+      var ytdFeeRatio = ytd.rev ? ((ytd.platFee + ytd.conFee + ytd.ship) / ytd.rev * 100) : 0;
+      var pytdFeeRatio = pytd.rev ? ((pytd.platFee + pytd.conFee + pytd.ship) / pytd.rev * 100) : 0;
+      var ytdExpRatio = ytd.rev ? (ytd.exp / ytd.rev * 100) : 0;
+      var pytdExpRatio = pytd.rev ? (pytd.exp / pytd.rev * 100) : 0;
+      
       return '<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="border-bottom:2px solid var(--border)">' +
         '<th style="text-align:left;padding:6px 8px;color:var(--text-dim)">Line Item</th>' +
         '<th class="r" style="padding:6px 8px;color:var(--text-dim)">YTD ' + thisYear + '</th>' +
@@ -6845,6 +6931,37 @@ function rFinancials(m) {
           '<td class="r mono" style="padding:6px 8px">' + pytd.units + '</td>' +
           '<td class="r mono" style="padding:6px 8px;color:' + ((ytd.units-pytd.units)>=0?'var(--green)':'var(--red)') + '">' + (ytd.units-pytd.units>=0?'+':'') + (ytd.units-pytd.units) + '</td>' +
           '<td class="r mono" style="padding:6px 8px">' + (pytd.units ? pctChg(ytd.units, pytd.units) : '—') + '</td></tr>' +
+        
+        // Margins section
+        '<tr><td colspan="5" style="padding:10px 8px 4px;font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">YTD Margins</td></tr>' +
+        '<tr style="border-bottom:1px solid var(--border);font-weight:600"><td style="padding:6px 8px">Gross Margin</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:var(--green)">' + ytdGrossMargin.toFixed(1) + '%</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + (pytd.rev ? pytdGrossMargin.toFixed(1) + '%' : '—') + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + ((ytdGrossMargin-pytdGrossMargin)>=0?'var(--green)':'var(--red)') + '">' + (pytd.rev ? (ytdGrossMargin-pytdGrossMargin>=0?'+':'') + (ytdGrossMargin-pytdGrossMargin).toFixed(1) + 'pp' : '—') + '</td>' +
+          '<td></td></tr>' +
+        '<tr style="border-bottom:1px solid var(--border);font-weight:600"><td style="padding:6px 8px">Net Margin</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + (ytdNetMargin>=0?'var(--green)':'var(--red)') + '">' + ytdNetMargin.toFixed(1) + '%</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + (pytd.rev ? pytdNetMargin.toFixed(1) + '%' : '—') + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + ((ytdNetMargin-pytdNetMargin)>=0?'var(--green)':'var(--red)') + '">' + (pytd.rev ? (ytdNetMargin-pytdNetMargin>=0?'+':'') + (ytdNetMargin-pytdNetMargin).toFixed(1) + 'pp' : '—') + '</td>' +
+          '<td></td></tr>' +
+        
+        // Expense ratios section
+        '<tr><td colspan="5" style="padding:10px 8px 4px;font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">YTD Expense Ratios (% of Revenue)</td></tr>' +
+        '<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 8px;color:var(--text-dim)">COGS + Grading</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + ytdCogsRatio.toFixed(1) + '%</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + (pytd.rev ? pytdCogsRatio.toFixed(1) + '%' : '—') + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + ((ytdCogsRatio-pytdCogsRatio)<=0?'var(--green)':'var(--red)') + '">' + (pytd.rev ? (ytdCogsRatio-pytdCogsRatio>=0?'+':'') + (ytdCogsRatio-pytdCogsRatio).toFixed(1) + 'pp' : '—') + '</td>' +
+          '<td></td></tr>' +
+        '<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 8px;color:var(--text-dim)">Selling Fees</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + ytdFeeRatio.toFixed(1) + '%</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + (pytd.rev ? pytdFeeRatio.toFixed(1) + '%' : '—') + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + ((ytdFeeRatio-pytdFeeRatio)<=0?'var(--green)':'var(--red)') + '">' + (pytd.rev ? (ytdFeeRatio-pytdFeeRatio>=0?'+':'') + (ytdFeeRatio-pytdFeeRatio).toFixed(1) + 'pp' : '—') + '</td>' +
+          '<td></td></tr>' +
+        '<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 8px;color:var(--text-dim)">Operating Expenses</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + ytdExpRatio.toFixed(1) + '%</td>' +
+          '<td class="r mono" style="padding:6px 8px">' + (pytd.rev ? pytdExpRatio.toFixed(1) + '%' : '—') + '</td>' +
+          '<td class="r mono" style="padding:6px 8px;color:' + ((ytdExpRatio-pytdExpRatio)<=0?'var(--green)':'var(--red)') + '">' + (pytd.rev ? (ytdExpRatio-pytdExpRatio>=0?'+':'') + (ytdExpRatio-pytdExpRatio).toFixed(1) + 'pp' : '—') + '</td>' +
+          '<td></td></tr>' +
       '</tbody></table></div>';
     })()}
     </details>
