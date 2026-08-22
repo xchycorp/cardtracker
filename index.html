@@ -975,7 +975,7 @@ function renderTableRow(type, row, i, s) {
   html += '<td class="r">';
   if (type === 'inventory') {
     html += '<select class="quick-status" onchange="quickStatus(' + i + ',this.value)" title="Quick status change"><option value="">⚡</option>';
-    ['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked'].forEach(function(st) {
+    ['Raw','Submitted','Graded','Listed','Hold','Cracked'].forEach(function(st) {
       html += '<option value="' + st + '"' + (row.status === st ? ' disabled' : '') + '>' + st + '</option>';
     });
     html += '</select> ';
@@ -6773,22 +6773,22 @@ function rFinancials(m) {
     </details>
     
     <details>
-    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--purple);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📊 Monthly Expense Ratios — Trend</summary>
+    <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:12px;color:var(--purple);padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:10px">📊 Monthly Cost Structure — Trend</summary>
     ${(function() {
       var months12 = sortedMonths.slice(-12).reverse();
       if (!months12.length) return '<div style="color:var(--text-dim);text-align:center;padding:20px">No data yet</div>';
       
-      var html = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Each cost category as a percentage of that month\'s revenue — track efficiency trends over time</div>';
+      var html = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Margins and cost ratios by month — track efficiency trends over time</div>';
       html += '<div style="overflow-x:auto"><table style="width:100%;font-size:10px;border-collapse:collapse">';
       html += '<thead><tr style="border-bottom:2px solid var(--border)">';
       html += '<th style="text-align:left;padding:5px 6px;text-transform:none">Month</th>';
       html += '<th class="r" style="padding:5px 6px;text-transform:none">Revenue</th>';
       html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--red)">COGS %</th>';
       html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--yellow)">Grading %</th>';
-      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--blue)">Fees %</th>';
-      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--cyan)">Ship %</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--green);font-weight:700">Gross Margin</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--blue)">Selling %</th>';
       html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--purple)">OpEx %</th>';
-      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--green)">Net Margin</th>';
+      html += '<th class="r" style="padding:5px 6px;text-transform:none;color:var(--green);font-weight:700">Net Margin</th>';
       html += '</tr></thead><tbody>';
       
       months12.forEach(function(ym) {
@@ -6797,11 +6797,10 @@ function rFinancials(m) {
         var pp = ym.split('-');
         var label = monthNames[parseInt(pp[1])-1] + ' ' + pp[0].slice(2);
         var rev = p.rev;
-        var cogsR = ((p.cogs + p.gradeCost) / rev * 100);
-        var gradeR = (p.gradeCost / rev * 100);
         var cogsOnlyR = (p.cogs / rev * 100);
-        var feeR = ((p.platFee + p.conFee + p.ship) / rev * 100);
-        var shipR = (p.ship / rev * 100);
+        var gradeR = (p.gradeCost / rev * 100);
+        var grossM = ((rev - p.cogs - p.gradeCost) / rev * 100);
+        var sellR = ((p.platFee + p.conFee + p.ship) / rev * 100);
         var expR = (p.exp / rev * 100);
         var netR = (p.net / rev * 100);
         
@@ -6810,8 +6809,8 @@ function rFinancials(m) {
         html += '<td class="r mono" style="padding:5px 6px">' + fmt(rev) + '</td>';
         html += '<td class="r mono" style="padding:5px 6px">' + cogsOnlyR.toFixed(1) + '%</td>';
         html += '<td class="r mono" style="padding:5px 6px">' + gradeR.toFixed(1) + '%</td>';
-        html += '<td class="r mono" style="padding:5px 6px">' + feeR.toFixed(1) + '%</td>';
-        html += '<td class="r mono" style="padding:5px 6px">' + shipR.toFixed(1) + '%</td>';
+        html += '<td class="r mono" style="padding:5px 6px;font-weight:700;color:' + (grossM >= 50 ? 'var(--green)' : grossM >= 30 ? 'var(--yellow)' : 'var(--red)') + '">' + grossM.toFixed(1) + '%</td>';
+        html += '<td class="r mono" style="padding:5px 6px">' + sellR.toFixed(1) + '%</td>';
         html += '<td class="r mono" style="padding:5px 6px">' + expR.toFixed(1) + '%</td>';
         html += '<td class="r mono" style="padding:5px 6px;font-weight:700;color:' + (netR >= 0 ? 'var(--green)' : 'var(--red)') + '">' + netR.toFixed(1) + '%</td>';
         html += '</tr>';
