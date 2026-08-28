@@ -158,7 +158,37 @@ function backfillGradingEntries() {
     }
   });
   
-  if (created || datesFixed || companiesFixed || gradingFixed || dateFixed || salesDateFixed) {
+  // Backfill: create grading entries for Submitted/Graded inventory cards that don't have one
+  var gradingEntriesCreated = 0;
+  D.inventory.forEach(function(card) {
+    if (card.status !== 'Submitted' && card.status !== 'Graded' && card.status !== 'Listed' && card.status !== 'Sold') return;
+    if (!card.gradingCompany && !card.grade) return; // not a graded card
+    var hasEntry = D.grading.some(function(g) { return g.cardId === card.id; });
+    if (hasEntry) return;
+    var isGraded = card.status === 'Graded' || card.status === 'Listed' || card.status === 'Sold';
+    var gFee = num(card.gradingCost) || 0;
+    D.grading.push({
+      id: nextId('G'),
+      cardName: card.cardName || '',
+      cardId: card.id || '',
+      company: card.gradingCompany || 'PSA',
+      serviceLevel: '',
+      dateSubmitted: card.dateAdded || '',
+      dateReturned: isGraded ? (card.dateAdded || '') : '',
+      gradingFee: gFee,
+      shipTo: 0, shipBack: 0,
+      totalCost: gFee,
+      preCondition: '',
+      gradeReceived: isGraded ? (card.grade || '') : '',
+      preValue: num(card.costBasis) || 0,
+      postValue: 0,
+      action: 'New Grade',
+      notes: 'Backfill — auto-created from inventory'
+    });
+    gradingEntriesCreated++;
+  });
+  
+  if (created || datesFixed || companiesFixed || gradingFixed || dateFixed || salesDateFixed || gradingEntriesCreated) {
     saveData();
     render();
     var msg = [];
@@ -168,6 +198,7 @@ function backfillGradingEntries() {
     if (gradingFixed) msg.push(gradingFixed + ' CGC grading fees fixed ($15)');
     if (dateFixed) msg.push(dateFixed + ' grading dates fixed (06/02 → 05/31)');
     if (salesDateFixed) msg.push(salesDateFixed + ' sales dates fixed (06/20 → 06/03)');
+    if (gradingEntriesCreated) msg.push(gradingEntriesCreated + ' missing grading entries created');
     showToast('📋 ' + msg.join(', '));
   }
 }
@@ -1965,6 +1996,34 @@ window.saveModal = async function() {
     }
     showToast('Record updated & synced');
   }
+  
+  // Auto-create grading entry when inventory card has status Submitted or Graded
+  if (window.modal.type === 'inventory' && (row.status === 'Submitted' || row.status === 'Graded')) {
+    var hasGradingEntry = D.grading.some(function(g) { return g.cardId === row.id; });
+    if (!hasGradingEntry) {
+      var gFee = num(row.gradingCost) || 0;
+      var isGraded = row.status === 'Graded';
+      D.grading.push({
+        id: nextId('G'),
+        cardName: row.cardName || '',
+        cardId: row.id || '',
+        company: row.gradingCompany || 'PSA',
+        serviceLevel: '',
+        dateSubmitted: row.dateAdded || new Date().toISOString().slice(0, 10),
+        dateReturned: isGraded ? new Date().toISOString().slice(0, 10) : '',
+        gradingFee: gFee,
+        shipTo: 0, shipBack: 0,
+        totalCost: gFee,
+        preCondition: '',
+        gradeReceived: isGraded ? (row.grade || '') : '',
+        preValue: num(row.marketValue) || num(row.costBasis) || 0,
+        postValue: 0,
+        action: 'New Grade',
+        notes: 'Auto-created from inventory'
+      });
+    }
+  }
+  
   saveData();window.modal=null;render();
 };
 
