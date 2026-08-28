@@ -199,6 +199,7 @@ onSnapshot(DOC_REF, (snap) => {
   if (fbData && fbData.inventory) {
     D = fbData;
     ensureFields(); if(typeof syncCrackList==="function") syncCrackList();
+    if(typeof migrateApiKey==="function") migrateApiKey();
     render();
   }
 });
@@ -492,7 +493,7 @@ window.render = function render() {
     </div>
     <div id="content">${
       window.tab==='overview'?rOverview(m):
-      window.tab==='tools'?(window.toolsSubTab==='research'?rResearch(m):rScanner(m)):
+      window.tab==='tools'?(window.toolsSubTab==='research'?rResearch(m):window.toolsSubTab==='assistant'?rAssistant(m):rScanner(m)):
       window.tab==='inventory'?rTable('inventory',m):
       window.tab==='grading'?rTable('grading',m):
       window.tab==='sales'?rTable('sales',m):
@@ -508,6 +509,37 @@ window.render = function render() {
     <input type="file" id="receiptScanInput" accept="image/*" capture="environment" style="display:none" onchange="handleReceiptScan(event)">
     <input type="file" id="receiptUploadInput" accept="image/*" style="display:none" onchange="handleReceiptScan(event)">
     <input type="file" id="gradeUpdateIn" accept=".xlsx,.xls" style="display:none" onchange="handleGradeUpdate(event)">
+    
+    <!-- Floating AI Assistant -->
+    ${getAnthropicKey() ? `
+    <div id="ai-float" style="position:fixed;bottom:20px;right:20px;z-index:9000">
+      ${window.aiChatOpen ? `
+      <div style="width:380px;max-width:calc(100vw - 40px);height:500px;max-height:calc(100vh - 100px);background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+          <span style="font-weight:700;font-size:13px">🤖 AI Assistant</span>
+          <button onclick="window.aiChatOpen=false;render()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;padding:0 4px">✕</button>
+        </div>
+        <div id="ai-chat-float-messages" style="flex:1;overflow-y:auto;padding:12px;font-size:12px">
+          ${window.aiChatHistory.length ? window.aiChatHistory.map(function(msg) {
+            var isUser = msg.role === 'user';
+            return '<div style="display:flex;justify-content:' + (isUser ? 'flex-end' : 'flex-start') + ';margin-bottom:8px">' +
+              '<div style="max-width:85%;padding:8px 12px;border-radius:10px;line-height:1.5;' +
+              (isUser ? 'background:var(--accent);color:#fff;border-bottom-right-radius:3px' : 'background:var(--bg);border:1px solid var(--border);border-bottom-left-radius:3px') + '">' +
+              msg.content.replace(/\\n/g, '<br>') +
+              '</div></div>';
+          }).join('') : '<div style="text-align:center;color:var(--text-faint);padding:40px 16px;font-size:11px"><div style="font-size:20px;margin-bottom:6px">🤖</div>Ask about your business<br><br><span style="font-size:10px">"Best month?"<br>"Gross margin trend?"<br>"Top selling cards?"</span></div>'}
+          ${window.aiChatLoading ? '<div style="display:flex;margin-bottom:8px"><div style="padding:8px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-bottom-left-radius:3px">Thinking...</div></div>' : ''}
+        </div>
+        <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:6px;flex-shrink:0">
+          <input type="text" id="ai-float-input" class="search-input" style="flex:1;font-size:12px;padding:8px 12px" placeholder="Ask about your business..." onkeydown="if(event.key==='Enter'){window._aiFloatMode=true;askAssistant()}">
+          <button class="btn btn-accent" onclick="window._aiFloatMode=true;askAssistant()" style="padding:8px 14px;font-size:11px">Ask</button>
+        </div>
+      </div>
+      ` : `
+      <button onclick="window.aiChatOpen=true;render();setTimeout(function(){var el=document.getElementById('ai-float-input');if(el)el.focus()},100)" style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--green));border:none;color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3);transition:transform .2s;display:flex;align-items:center;justify-content:center" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">🤖</button>
+      `}
+    </div>
+    ` : ''}
   `;
   if(window.tab==='overview') renderCharts(m);
   if(window.tab==='financials' && window.financialsSubTab==='analytics') renderAnalyticsCharts(m);
@@ -1437,6 +1469,166 @@ window.saveSettingStr = function(key, value) {
   saveData();
   showToast('Setting saved & synced');
 };
+
+// AI Assistant chat history
+window.aiChatHistory = window.aiChatHistory || [];
+window.aiChatLoading = false;
+window.aiChatOpen = false;
+window._aiFloatMode = false;
+
+// Helper: get Anthropic API key from Firebase settings or localStorage
+function getAnthropicKey() {
+  return (D.settings && D.settings.anthropicKey) || '';
+}
+
+// Migrate API key from localStorage to Firebase (one-time)
+function migrateApiKey() {
+  try {
+    var localKey = window.localStorage?.getItem('_ctApiKey') || '';
+    if (localKey && D.settings && !D.settings.anthropicKey) {
+      D.settings.anthropicKey = localKey;
+      saveData();
+    }
+  } catch(e) {}
+}
+
+window.askAssistant = async function() {
+  var input = window._aiFloatMode ? document.getElementById('ai-float-input') : document.getElementById('ai-question');
+  window._aiFloatMode = false;
+  if (!input) return;
+  var question = input.value.trim();
+  if (!question) return;
+  
+  var apiKey = getAnthropicKey();
+  if (!apiKey) { showToast('Set your Anthropic API key in Scanner settings first'); return; }
+  
+  // Add user message to history
+  window.aiChatHistory.push({ role: 'user', content: question });
+  input.value = '';
+  window.aiChatLoading = true;
+  render();
+  
+  try {
+    // Serialize business data
+    var m = M();
+    var monthlyData = {};
+    var sales = D.sales;
+    var allMonths = new Set();
+    sales.forEach(function(r) { if (r.date && r.date.length >= 7) allMonths.add(r.date.slice(0, 7)); });
+    D.expenses.forEach(function(r) { if (r.date && r.date.length >= 7) allMonths.add(r.date.slice(0, 7)); });
+    Array.from(allMonths).sort().forEach(function(ym) {
+      var mSales = sales.filter(function(r) { return r.date && r.date.slice(0, 7) === ym; });
+      var mExp = D.expenses.filter(function(r) { return r.date && r.date.slice(0, 7) === ym; });
+      var rev = mSales.reduce(function(s, r) { return s + num(r.salePrice); }, 0);
+      var fees = mSales.reduce(function(s, r) { return s + num(r.platformFee) + num(r.consignFee) + num(r.shipCost); }, 0);
+      var cogs = mSales.reduce(function(s, r) { return s + num(r.costBasis); }, 0);
+      var grade = mSales.reduce(function(s, r) { var lc = r.cardId ? D.inventory.find(function(c) { return c.id === r.cardId; }) : null; return s + (lc ? num(lc.gradingCost) : 0); }, 0);
+      var exp = mExp.reduce(function(s, r) { return s + num(r.amount); }, 0);
+      var grossProfit = rev - cogs - grade;
+      var netIncome = grossProfit - fees - exp;
+      monthlyData[ym] = { revenue: rev, cogs: cogs, gradingCost: grade, sellingFees: fees, expenses: exp, grossProfit: grossProfit, netIncome: netIncome, units: mSales.length, grossMargin: rev ? (grossProfit / rev * 100).toFixed(1) + '%' : '0%', netMargin: rev ? (netIncome / rev * 100).toFixed(1) + '%' : '0%' };
+    });
+    
+    // Top selling cards
+    var topCards = sales.slice().sort(function(a, b) { return num(b.salePrice) - num(a.salePrice); }).slice(0, 10).map(function(r) {
+      var lc = r.cardId ? D.inventory.find(function(c) { return c.id === r.cardId; }) : null;
+      var gc = lc ? num(lc.gradingCost) : 0;
+      return { card: r.cardName, sale: num(r.salePrice), cost: num(r.costBasis) + gc, profit: num(r.salePrice) - num(r.platformFee) - num(r.consignFee) - num(r.shipCost) - num(r.costBasis) - gc, date: r.date, platform: r.platform };
+    });
+    
+    // Expense breakdown
+    var expByCat = {};
+    D.expenses.forEach(function(r) { var c = r.category || 'Other'; expByCat[c] = (expByCat[c] || 0) + num(r.amount); });
+    
+    // Status counts
+    var statusCounts = {};
+    D.inventory.filter(function(c) { return c.status !== 'Sold'; }).forEach(function(c) { var st = c.status || 'Unknown'; statusCounts[st] = (statusCounts[st] || 0) + 1; });
+    
+    var bizContext = JSON.stringify({
+      overview: {
+        totalRevenue: m.tSale, netIncome: m.net, grossProfit: m.gross, cashOnHand: m.cashBalance,
+        totalInventoryCost: m.invCost, activeCards: m.ac, cardsSold: m.sc, avgProfitPerCard: m.avgP,
+        grossMargin: m.tSale ? (m.gross / m.tSale * 100).toFixed(1) + '%' : '0%',
+        netMargin: m.tSale ? (m.nm * 100).toFixed(1) + '%' : '0%',
+        weightedROI: (m.tCOGS + m.tGrade) ? ((m.gross / (m.tCOGS + m.tGrade)) * 100).toFixed(1) + '%' : '0%',
+        pendingReceivables: m.receivable, pendingSalesCount: m.pendingSalesCount,
+        totalCapitalIn: m.startingCash + m.totalContributions
+      },
+      monthlyPL: monthlyData,
+      inventoryByStatus: statusCounts,
+      expensesByCategory: expByCat,
+      topSellingCards: topCards,
+      totalGradingFeesAllCards: m.tGradeAll,
+      totalPurchases: m.tPurchases
+    });
+    
+    var systemPrompt = 'You are the AI assistant for CardTracker, a Pokemon trading card grading and resale business tracker. You have access to the business\'s complete financial data. Answer questions concisely and specifically using the data provided. Use dollar amounts and percentages where relevant. Format numbers clearly. Keep answers brief — 2-4 sentences for simple questions, a short paragraph for complex analysis. The business model: buy raw Pokemon cards cheaply, grade them via PSA/CGC, sell graded cards on eBay or through consignment. Key terms: COGS = card cost basis, Grading Fees = PSA/CGC fees, Selling Fees = eBay/consignment fees + shipping, Gross Margin = (Revenue - COGS - Grading) / Revenue, Net Margin = Net Income / Revenue.\n\nBusiness Data:\n' + bizContext;
+    
+    var messages = window.aiChatHistory.map(function(msg) { return { role: msg.role, content: msg.content }; });
+    
+    var response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, system: systemPrompt, messages: messages })
+    });
+    
+    var data = await response.json();
+    var answer = data.content && data.content[0] ? data.content[0].text : 'Sorry, I could not process that question.';
+    
+    window.aiChatHistory.push({ role: 'assistant', content: answer });
+  } catch (err) {
+    window.aiChatHistory.push({ role: 'assistant', content: 'Error: ' + err.message });
+  }
+  
+  window.aiChatLoading = false;
+  render();
+  // Scroll to bottom
+  setTimeout(function() { 
+    var el = document.getElementById('ai-chat-messages'); if (el) el.scrollTop = el.scrollHeight;
+    var el2 = document.getElementById('ai-chat-float-messages'); if (el2) el2.scrollTop = el2.scrollHeight;
+  }, 100);
+};
+
+function rAssistant(m) {
+  var hasKey = !!getAnthropicKey();
+  var chatHtml = '';
+  
+  if (window.aiChatHistory.length) {
+    chatHtml = window.aiChatHistory.map(function(msg) {
+      var isUser = msg.role === 'user';
+      return '<div style="display:flex;justify-content:' + (isUser ? 'flex-end' : 'flex-start') + ';margin-bottom:10px">' +
+        '<div style="max-width:80%;padding:10px 14px;border-radius:12px;font-size:12px;line-height:1.5;' +
+        (isUser ? 'background:var(--accent);color:#fff;border-bottom-right-radius:4px' : 'background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px') + '">' +
+        '<div style="font-size:9px;color:' + (isUser ? 'rgba(255,255,255,.7)' : 'var(--text-dim)') + ';margin-bottom:4px">' + (isUser ? 'You' : '🤖 CardTracker AI') + '</div>' +
+        msg.content.replace(/\n/g, '<br>') +
+        '</div></div>';
+    }).join('');
+  }
+  
+  return `
+  <div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='scanner'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='scanner';render()">📸 Scanner</button>
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='research'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='research';render()">🔍 Research</button>
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='assistant'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='assistant';render()">🤖 AI Assistant</button>
+  </div>
+  <div class="panel">
+    <h3 style="color:var(--green)">🤖 AI Business Assistant</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">Ask questions about your business data — revenue, margins, trends, expenses, inventory, and more.</div>
+    
+    ${!hasKey ? '<div style="padding:14px;background:rgba(255,71,87,.08);border:1px solid rgba(255,71,87,.2);border-radius:var(--radius-sm);font-size:12px;color:var(--red);margin-bottom:14px">Set your Anthropic API key in the Scanner tab settings to enable the AI Assistant.</div>' : ''}
+    
+    <div id="ai-chat-messages" style="min-height:200px;max-height:500px;overflow-y:auto;margin-bottom:14px;padding:10px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border)">
+      ${chatHtml || '<div style="text-align:center;color:var(--text-faint);padding:60px 20px;font-size:12px"><div style="font-size:24px;margin-bottom:8px">🤖</div>Ask me anything about your card business.<br><br><span style="font-size:10px;color:var(--text-dim)">Examples:<br>"What was my best month?"<br>"What\'s my gross margin trend?"<br>"Which cards had the highest ROI?"<br>"How much am I spending on grading?"<br>"Compare March vs June performance"</span></div>'}
+      ${window.aiChatLoading ? '<div style="display:flex;justify-content:flex-start;margin-bottom:10px"><div style="padding:10px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border);font-size:12px;color:var(--text-dim);border-bottom-left-radius:4px"><div style="font-size:9px;margin-bottom:4px">🤖 CardTracker AI</div>Thinking...</div></div>' : ''}
+    </div>
+    
+    <div style="display:flex;gap:8px">
+      <input type="text" id="ai-question" class="search-input" style="flex:1;font-size:12px;padding:10px 14px" placeholder="Ask about your business..." onkeydown="if(event.key==='Enter')askAssistant()" ${!hasKey ? 'disabled' : ''}>
+      <button class="btn btn-accent" onclick="askAssistant()" style="padding:10px 20px;font-size:12px" ${!hasKey ? 'disabled' : ''}>Ask</button>
+      ${window.aiChatHistory.length ? '<button class="btn btn-sm" onclick="window.aiChatHistory=[];render()" style="font-size:10px;padding:10px" title="Clear chat">🗑</button>' : ''}
+    </div>
+  </div>`;
+}
 
 window.autoBalanceSheet = function() {
   var m2 = M();
@@ -4092,6 +4284,7 @@ function rResearch(m) {
   <div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
     <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='scanner'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='scanner';render()">📸 Scanner</button>
     <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='research'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='research';render()">🔍 Research</button>
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='assistant'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='assistant';render()">🤖 AI Assistant</button>
   </div>
   <div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -5801,6 +5994,7 @@ function rScanner(m) {
   <div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--border);padding-bottom:8px">
     <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='scanner'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='scanner';render()">📸 Scanner</button>
     <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='research'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='research';render()">🔍 Research</button>
+    <button class="btn btn-sm" style="font-size:12px;${window.toolsSubTab==='assistant'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="window.toolsSubTab='assistant';render()">🤖 AI Assistant</button>
   </div>
   <div class="panel">
     <h3 style="color:var(--cyan)">📸 Card Scanner</h3>
@@ -6070,13 +6264,18 @@ window.scannerSaveKey = function() {
   if (!input || !input.value.trim()) return;
   window.scannerState.apiKey = input.value.trim();
   try { window.localStorage?.setItem('_ctApiKey', input.value.trim()); } catch(e) {}
+  // Sync to Firebase for all devices
+  if (!D.settings) D.settings = {};
+  D.settings.anthropicKey = input.value.trim();
+  saveData();
   render();
-  showToast('API key saved for this session');
+  showToast('API key saved and synced to all devices');
 };
 
 window.scannerClearKey = function() {
   window.scannerState.apiKey = '';
   try { window.localStorage?.removeItem('_ctApiKey'); } catch(e) {}
+  if (D.settings) { delete D.settings.anthropicKey; saveData(); }
   render();
 };
 
