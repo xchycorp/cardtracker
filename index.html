@@ -536,7 +536,7 @@ window.render = function render() {
         </div>
       </div>
       ` : `
-      <button onclick="window.aiChatOpen=true;render();setTimeout(function(){var el=document.getElementById('ai-float-input');if(el)el.focus()},100)" style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--green));border:none;color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3);transition:transform .2s;display:flex;align-items:center;justify-content:center" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">🤖</button>
+      <button onclick="window.aiChatOpen=true;render();setTimeout(function(){var el=document.getElementById('ai-float-input');if(el)el.focus()},100)" style="width:48px;height:48px;border-radius:50%;background:var(--card);border:1px solid var(--border);color:var(--text);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.3);transition:transform .2s;display:flex;align-items:center;justify-content:center" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></button>
       `}
     </div>
     ` : ''}
