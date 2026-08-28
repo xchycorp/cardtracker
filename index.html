@@ -920,10 +920,7 @@ const SCHEMAS = {
     cols:[
       {k:'id',l:'ID',w:70},{k:'dateSubmitted',l:'Submitted',w:80,render:fmtDate},{k:'cardName',l:'Card',w:150},
       {k:'company',l:'Grader',w:70},{k:'gradeReceived',l:'Grade',w:60,render:v=>v?`<strong style="color:var(--yellow)">${v}</strong>`:'—'},
-      {k:'totalCost',l:'Fee',w:70,r:1,render:v=>fmt(num(v))},
-      {k:'preValue',l:'Pre$',w:70,r:1,render:v=>fmt(num(v))},{k:'postValue',l:'Post$',w:70,r:1,render:v=>num(v)?fmt(num(v)):'—'},
-      {k:'_va',l:'Value+',w:80,r:1,render:(_,row)=>{const a=num(row.postValue)-num(row.preValue);return num(row.postValue)?`<strong class="${a>=0?'pos':'neg'}">${fmt(a)}</strong>`:'—';}},
-      {k:'_roi',l:'ROI',w:70,r:1,render:(_,row)=>{const f=num(row.totalCost);const a=num(row.postValue)-num(row.preValue)-f;return f&&num(row.postValue)?`<span class="${a>=0?'pos':'neg'}">${pct(a/f)}</span>`:'—';}}
+      {k:'totalCost',l:'Fee',w:70,r:1,render:v=>fmt(num(v))}
     ],
     fields:[
       {k:'cardName',l:'Link Inventory Card',type:'cardpicker',required:true},{k:'cardId',l:'Card ID',type:'hidden'},
@@ -932,7 +929,6 @@ const SCHEMAS = {
       {k:'dateReturned',l:'Date Returned',type:'date'},{k:'gradingFee',l:'Grading Fee ($)',type:'number'},
       {k:'shipTo',l:'Shipping to Grader ($)',type:'number'},{k:'shipBack',l:'Return Shipping ($)',type:'number'},
       {k:'preCondition',l:'Pre-Grade Condition'},{k:'gradeReceived',l:'Grade Received'},
-      {k:'preValue',l:'Pre-Grade Value ($)',type:'number'},{k:'postValue',l:'Post-Grade Value ($)',type:'number'},
       {k:'action',l:'Action',type:'select',opts:['New Grade','Regrade','Crossover']},
       {k:'notes',l:'Notes',type:'textarea',full:true}
     ],
@@ -1417,10 +1413,8 @@ function rTable(type,m) {
       }
       if (type === 'grading') {
         var tCostG = sorted.reduce(function(s,r){return s+num(r.totalCost)},0);
-        var tPreV = sorted.reduce(function(s,r){return s+num(r.preValue)},0);
         footerVals['cardName'] = {text: sorted.length + ' entries', style: 'color:var(--accent)'};
         footerVals['totalCost'] = {text: fmt(tCostG), style: ''};
-        footerVals['preValue'] = {text: fmt(tPreV), style: ''};
       }
       
       // Render each column cell
