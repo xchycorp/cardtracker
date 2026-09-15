@@ -1921,14 +1921,36 @@ function getAnthropicKey() {
   return (D.settings && D.settings.anthropicKey) || '';
 }
 
-// Migrate API key from localStorage to Firebase (one-time)
+// Migrate API keys from localStorage to Firebase (one-time)
 function migrateApiKey() {
   try {
+    if (!D.settings) D.settings = {};
     var localKey = window.localStorage?.getItem('_ctApiKey') || '';
-    if (localKey && D.settings && !D.settings.anthropicKey) {
+    if (localKey && !D.settings.anthropicKey) {
       D.settings.anthropicKey = localKey;
-      saveData();
     }
+    var ebayAppId = window.localStorage?.getItem('_ctEbayAppId') || '';
+    var ebayCertId = window.localStorage?.getItem('_ctEbayCertId') || '';
+    if (ebayAppId && !D.settings.ebayAppId) {
+      D.settings.ebayAppId = ebayAppId;
+      D.settings.ebayCertId = ebayCertId;
+    }
+    var ptKey = window.localStorage?.getItem('_ctPoketraceKey') || '';
+    if (ptKey && !D.settings.poketraceKey) {
+      D.settings.poketraceKey = ptKey;
+    }
+    // Also load from Firebase into runtime state
+    if (D.settings.ebayAppId) {
+      window.ebayState.appId = D.settings.ebayAppId;
+      window.ebayState.certId = D.settings.ebayCertId || '';
+    }
+    if (D.settings.poketraceKey) {
+      window.poketraceState.apiKey = D.settings.poketraceKey;
+    }
+    if (D.settings.anthropicKey) {
+      window.scannerState.apiKey = D.settings.anthropicKey;
+    }
+    saveData();
   } catch(e) {}
 }
 
@@ -6759,8 +6781,12 @@ window.saveEbayKeys = function() {
     window.localStorage?.setItem('_ctEbayAppId', appId);
     window.localStorage?.setItem('_ctEbayCertId', certId);
   } catch(e) {}
+  if (!D.settings) D.settings = {};
+  D.settings.ebayAppId = appId;
+  D.settings.ebayCertId = certId;
+  saveData();
   render();
-  showToast('eBay credentials saved!');
+  showToast('eBay credentials saved & synced to all devices');
 };
 
 window.clearEbayKeys = function() {
@@ -6769,6 +6795,7 @@ window.clearEbayKeys = function() {
     window.localStorage?.removeItem('_ctEbayAppId');
     window.localStorage?.removeItem('_ctEbayCertId');
   } catch(e) {}
+  if (D.settings) { delete D.settings.ebayAppId; delete D.settings.ebayCertId; saveData(); }
   render();
 };
 
@@ -6777,13 +6804,17 @@ window.savePoketraceKey = function() {
   if (!key) { showToast('Enter a PokeTrace API key'); return; }
   window.poketraceState.apiKey = key;
   try { window.localStorage?.setItem('_ctPoketraceKey', key); } catch(e) {}
+  if (!D.settings) D.settings = {};
+  D.settings.poketraceKey = key;
+  saveData();
   render();
-  showToast('PokeTrace API key saved!');
+  showToast('PokeTrace API key saved & synced to all devices');
 };
 
 window.clearPoketraceKey = function() {
   window.poketraceState.apiKey = '';
   try { window.localStorage?.removeItem('_ctPoketraceKey'); } catch(e) {}
+  if (D.settings) { delete D.settings.poketraceKey; saveData(); }
   render();
 };
 
