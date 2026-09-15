@@ -255,6 +255,7 @@ function ensureFields() {
   if (!D.nextIds.CAP) D.nextIds.CAP = 1;
   if (!D.sealed) D.sealed = [];
   if (!D.purchases) D.purchases = [];
+  if (!D.pending) D.pending = [];
 }
 
 let D = emptyData();
@@ -584,7 +585,47 @@ window.render = function render() {
 // OVERVIEW
 // ============================================================
 function rOverview(m) {
+  var pendingCount = (D.pending || []).length;
+  
+  var captureBox = `
+    <div style="margin-bottom:14px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="quick-capture-input" class="search-input" style="flex:1;font-size:13px;padding:10px 14px" placeholder="Quick capture: &quot;bought 4 Charizard raw $95 each from Mike at Oaks, cash&quot;" onkeydown="if(event.key==='Enter'&&!window.captureLoading)quickCapture()" ${window.captureLoading ? 'disabled' : ''}>
+        <button class="btn btn-accent" onclick="quickCapture()" style="padding:10px 16px;font-size:12px;white-space:nowrap" ${window.captureLoading ? 'disabled' : ''}>${window.captureLoading ? '...' : '⚡ Capture'}</button>
+      </div>
+      ${pendingCount ? `<div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center"><button onclick="window.showPendingReview=!window.showPendingReview;render()" style="background:none;border:none;color:var(--yellow);cursor:pointer;font-size:11px;padding:0"><span style="background:var(--yellow);color:#000;border-radius:10px;padding:1px 7px;font-weight:700;font-size:10px;margin-right:6px">${pendingCount}</span>pending review</button></div>` : ''}
+    </div>`;
+  
+  var pendingReview = '';
+  if (window.showPendingReview && pendingCount) {
+    pendingReview = '<div class="panel" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="font-size:13px;margin:0">Pending Review</h3><div style="display:flex;gap:6px"><button class="btn btn-accent btn-sm" onclick="approveAllPending()" style="font-size:10px">✅ Approve All</button><button class="btn btn-sm" onclick="window.showPendingReview=false;render()" style="font-size:10px">✕</button></div></div>';
+    pendingReview += '<div style="font-size:11px">';
+    D.pending.forEach(function(entry, idx) {
+      var p = entry.parsed || {};
+      var borderColor = entry.parseSuccess ? 'var(--green)' : 'var(--yellow)';
+      pendingReview += '<div style="border:1px solid ' + borderColor + ';border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;background:rgba(255,255,255,.02)">';
+      pendingReview += '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:6px">';
+      pendingReview += '<div style="font-size:10px;color:var(--text-dim)">' + fmtDate(entry.capturedAt ? entry.capturedAt.slice(0,10) : '') + ' · <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;margin-right:4px;' + (p.entryType === 'expense' ? 'background:var(--purple);color:#fff' : 'background:var(--blue);color:#fff') + '">' + (p.entryType === 'expense' ? 'EXPENSE' : 'PURCHASE') + '</span><span style="color:var(--text-faint)">' + entry.rawText + '</span></div>';
+      pendingReview += '<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn btn-sm" onclick="approvePending(' + idx + ')" style="font-size:9px;padding:2px 8px;background:var(--green);color:#fff;border-color:var(--green)">✅</button><button class="btn btn-sm" onclick="deletePending(' + idx + ')" style="font-size:9px;padding:2px 8px">🗑</button></div>';
+      pendingReview += '</div>';
+      pendingReview += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:4px 12px;font-size:11px">';
+      pendingReview += '<div><span style="color:var(--text-dim)">Date:</span> <strong>' + (p.date || '—') + '</strong></div>';
+      pendingReview += '<div><span style="color:var(--text-dim)">Card:</span> <strong>' + (p.cardName || p.description || '—') + '</strong></div>';
+      pendingReview += '<div><span style="color:var(--text-dim)">Qty:</span> <strong>' + (p.qty || 1) + '</strong></div>';
+      pendingReview += '<div><span style="color:var(--text-dim)">Unit:</span> <strong>' + (p.unitCost ? '$' + p.unitCost : '—') + '</strong></div>';
+      pendingReview += '<div><span style="color:var(--text-dim)">Total:</span> <strong style="color:var(--green)">' + (p.total ? '$' + p.total : '—') + '</strong></div>';
+      pendingReview += '<div><span style="color:var(--text-dim)">Source:</span> <strong>' + (p.source || '—') + '</strong></div>';
+      pendingReview += '<div><span style="color:var(--text-dim)">Status:</span> <strong>' + (p.entryType === 'expense' ? (p.expenseCategory || 'Other') : (p.status || 'Raw')) + '</strong>' + (p.prevGrade ? ' <span style="color:var(--text-faint)">(ex-' + (p.gradingCompany||'') + ' ' + p.prevGrade + ')</span>' : '') + '</div>';
+      pendingReview += '<div><span style="color:var(--text-dim)">Payment:</span> <strong>' + (p.paymentMethod || '—') + '</strong></div>';
+      if (p.notes) pendingReview += '<div style="grid-column:1/-1;color:var(--yellow);font-size:10px">⚠️ ' + p.notes + '</div>';
+      pendingReview += '</div></div>';
+    });
+    pendingReview += '</div></div>';
+  }
+  
   return `<div style="max-width:1100px">
+    ${captureBox}
+    ${pendingReview}
     <div class="metrics">
       <div class="mc" style="border-left-color:var(--blue)"><div class="lbl">Total Revenue</div><div class="val">${fmt(m.tSale)}</div><div class="sub" style="color:var(--text-dim)">${m.sc} sales</div></div>
       <div class="mc" style="border-left-color:${m.net>=0?'var(--green)':'var(--red)'}"><div class="lbl">Net Income</div><div class="val ${m.net>=0?'pos':'neg'}">${fmt(m.net)}</div><div class="sub" style="color:var(--text-dim)">${m.tSale?pct(m.nm):' — '} net margin</div></div>
@@ -1500,6 +1541,253 @@ window.aiChatHistory = window.aiChatHistory || [];
 window.aiChatLoading = false;
 window.aiChatOpen = false;
 window._aiFloatMode = false;
+
+// Quick Capture
+window.captureLoading = false;
+window.showPendingReview = false;
+
+window.quickCapture = async function() {
+  var input = document.getElementById('quick-capture-input');
+  if (!input) return;
+  var text = input.value.trim();
+  if (!text) return;
+  
+  var apiKey = getAnthropicKey();
+  if (!apiKey) { showToast('Set your Anthropic API key in Scanner settings first'); return; }
+  
+  window.captureLoading = true;
+  render();
+  
+  var today = new Date().toISOString().slice(0, 10);
+  var entryId = 'QC' + Date.now();
+  
+  try {
+    var response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 500,
+        system: 'You parse entries for a Pokemon trading card grading and resale business. Return ONLY valid JSON, no markdown, no backticks. Determine if the input is a CARD PURCHASE or a BUSINESS EXPENSE. Parse into this structure: {"entryType":"purchase or expense","date":"YYYY-MM-DD","description":"item description","category":"Pokemon Singles","qty":1,"unitCost":0,"total":0,"source":"seller/store name","paymentMethod":"cash/card/paypal","cardName":"card name for inventory","cardType":"Pokemon","status":"Raw","gradingCompany":"","prevGrade":"","expenseCategory":"","notes":""}. Rules: If no date mentioned, use ' + today + '. CARD PURCHASES: buying trading cards (raw, graded, slabs, lots). Set entryType to "purchase". Extract card name into cardName. If total given but not unit cost, calculate unitCost=total/qty and vice versa. If they mention a previous grade like "PSA 8", set prevGrade and gradingCompany. BUSINESS EXPENSES: gas, food, supplies, software, shipping materials, table fees, travel, subscriptions — anything that is NOT buying cards to resell. Set entryType to "expense", qty to 1, and expenseCategory to one of: Travel, Supplies, Software, Food, Show Fees, Shipping Materials, Equipment, Other. If anything is unclear, make your best guess and put uncertainty in notes.',
+        messages: [{ role: 'user', content: text }]
+      })
+    });
+    
+    var data = await response.json();
+    var responseText = data.content && data.content[0] ? data.content[0].text : '';
+    var parsed = null;
+    
+    try {
+      parsed = JSON.parse(responseText.replace(/```json|```/g, '').trim());
+    } catch(e) {
+      parsed = null;
+    }
+    
+    D.pending.push({
+      id: entryId,
+      rawText: text,
+      capturedAt: new Date().toISOString(),
+      status: 'pending',
+      parsed: parsed || {
+        date: today,
+        description: text,
+        category: 'Pokemon Singles',
+        qty: 1,
+        unitCost: 0,
+        total: 0,
+        source: '',
+        paymentMethod: '',
+        cardName: text,
+        cardType: 'Pokemon',
+        status: 'Raw',
+        gradingCompany: '',
+        prevGrade: '',
+        notes: 'Could not parse — please edit manually'
+      },
+      parseSuccess: !!parsed
+    });
+    
+    saveData();
+    input.value = '';
+    showToast(parsed ? '✅ Captured — review before approving' : '⚠️ Saved raw text — edit in review');
+  } catch(err) {
+    // Always save something
+    D.pending.push({
+      id: entryId,
+      rawText: text,
+      capturedAt: new Date().toISOString(),
+      status: 'pending',
+      parsed: {
+        date: today,
+        description: text,
+        category: 'Pokemon Singles',
+        qty: 1,
+        unitCost: 0,
+        total: 0,
+        source: '',
+        paymentMethod: '',
+        cardName: text,
+        cardType: 'Pokemon',
+        status: 'Raw',
+        gradingCompany: '',
+        prevGrade: '',
+        notes: 'API error: ' + err.message
+      },
+      parseSuccess: false
+    });
+    saveData();
+    input.value = '';
+    showToast('⚠️ Saved raw text — API error, edit in review');
+  }
+  
+  window.captureLoading = false;
+  render();
+};
+
+window.approvePending = function(idx) {
+  var entry = D.pending[idx];
+  if (!entry || !entry.parsed) return;
+  var p = entry.parsed;
+  var qty = num(p.qty) || 1;
+  var unitCost = num(p.unitCost) || 0;
+  var total = num(p.total) || (qty * unitCost);
+  var isExpense = p.entryType === 'expense';
+  
+  if (isExpense) {
+    // Create expense record
+    var expId = nextId('E');
+    D.expenses.push({
+      id: expId,
+      date: p.date || new Date().toISOString().slice(0, 10),
+      category: p.expenseCategory || 'Other',
+      description: p.description || '',
+      amount: total || unitCost,
+      vendor: p.source || '',
+      payMethod: p.paymentMethod || ''
+    });
+    D.pending.splice(idx, 1);
+    saveData();
+    render();
+    showToast('✅ Expense ' + expId + ' — ' + (p.expenseCategory || 'Other') + ' $' + (total || unitCost));
+  } else {
+    // Create purchase record
+    var purchaseId = nextId('P');
+    D.purchases.push({
+      id: purchaseId,
+      date: p.date || new Date().toISOString().slice(0, 10),
+      source: p.source || '',
+      description: p.description || p.cardName || '',
+      category: p.category || 'Pokemon Singles',
+      qty: qty,
+      unitCost: unitCost,
+      shipping: 0,
+      tax: 0,
+      grandTotal: total,
+      payMethod: p.paymentMethod || '',
+      type: 'Raw Card'
+    });
+    
+    // Create inventory cards
+    var cardsCreated = 0;
+    for (var ci = 0; ci < qty; ci++) {
+      var cardId = nextId('C');
+      D.inventory.push({
+        id: cardId,
+        cardName: p.cardName || p.description || '',
+        cardType: p.cardType || 'Pokemon',
+        status: p.status || 'Raw',
+        grade: '',
+        gradingCompany: '',
+        costBasis: unitCost,
+        gradingCost: 0,
+        marketValue: 0,
+        dateAdded: p.date || new Date().toISOString().slice(0, 10),
+        prevCompany: p.gradingCompany || '',
+        prevGrade: p.prevGrade || '',
+        notes: p.source ? 'From ' + p.source : ''
+      });
+      cardsCreated++;
+    }
+    
+    D.pending.splice(idx, 1);
+    saveData();
+    render();
+    showToast('✅ Purchase ' + purchaseId + ' + ' + cardsCreated + ' card' + (cardsCreated > 1 ? 's' : '') + ' added');
+  }
+};
+
+window.deletePending = function(idx) {
+  if (!confirm('Delete this pending entry?')) return;
+  D.pending.splice(idx, 1);
+  saveData();
+  render();
+};
+
+window.approveAllPending = function() {
+  var pending = D.pending.filter(function(e) { return e.status === 'pending'; });
+  if (!pending.length) return;
+  if (!confirm('Approve all ' + pending.length + ' pending entries?')) return;
+  
+  var purchCount = 0, cardCount = 0, expCount = 0;
+  while (D.pending.length) {
+    var entry = D.pending[0];
+    var p = entry.parsed;
+    var qty = num(p.qty) || 1;
+    var unitCost = num(p.unitCost) || 0;
+    var total = num(p.total) || (qty * unitCost);
+    var isExpense = p.entryType === 'expense';
+    
+    if (isExpense) {
+      D.expenses.push({
+        id: nextId('E'),
+        date: p.date || new Date().toISOString().slice(0, 10),
+        category: p.expenseCategory || 'Other',
+        description: p.description || '',
+        amount: total || unitCost,
+        vendor: p.source || '',
+        payMethod: p.paymentMethod || ''
+      });
+      expCount++;
+    } else {
+      D.purchases.push({
+        id: nextId('P'),
+        date: p.date || new Date().toISOString().slice(0, 10),
+        source: p.source || '',
+        description: p.description || p.cardName || '',
+        category: p.category || 'Pokemon Singles',
+        qty: qty, unitCost: unitCost,
+        shipping: 0, tax: 0,
+        grandTotal: total,
+        payMethod: p.paymentMethod || '',
+        type: 'Raw Card'
+      });
+      purchCount++;
+      
+      for (var ci = 0; ci < qty; ci++) {
+        D.inventory.push({
+          id: nextId('C'),
+          cardName: p.cardName || p.description || '',
+          cardType: p.cardType || 'Pokemon',
+          status: p.status || 'Raw',
+          grade: '', gradingCompany: '',
+          costBasis: unitCost, gradingCost: 0, marketValue: 0,
+          dateAdded: p.date || new Date().toISOString().slice(0, 10),
+          prevCompany: p.gradingCompany || '',
+          prevGrade: p.prevGrade || '',
+          notes: p.source ? 'From ' + p.source : ''
+        });
+        cardCount++;
+      }
+    }
+    D.pending.splice(0, 1);
+  }
+  saveData();
+  render();
+  var msg = [];
+  if (purchCount) msg.push(purchCount + ' purchases + ' + cardCount + ' cards');
+  if (expCount) msg.push(expCount + ' expenses');
+  showToast('✅ Approved: ' + msg.join(', '));
+};
 
 // Helper: get Anthropic API key from Firebase settings or localStorage
 function getAnthropicKey() {
