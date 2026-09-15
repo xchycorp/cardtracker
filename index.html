@@ -7396,6 +7396,26 @@ function rFinancials(m) {
             '</tr>';
           }).join('')}
         </tbody>
+        <tfoot>
+          ${(function() {
+            var months = sortedMonths.slice(-12);
+            var tRev = 0, tCogs = 0, tFees = 0, tExp = 0, tNet = 0, tUnits = 0;
+            months.forEach(function(ym) {
+              var p = monthlyPL[ym];
+              tRev += p.rev; tCogs += p.cogs + p.gradeCost; tFees += p.platFee + p.conFee + p.ship; tExp += p.exp; tNet += p.net; tUnits += p.units;
+            });
+            return '<tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)">' +
+              '<td style="padding:6px 8px">Total</td>' +
+              '<td class="r mono" style="padding:6px 8px">' + fmtD(tRev) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(tCogs) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(tFees) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px;color:var(--text-dim)">' + fmtD(tExp) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px;font-weight:700;color:' + (tNet >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtD(tNet) + '</td>' +
+              '<td class="r mono" style="padding:6px 8px">' + (tRev ? pct(tNet / tRev) : '—') + '</td>' +
+              '<td class="r mono" style="padding:6px 8px">' + tUnits + '</td>' +
+              '<td></td><td></td></tr>';
+          })()}
+        </tfoot>
       </table>
     </div>
     ` : '<div style="color:var(--text-dim);text-align:center;padding:20px">No data yet</div>'}
