@@ -956,7 +956,7 @@ const SCHEMAS = {
     fields:[
       {k:'cardName',l:'Card Name (or search inventory)',type:'cardpicker',required:true},{k:'cardId',l:'Card ID',type:'hidden'},
       {k:'date',l:'Sale Date',type:'date'},
-      {k:'platform',l:'Platform',type:'select',opts:['eBay','Card Show','Consignment']},
+      {k:'platform',l:'Platform',type:'select',opts:['eBay','Card Show','Consignment','Local Sale']},
       {k:'paymentStatus',l:'Payment Status',type:'select',opts:['Received','Pending']},
       {k:'salePrice',l:'Sale Price ($)',type:'number'},{k:'platformFee',l:'Platform Fee ($)',type:'number'},
       {k:'consignPayout',l:'Consignment Payout ($)',type:'number',placeholder:'Your payout amount'},{k:'consignFee',l:'Consignment Fee ($)',type:'number'},{k:'shipCost',l:'Shipping Cost ($)',type:'number'},
@@ -3201,7 +3201,7 @@ function rQuickSales(data, addBtn, quickAddBtn) {
             <div id="qs-picker-${i}" class="picker-results" style="min-width:320px;z-index:2000"></div>
           </div></td>
           <td><input type="date" id="qs_${i}_date" class="qe-input" value="${r.date||''}"></td>
-          <td><select id="qs_${i}_platform" class="qe-input">${['eBay','Card Show','Consignment'].map(o=>`<option${r.platform===o?' selected':''}>${o}</option>`).join('')}</select></td>
+          <td><select id="qs_${i}_platform" class="qe-input">${['eBay','Card Show','Consignment','Local Sale'].map(o=>`<option${r.platform===o?' selected':''}>${o}</option>`).join('')}</select></td>
           <td><input type="number" id="qs_${i}_salePrice" class="qe-input" step="0.01" value="${r.salePrice||''}" placeholder="0.00"></td>
           <td><input type="number" id="qs_${i}_platformFee" class="qe-input" step="0.01" value="${r.platformFee||''}" placeholder="0.00"></td>
           <td><input type="number" id="qs_${i}_shipCost" class="qe-input" step="0.01" value="${r.shipCost||''}" placeholder="0.00"></td>
