@@ -544,7 +544,7 @@ window.render = function render() {
     
     <!-- Floating AI Assistant + Quick Capture -->
     ${getAnthropicKey() ? `
-    <div id="ai-float" style="position:fixed;bottom:20px;right:20px;z-index:9000;display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+    <div id="ai-float" style="position:fixed;bottom:20px;right:20px;z-index:9000;display:flex;flex-direction:${window.captureOpen||window.aiChatOpen?'column':'row'};align-items:flex-end;gap:8px">
       ${window.captureOpen ? `
       <div style="width:380px;max-width:calc(100vw - 40px);background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden">
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
@@ -586,9 +586,7 @@ window.render = function render() {
       </div>
       ` : `
       <button onclick="window.aiChatOpen=true;render();setTimeout(function(){var el=document.getElementById('ai-float-input');if(el)el.focus()},100)" style="width:48px;height:48px;border-radius:50%;background:var(--card);border:1px solid var(--border);color:var(--text);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.3);transition:transform .2s;display:flex;align-items:center;justify-content:center" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></button>
-      <div style="display:flex;gap:8px">
-        <button onclick="window.captureOpen=!window.captureOpen;window.aiChatOpen=false;render();setTimeout(function(){var el=document.getElementById('quick-capture-input');if(el)el.focus()},100)" style="width:48px;height:48px;border-radius:50%;background:var(--card);border:1px solid var(--border);color:var(--text);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.3);transition:transform .2s;display:flex;align-items:center;justify-content:center;position:relative" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>${(D.pending||[]).length ? '<span style="position:absolute;top:-2px;right:-2px;background:var(--yellow);color:#000;border-radius:50%;width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">' + (D.pending||[]).length + '</span>' : ''}</button>
-      </div>
+      <button onclick="window.captureOpen=!window.captureOpen;window.aiChatOpen=false;render();setTimeout(function(){var el=document.getElementById('quick-capture-input');if(el)el.focus()},100)" style="width:48px;height:48px;border-radius:50%;background:var(--card);border:1px solid var(--border);color:var(--text);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.3);transition:transform .2s;display:flex;align-items:center;justify-content:center;position:relative" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>${(D.pending||[]).length ? '<span style="position:absolute;top:-2px;right:-2px;background:var(--yellow);color:#000;border-radius:50%;width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">' + (D.pending||[]).length + '</span>' : ''}</button>
       `}
     </div>
     ` : ''}
@@ -617,19 +615,38 @@ function rOverview(m) {
       pendingReview += '<div style="border:1px solid ' + borderColor + ';border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;background:rgba(255,255,255,.02)">';
       pendingReview += '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:6px">';
       pendingReview += '<div style="font-size:10px;color:var(--text-dim)">' + fmtDate(entry.capturedAt ? entry.capturedAt.slice(0,10) : '') + ' · <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;margin-right:4px;' + (p.entryType === 'expense' ? 'background:var(--purple);color:#fff' : 'background:var(--blue);color:#fff') + '">' + (p.entryType === 'expense' ? 'EXPENSE' : 'PURCHASE') + '</span><span style="color:var(--text-faint)">' + entry.rawText + '</span></div>';
-      pendingReview += '<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn btn-sm" onclick="approvePending(' + idx + ')" style="font-size:9px;padding:2px 8px;background:var(--green);color:#fff;border-color:var(--green)">✅</button><button class="btn btn-sm" onclick="deletePending(' + idx + ')" style="font-size:9px;padding:2px 8px">🗑</button></div>';
+      pendingReview += '<div style="display:flex;gap:4px;flex-shrink:0"><button class="btn btn-sm" onclick="startEditPending(' + idx + ')" style="font-size:9px;padding:2px 8px">✏️</button><button class="btn btn-sm" onclick="approvePending(' + idx + ')" style="font-size:9px;padding:2px 8px;background:var(--green);color:#fff;border-color:var(--green)">✅</button><button class="btn btn-sm" onclick="deletePending(' + idx + ')" style="font-size:9px;padding:2px 8px">🗑</button></div>';
       pendingReview += '</div>';
-      pendingReview += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:4px 12px;font-size:11px">';
-      pendingReview += '<div><span style="color:var(--text-dim)">Date:</span> <strong>' + (p.date || '—') + '</strong></div>';
-      pendingReview += '<div><span style="color:var(--text-dim)">Card:</span> <strong>' + (p.cardName || p.description || '—') + '</strong></div>';
-      pendingReview += '<div><span style="color:var(--text-dim)">Qty:</span> <strong>' + (p.qty || 1) + '</strong></div>';
-      pendingReview += '<div><span style="color:var(--text-dim)">Unit:</span> <strong>' + (p.unitCost ? '$' + p.unitCost : '—') + '</strong></div>';
-      pendingReview += '<div><span style="color:var(--text-dim)">Total:</span> <strong style="color:var(--green)">' + (p.total ? '$' + p.total : '—') + '</strong></div>';
-      pendingReview += '<div><span style="color:var(--text-dim)">Source:</span> <strong>' + (p.source || '—') + '</strong></div>';
-      pendingReview += '<div><span style="color:var(--text-dim)">Status:</span> <strong>' + (p.entryType === 'expense' ? (p.expenseCategory || 'Other') : (p.status || 'Raw')) + '</strong>' + (p.prevGrade ? ' <span style="color:var(--text-faint)">(ex-' + (p.gradingCompany||'') + ' ' + p.prevGrade + ')</span>' : '') + '</div>';
-      pendingReview += '<div><span style="color:var(--text-dim)">Payment:</span> <strong>' + (p.paymentMethod || '—') + '</strong></div>';
-      if (p.notes) pendingReview += '<div style="grid-column:1/-1;color:var(--yellow);font-size:10px">⚠️ ' + p.notes + '</div>';
-      pendingReview += '</div></div>';
+      if (window.pendingEditIdx === idx) {
+        var ist = 'class="search-input" style="font-size:11px;padding:4px 8px;width:100%;box-sizing:border-box"';
+        pendingReview += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:11px">';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Type</label><select id="pe_type" ' + ist + '><option value="purchase"' + (p.entryType!=='expense'?' selected':'') + '>Purchase</option><option value="expense"' + (p.entryType==='expense'?' selected':'') + '>Expense</option></select></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Date</label><input type="date" id="pe_date" ' + ist + ' value="' + (p.date||'') + '"></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Card / Description</label><input id="pe_card" ' + ist + ' value="' + (p.cardName||p.description||'') + '"></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Source</label><input id="pe_source" ' + ist + ' value="' + (p.source||'') + '"></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Qty</label><input type="number" id="pe_qty" ' + ist + ' value="' + (p.qty||1) + '"></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Unit Cost ($)</label><input type="number" id="pe_unit" ' + ist + ' step="0.01" value="' + (p.unitCost||0) + '"></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Total ($)</label><input type="number" id="pe_total" ' + ist + ' step="0.01" value="' + (p.total||0) + '"></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Payment</label><select id="pe_payment" ' + ist + '><option value="">—</option><option' + (p.paymentMethod==='cash'?' selected':'') + '>cash</option><option' + (p.paymentMethod==='card'?' selected':'') + '>card</option><option' + (p.paymentMethod==='paypal'?' selected':'') + '>paypal</option><option' + (p.paymentMethod==='zelle'?' selected':'') + '>zelle</option><option' + (p.paymentMethod==='venmo'?' selected':'') + '>venmo</option></select></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Expense Category</label><select id="pe_expcat" ' + ist + '><option value="">—</option><option' + (p.expenseCategory==='Travel'?' selected':'') + '>Travel</option><option' + (p.expenseCategory==='Supplies'?' selected':'') + '>Supplies</option><option' + (p.expenseCategory==='Software'?' selected':'') + '>Software</option><option' + (p.expenseCategory==='Food'?' selected':'') + '>Food</option><option' + (p.expenseCategory==='Show Fees'?' selected':'') + '>Show Fees</option><option' + (p.expenseCategory==='Shipping Materials'?' selected':'') + '>Shipping Materials</option><option' + (p.expenseCategory==='Other'?' selected':'') + '>Other</option></select></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Prev Company</label><select id="pe_prevco" ' + ist + '><option value="">—</option><option' + (p.gradingCompany==='PSA'?' selected':'') + '>PSA</option><option' + (p.gradingCompany==='CGC'?' selected':'') + '>CGC</option><option' + (p.gradingCompany==='BGS'?' selected':'') + '>BGS</option></select></div>';
+        pendingReview += '<div><label style="font-size:9px;color:var(--text-dim)">Prev Grade</label><input id="pe_prevgrade" ' + ist + ' value="' + (p.prevGrade||'') + '"></div>';
+        pendingReview += '</div>';
+        pendingReview += '<div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end"><button class="btn btn-accent btn-sm" onclick="saveEditPending(' + idx + ')" style="font-size:10px">💾 Save</button><button class="btn btn-sm" onclick="window.pendingEditIdx=-1;render()" style="font-size:10px">Cancel</button></div>';
+      } else {
+        pendingReview += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:4px 12px;font-size:11px">';
+        pendingReview += '<div><span style="color:var(--text-dim)">Date:</span> <strong>' + (p.date || '—') + '</strong></div>';
+        pendingReview += '<div><span style="color:var(--text-dim)">Card:</span> <strong>' + (p.cardName || p.description || '—') + '</strong></div>';
+        pendingReview += '<div><span style="color:var(--text-dim)">Qty:</span> <strong>' + (p.qty || 1) + '</strong></div>';
+        pendingReview += '<div><span style="color:var(--text-dim)">Unit:</span> <strong>' + (p.unitCost ? '$' + p.unitCost : '—') + '</strong></div>';
+        pendingReview += '<div><span style="color:var(--text-dim)">Total:</span> <strong style="color:var(--green)">' + (p.total ? '$' + p.total : '—') + '</strong></div>';
+        pendingReview += '<div><span style="color:var(--text-dim)">Source:</span> <strong>' + (p.source || '—') + '</strong></div>';
+        pendingReview += '<div><span style="color:var(--text-dim)">Status:</span> <strong>' + (p.entryType === 'expense' ? (p.expenseCategory || 'Other') : (p.status || 'Raw')) + '</strong>' + (p.prevGrade ? ' <span style="color:var(--text-faint)">(ex-' + (p.gradingCompany||'') + ' ' + p.prevGrade + ')</span>' : '') + '</div>';
+        pendingReview += '<div><span style="color:var(--text-dim)">Payment:</span> <strong>' + (p.paymentMethod || '—') + '</strong></div>';
+        if (p.notes) pendingReview += '<div style="grid-column:1/-1;color:var(--yellow);font-size:10px">⚠️ ' + p.notes + '</div>';
+        pendingReview += '</div>';
+      }
+      pendingReview += '</div>';
     });
     pendingReview += '</div></div>';
   }
@@ -1556,6 +1573,34 @@ window._aiFloatMode = false;
 window.captureLoading = false;
 window.showPendingReview = false;
 window.captureOpen = false;
+
+window.pendingEditIdx = -1;
+
+window.startEditPending = function(idx) {
+  window.pendingEditIdx = idx;
+  render();
+};
+
+window.saveEditPending = function(idx) {
+  var p = D.pending[idx].parsed;
+  var get = function(id) { var el = document.getElementById(id); return el ? el.value : ''; };
+  p.date = get('pe_date') || p.date;
+  p.cardName = get('pe_card') || p.cardName;
+  p.description = get('pe_card') || p.description;
+  p.qty = parseInt(get('pe_qty')) || p.qty;
+  p.unitCost = parseFloat(get('pe_unit')) || p.unitCost;
+  p.total = parseFloat(get('pe_total')) || (p.qty * p.unitCost);
+  p.source = get('pe_source') || p.source;
+  p.paymentMethod = get('pe_payment') || p.paymentMethod;
+  p.entryType = get('pe_type') || p.entryType;
+  p.expenseCategory = get('pe_expcat') || p.expenseCategory;
+  p.gradingCompany = get('pe_prevco') || p.gradingCompany;
+  p.prevGrade = get('pe_prevgrade') || p.prevGrade;
+  window.pendingEditIdx = -1;
+  saveData();
+  render();
+  showToast('Updated pending entry');
+};
 
 window.openPendingReview = function() {
   window.showPendingReview = true;
