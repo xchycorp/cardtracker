@@ -25,7 +25,7 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstat
 // ============================================================
 // AUTH CHECK — skip everything if not logged in
 // ============================================================
-if (sessionStorage.getItem('ct_auth') !== 'true') {
+if (localStorage.getItem('ct_auth') !== 'true') {
   // Not authenticated, inline login script handles it
 } else {
 
@@ -9848,7 +9848,7 @@ async function hashPassword(pw) {
   return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function isAuthenticated() { return sessionStorage.getItem('ct_auth') === 'true'; }
+function isAuthenticated() { return localStorage.getItem('ct_auth') === 'true'; }
 
 function showLoginScreen() {
   document.getElementById('app').innerHTML = `
@@ -9873,7 +9873,7 @@ function showLoginScreen() {
   async function tryLogin() {
     const hash = await hashPassword(input.value);
     if (hash === PW_HASH) {
-      sessionStorage.setItem('ct_auth', 'true');
+      localStorage.setItem('ct_auth', 'true');
       err.style.display = 'none';
       loadApp();
     } else {
