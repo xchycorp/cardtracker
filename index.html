@@ -932,7 +932,7 @@ const SCHEMAS = {
       {k:'cardName',l:'Card Name',type:'pokemonsearch',required:true},
       {k:'cardType',l:'Card Type',type:'select',opts:['Pokemon','Sports','Other TCG','Bulk Lot']},
       {k:'status',l:'Status',type:'select',opts:['Raw','Submitted','Graded','Listed','Sold','Hold','Cracked']},
-      {k:'grade',l:'Grade (e.g. 10, 9.5, 10.1, Auth)',placeholder:'10, 9.5, 10.1, Auth, etc.'},{k:'gradingCompany',l:'Grading Co.',type:'select',opts:['','PSA','CGC','Other']},
+      {k:'grade',l:'Grade (e.g. 10, 9.5, 10.1, Auth)',placeholder:'10, 9.5, 10.1, Auth, etc.'},{k:'gradingCompany',l:'Grading Co.',type:'select',opts:['','PSA','CGC','BGS','SGC','Other']},
       {k:'costBasis',l:'Cost Basis ($)',type:'number'},{k:'gradingCost',l:'Grading Cost ($)',type:'number'},
       {k:'marketValue',l:'Market Value ($)',type:'number'},{k:'dateAdded',l:'Date Added',type:'date'},
       {k:'platform',l:'Platform Listed'},{k:'listPrice',l:'List Price ($)',type:'number'},
@@ -999,7 +999,7 @@ const SCHEMAS = {
     ],
     fields:[
       {k:'cardName',l:'Link Inventory Card',type:'cardpicker',required:true},{k:'cardId',l:'Card ID',type:'hidden'},
-      {k:'company',l:'Grading Company',type:'select',opts:['PSA','CGC','Other']},
+      {k:'company',l:'Grading Company',type:'select',opts:['PSA','CGC','BGS','SGC','Other']},
       {k:'serviceLevel',l:'Service Level'},{k:'dateSubmitted',l:'Date Submitted',type:'date'},
       {k:'dateReturned',l:'Date Returned',type:'date'},{k:'gradingFee',l:'Grading Fee ($)',type:'number'},
       {k:'shipTo',l:'Shipping to Grader ($)',type:'number'},{k:'shipBack',l:'Return Shipping ($)',type:'number'},
@@ -1176,7 +1176,7 @@ function rTable(type,m) {
       return `<button class="btn btn-sm" style="font-size:10px;padding:4px 10px;${isActive ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : ''}" onclick="window.statusFilter='${st}';render()">${label}<span style="font-size:9px;opacity:.7;margin-left:3px">${count}</span></button>`;
     }).join('')
   }</div>` : type==='grading' ? `<div style="display:flex;gap:3px;margin-bottom:10px;flex-wrap:wrap">${
-    ['','PSA','CGC','BGS','Other'].map(co => {
+    ['','PSA','CGC','BGS','SGC','Other'].map(co => {
       const isActive = window.gradingCompanyFilter === co;
       const label = co || 'All';
       const count = co ? data.filter(r => (r.company || '') === co).length : data.length;
@@ -1695,7 +1695,7 @@ window.quickCapture = async function() {
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 500,
-        system: 'You parse entries for a Pokemon trading card grading and resale business. Return ONLY valid JSON, no markdown, no backticks. Determine if the input is a CARD PURCHASE or a BUSINESS EXPENSE. Parse into this structure: {"entryType":"purchase or expense","date":"YYYY-MM-DD","description":"item description","category":"Pokemon Singles","qty":1,"unitCost":0,"total":0,"source":"seller/store name","paymentMethod":"cash/card/paypal","cardName":"card name for inventory","cardType":"Pokemon","status":"Raw","gradingCompany":"","prevGrade":"","expenseCategory":"","notes":""}. Rules: If no date mentioned, use ' + today + '. CARD PURCHASES: buying trading cards (raw, graded, slabs, lots). Set entryType to "purchase". Extract card name into cardName. If total given but not unit cost, calculate unitCost=total/qty and vice versa. If they mention a previous grade like "PSA 8", set prevGrade and gradingCompany. BUSINESS EXPENSES: gas, food, supplies, software, shipping materials, table fees, travel, subscriptions — anything that is NOT buying cards to resell. Set entryType to "expense", qty to 1, and expenseCategory to one of: Travel, Supplies, Software, Food, Show Fees, Shipping Materials, Equipment, Other. If anything is unclear, make your best guess and put uncertainty in notes.',
+        system: 'You parse entries for a Pokemon trading card grading and resale business. Return ONLY valid JSON, no markdown, no backticks. The input may contain ONE or MULTIPLE transactions. ALWAYS return a JSON ARRAY of entries, even for a single item. Parse each transaction into: {"entryType":"purchase or expense","date":"YYYY-MM-DD","description":"item description","category":"Pokemon Singles","qty":1,"unitCost":0,"total":0,"source":"seller/store name","paymentMethod":"cash/card/paypal","cardName":"card name for inventory","cardType":"Pokemon","status":"Raw","gradingCompany":"","prevGrade":"","expenseCategory":"","notes":""}. Rules: If no date mentioned, use ' + today + '. CARD PURCHASES: buying trading cards (raw, graded, slabs, lots). Set entryType to "purchase". Extract card name into cardName. If total given but not unit cost, calculate unitCost=total/qty and vice versa. If they mention a previous grade like "PSA 8" or "PSA 9", set status to "Raw", put the company in gradingCompany and grade in prevGrade (these are previously graded cards). BUSINESS EXPENSES: gas, food, supplies, software, shipping materials, table fees, travel, subscriptions. Set entryType to "expense", qty to 1, and expenseCategory to one of: Travel, Supplies, Software, Food, Show Fees, Shipping Materials, Equipment, Other. MULTIPLE ITEMS: If the input contains multiple purchases or expenses separated by commas, "and", "also", or new sentences, return a separate object for each one in the array. Example: "bought charizard $100 and blastoise $80" returns TWO objects. If anything is unclear, make your best guess and put uncertainty in notes.',
         messages: [{ role: 'user', content: text }]
       })
     });
@@ -1705,38 +1705,51 @@ window.quickCapture = async function() {
     var parsed = null;
     
     try {
-      parsed = JSON.parse(responseText.replace(/```json|```/g, '').trim());
+      var parsedRaw = JSON.parse(responseText.replace(/```json|```/g, '').trim());
+      // Normalize to array
+      var parsedArray = Array.isArray(parsedRaw) ? parsedRaw : [parsedRaw];
+      parsedArray.forEach(function(parsed) {
+        D.pending.push({
+          id: 'QC' + Date.now() + Math.random().toString(36).slice(2,6),
+          rawText: text,
+          capturedAt: new Date().toISOString(),
+          status: 'pending',
+          parsed: parsed,
+          parseSuccess: true
+        });
+      });
+      saveData();
+      input.value = '';
+      showToast('✅ Captured ' + parsedArray.length + ' item' + (parsedArray.length > 1 ? 's' : '') + ' — review before approving');
     } catch(e) {
-      parsed = null;
+      // Parse failed — save raw text
+      D.pending.push({
+        id: entryId,
+        rawText: text,
+        capturedAt: new Date().toISOString(),
+        status: 'pending',
+        parsed: {
+          date: today,
+          description: text,
+          category: 'Pokemon Singles',
+          qty: 1,
+          unitCost: 0,
+          total: 0,
+          source: '',
+          paymentMethod: '',
+          cardName: text,
+          cardType: 'Pokemon',
+          status: 'Raw',
+          gradingCompany: '',
+          prevGrade: '',
+          notes: 'Could not parse — please edit manually'
+        },
+        parseSuccess: false
+      });
+      saveData();
+      input.value = '';
+      showToast('⚠️ Saved raw text — edit in review');
     }
-    
-    D.pending.push({
-      id: entryId,
-      rawText: text,
-      capturedAt: new Date().toISOString(),
-      status: 'pending',
-      parsed: parsed || {
-        date: today,
-        description: text,
-        category: 'Pokemon Singles',
-        qty: 1,
-        unitCost: 0,
-        total: 0,
-        source: '',
-        paymentMethod: '',
-        cardName: text,
-        cardType: 'Pokemon',
-        status: 'Raw',
-        gradingCompany: '',
-        prevGrade: '',
-        notes: 'Could not parse — please edit manually'
-      },
-      parseSuccess: !!parsed
-    });
-    
-    saveData();
-    input.value = '';
-    showToast(parsed ? '✅ Captured — review before approving' : '⚠️ Saved raw text — edit in review');
   } catch(err) {
     // Always save something
     D.pending.push({
@@ -3023,7 +3036,7 @@ function rQuickEntry(data, addBtn, quickAddBtn) {
           <td><select id="qe_${i}_cardType" class="qe-input">${['Pokemon','Sports','Other TCG','Bulk Lot'].map(o=>`<option${r.cardType===o?' selected':''}>${o}</option>`).join('')}</select></td>
           <td><select id="qe_${i}_status" class="qe-input">${['Raw','Submitted','Graded','Listed','Hold','Cracked'].map(o=>`<option${r.status===o?' selected':''}>${o}</option>`).join('')}</select></td>
           <td><input type="text" id="qe_${i}_grade" class="qe-input" value="${r.grade||''}" placeholder="10, 9.5"></td>
-          <td><select id="qe_${i}_gradingCompany" class="qe-input">${['','PSA','CGC','Other'].map(o=>`<option${r.gradingCompany===o?' selected':''}>${o||'—'}</option>`).join('')}</select></td>
+          <td><select id="qe_${i}_gradingCompany" class="qe-input">${['','PSA','CGC','BGS','SGC','Other'].map(o=>`<option${r.gradingCompany===o?' selected':''}>${o||'—'}</option>`).join('')}</select></td>
           <td><input type="number" id="qe_${i}_costBasis" class="qe-input" step="0.01" value="${r.costBasis||''}" placeholder="0.00"></td>
           <td><input type="number" id="qe_${i}_gradingCost" class="qe-input" step="0.01" value="${r.gradingCost||''}" placeholder="0.00"></td>
           <td><input type="number" id="qe_${i}_marketValue" class="qe-input" step="0.01" value="${r.marketValue||''}" placeholder="0.00"></td>
