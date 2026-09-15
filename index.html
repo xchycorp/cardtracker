@@ -1080,6 +1080,9 @@ function renderTableRow(type, row, i, s) {
   if (type === 'inventory' && window.batchStatusMode && window.batchSelectedCards.has(i)) {
     html += ' style="background:rgba(78,124,255,.08)"';
   }
+  if (type === 'sales' && window.batchPaymentMode && window.batchPaymentSelected.has(i)) {
+    html += ' style="background:rgba(0,214,143,.08)"';
+  }
   html += '>';
   
   // Grading checkbox column
@@ -1097,6 +1100,12 @@ function renderTableRow(type, row, i, s) {
   if (type === 'inventory' && window.batchStatusMode) {
     const isChecked = window.batchSelectedCards.has(i);
     html += '<td style="text-align:center"><input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="toggleBatchCard(' + i + ')" style="width:18px;height:18px;cursor:pointer;accent-color:var(--blue)"></td>';
+  }
+  
+  // Batch payment checkbox column
+  if (type === 'sales' && window.batchPaymentMode) {
+    const isChecked = window.batchPaymentSelected.has(i);
+    html += '<td style="text-align:center"><input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="togglePaymentCard(' + i + ')" style="width:18px;height:18px;cursor:pointer;accent-color:var(--green)"></td>';
   }
   
   // Data columns
@@ -1246,6 +1255,7 @@ function rTable(type,m) {
             <option ${af.payStatus==='Received'?'selected':''}>Received</option>
             <option ${af.payStatus==='Pending'?'selected':''}>Pending</option>
           </select></div>
+        ${af.payStatus==='Pending'?`<div style="display:flex;align-items:flex-end"><button class="btn btn-sm" onclick="batchMarkReceived()" style="font-size:10px;padding:4px 10px;background:var(--green);color:#fff;border-color:var(--green);white-space:nowrap">${window.batchPaymentMode?'✕ Cancel':'✅ Mark Received'}</button>${window.batchPaymentMode?'<button class="btn btn-sm" onclick="applyBatchPayment()" style="font-size:10px;padding:4px 10px;margin-left:4px;white-space:nowrap">✅ Apply ('+window.batchPaymentSelected.size+')</button>':''}</div>`:''}
         `:''}
         ${type==='expenses'?`
         <div><label style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px">Category</label>
@@ -1439,13 +1449,13 @@ function rTable(type,m) {
       return filterHtml;
     })() : `${statusFilterBar}${monthFilterBar}`}
     ${searchBar}
-    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.batchStatusMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
+    <table><thead><tr>${type==='inventory'&&window.gradingSelectMode?'<th style="width:36px"></th>':''}${type==='inventory'&&window.batchStatusMode?'<th style="width:36px"></th>':''}${type==='sales'&&window.batchPaymentMode?'<th style="width:36px"></th>':''}${s.cols.map(c=>`<th class="${c.r?'r ':''}sortable${window.sortCol===c.k?' sorted':''}" onclick="toggleSort('${c.k}')">${c.l}${window.sortCol===c.k?(window.sortDir==='asc'?' ↑':' ↓'):''}</th>`).join('')}<th style="width:${type==='inventory'?'100':'70'}px"></th></tr></thead>
     <tbody>${sorted.length?sorted.map((row,si)=>{const i=idxMap[si];return renderTableRow(type,row,i,s);}).join(''):`<tr><td colspan="${s.cols.length+1+(type==='inventory'&&(window.gradingSelectMode||window.batchStatusMode)?1:0)}" style="text-align:center;padding:20px;color:var(--text-dim)">No results matching "${window.searchTerm}"</td></tr>`}
     </tbody>
     ${(function() {
       if (!sorted.length) return '';
       var cols = s.cols;
-      var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.batchStatusMode));
+      var hasCheckbox = (type==='inventory' && (window.gradingSelectMode||window.batchStatusMode)) || (type==='sales' && window.batchPaymentMode);
       var html = '<tfoot><tr style="border-top:2px solid var(--border);font-weight:700;background:rgba(255,255,255,.03)">';
       if (hasCheckbox) html += '<td></td>';
       
@@ -1613,6 +1623,53 @@ window.openPendingReview = function() {
   window.showPendingReview = true;
   window.captureOpen = false;
   window.tab = 'overview';
+  render();
+};
+
+window.batchMarkReceived = function() {
+  // Toggle selection mode
+  window.batchPaymentMode = !window.batchPaymentMode;
+  window.batchPaymentSelected = new Set();
+  if (window.batchPaymentMode) {
+    // Auto-select all visible pending sales
+    D.sales.forEach(function(r, idx) {
+      if ((r.paymentStatus || 'Received') === 'Pending') {
+        window.batchPaymentSelected.add(idx);
+      }
+    });
+  }
+  render();
+};
+
+window.batchPaymentMode = false;
+window.batchPaymentSelected = new Set();
+
+window.togglePaymentCard = function(idx) {
+  if (window.batchPaymentSelected.has(idx)) {
+    window.batchPaymentSelected.delete(idx);
+  } else {
+    window.batchPaymentSelected.add(idx);
+  }
+  render();
+};
+
+window.applyBatchPayment = function() {
+  var count = window.batchPaymentSelected.size;
+  if (!count) { showToast('No sales selected'); return; }
+  if (!confirm('Mark ' + count + ' selected sales as Received?')) return;
+  window.batchPaymentSelected.forEach(function(idx) {
+    if (D.sales[idx]) D.sales[idx].paymentStatus = 'Received';
+  });
+  window.batchPaymentMode = false;
+  window.batchPaymentSelected = new Set();
+  saveData();
+  render();
+  showToast('✅ ' + count + ' sales marked as Received');
+};
+
+window.cancelBatchPayment = function() {
+  window.batchPaymentMode = false;
+  window.batchPaymentSelected = new Set();
   render();
 };
 
