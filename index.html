@@ -497,9 +497,9 @@ function M() {
   const totalDraws=cap.filter(r=>r.type==='Draw').reduce((s,r)=>s+num(r.amount),0);
   const startingCash=num(sett.startingCash);
   const otherAssets=num(sett.suppliesInventory)+num(sett.equipment)+num(sett.otherAssets);
-  // Auto-calculate unpaid grading fees (submissions not yet returned)
+  // Auto-calculate grading fees (submissions not yet returned)
   const unpaidGrading=gr.filter(r=>!r.dateReturned).reduce((s,r)=>s+num(r.totalCost),0);
-  const totalLiabilities=num(sett.accountsPayable)+unpaidGrading+num(sett.salesTaxOwed)+num(sett.creditCardBal);
+  const totalLiabilities=num(sett.accountsPayable)+num(sett.salesTaxOwed)+num(sett.creditCardBal);
   const tPurchases=D.purchases.reduce((s,r)=>s+num(r.grandTotal||num(r.qty)*num(r.unitCost)+num(r.shipping)+num(r.tax)),0);
   const paidGrading=gr.filter(r=>r.dateReturned).reduce((s,r)=>s+num(r.totalCost),0);
   // Cash = Starting Cash + Contributions - Draws + Sales Revenue - All Fees - Purchases - Expenses - All Grading Fees
@@ -7310,7 +7310,7 @@ function rFinancials(m) {
       <div style="height:10px"></div>
       <div class="fin-row" style="font-size:11px;color:var(--text-faint)"><span class="lbl">LIABILITIES</span></div>
       ${num(m.sett.accountsPayable)?`<div class="fin-row indent"><span class="lbl">Accounts Payable</span><span class="amt">${fmtD(num(m.sett.accountsPayable))}</span></div>`:''}
-      ${m.unpaidGrading?`<div class="fin-row indent"><span class="lbl">Unpaid Grading Fees (auto)</span><span class="amt">${fmtD(m.unpaidGrading)}</span></div>`:''}
+      ${m.totalLiabilities?`<div class="fin-row indent"><span class="lbl">Accounts Payable</span><span class="amt">${fmtD(num(m.sett.accountsPayable))}</span></div>`:''}
       ${num(m.sett.salesTaxOwed)?`<div class="fin-row indent"><span class="lbl">Sales Tax Owed</span><span class="amt">${fmtD(num(m.sett.salesTaxOwed))}</span></div>`:''}
       ${num(m.sett.creditCardBal)?`<div class="fin-row indent"><span class="lbl">Credit Card Balance</span><span class="amt">${fmtD(num(m.sett.creditCardBal))}</span></div>`:''}
       <div class="fin-row bold bt"><span class="lbl">Total Liabilities</span><span class="amt">${fmtD(m.totalLiabilities)}</span></div>
