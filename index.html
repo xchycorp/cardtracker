@@ -219,6 +219,20 @@ function backfillGradingEntries() {
       }
     });
     if (gradingFeesFixed) msg.push(gradingFeesFixed + ' grading entry fees synced from inventory');
+    
+    // Backfill: sync grades from inventory cards to grading entries
+    var gradesFixed = 0;
+    D.inventory.forEach(function(card) {
+      if (!card.grade) return;
+      var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+      if (gEntry && !gEntry.gradeReceived) {
+        gEntry.gradeReceived = card.grade;
+        gEntry.company = card.gradingCompany || gEntry.company;
+        if (!gEntry.dateReturned) gEntry.dateReturned = card.dateAdded || '';
+        gradesFixed++;
+      }
+    });
+    if (gradesFixed) msg.push(gradesFixed + ' grading entry grades synced from inventory');
     showToast('📋 ' + msg.join(', '));
   }
 }
@@ -2484,6 +2498,11 @@ window.saveModal = async function() {
         existingEntry.gradingFee = num(row.gradingCost) || existingEntry.gradingFee;
         existingEntry.company = row.gradingCompany || existingEntry.company;
         existingEntry.cardName = row.cardName || existingEntry.cardName;
+        // Sync grade if card has one
+        if (row.grade && !existingEntry.gradeReceived) {
+          existingEntry.gradeReceived = row.grade;
+          if (!existingEntry.dateReturned) existingEntry.dateReturned = new Date().toISOString().slice(0, 10);
+        }
       }
     }
   }
