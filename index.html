@@ -195,7 +195,32 @@ function backfillGradingEntries() {
     gradingEntriesCreated++;
   });
   
-  if (created || datesFixed || companiesFixed || gradingFixed || dateFixed || salesDateFixed || gradingEntriesCreated) {
+  // Backfill: sync grading entry fees from inventory card's gradingCost
+  var gradingFeesFixed = 0;
+  D.inventory.forEach(function(card) {
+    if (!num(card.gradingCost)) return;
+    var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+    if (gEntry && num(gEntry.totalCost) !== num(card.gradingCost)) {
+      gEntry.totalCost = num(card.gradingCost);
+      gEntry.gradingFee = num(card.gradingCost);
+      gradingFeesFixed++;
+    }
+  });
+  
+  // Backfill: sync grades from inventory cards to grading entries
+  var gradesFixed = 0;
+  D.inventory.forEach(function(card) {
+    if (!card.grade) return;
+    var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+    if (gEntry && !gEntry.gradeReceived) {
+      gEntry.gradeReceived = card.grade;
+      gEntry.company = card.gradingCompany || gEntry.company;
+      if (!gEntry.dateReturned) gEntry.dateReturned = card.dateAdded || '';
+      gradesFixed++;
+    }
+  });
+  
+  if (created || datesFixed || companiesFixed || gradingFixed || dateFixed || salesDateFixed || gradingEntriesCreated || gradingFeesFixed || gradesFixed) {
     saveData();
     render();
     var msg = [];
@@ -206,33 +231,8 @@ function backfillGradingEntries() {
     if (dateFixed) msg.push(dateFixed + ' grading dates fixed (06/02 → 05/31)');
     if (salesDateFixed) msg.push(salesDateFixed + ' sales dates fixed (06/20 → 06/03)');
     if (gradingEntriesCreated) msg.push(gradingEntriesCreated + ' missing grading entries created');
-    
-    // Backfill: sync grading entry fees from inventory card's gradingCost
-    var gradingFeesFixed = 0;
-    D.inventory.forEach(function(card) {
-      if (!num(card.gradingCost)) return;
-      var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
-      if (gEntry && num(gEntry.totalCost) !== num(card.gradingCost)) {
-        gEntry.totalCost = num(card.gradingCost);
-        gEntry.gradingFee = num(card.gradingCost);
-        gradingFeesFixed++;
-      }
-    });
-    if (gradingFeesFixed) msg.push(gradingFeesFixed + ' grading entry fees synced from inventory');
-    
-    // Backfill: sync grades from inventory cards to grading entries
-    var gradesFixed = 0;
-    D.inventory.forEach(function(card) {
-      if (!card.grade) return;
-      var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
-      if (gEntry && !gEntry.gradeReceived) {
-        gEntry.gradeReceived = card.grade;
-        gEntry.company = card.gradingCompany || gEntry.company;
-        if (!gEntry.dateReturned) gEntry.dateReturned = card.dateAdded || '';
-        gradesFixed++;
-      }
-    });
-    if (gradesFixed) msg.push(gradesFixed + ' grading entry grades synced from inventory');
+    if (gradingFeesFixed) msg.push(gradingFeesFixed + ' grading entry fees synced');
+    if (gradesFixed) msg.push(gradesFixed + ' grading entry grades synced');
     showToast('📋 ' + msg.join(', '));
   }
 }
