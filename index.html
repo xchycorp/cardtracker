@@ -206,6 +206,19 @@ function backfillGradingEntries() {
     if (dateFixed) msg.push(dateFixed + ' grading dates fixed (06/02 → 05/31)');
     if (salesDateFixed) msg.push(salesDateFixed + ' sales dates fixed (06/20 → 06/03)');
     if (gradingEntriesCreated) msg.push(gradingEntriesCreated + ' missing grading entries created');
+    
+    // Backfill: sync grading entry fees from inventory card's gradingCost
+    var gradingFeesFixed = 0;
+    D.inventory.forEach(function(card) {
+      if (!num(card.gradingCost)) return;
+      var gEntry = D.grading.find(function(g) { return g.cardId === card.id; });
+      if (gEntry && num(gEntry.totalCost) !== num(card.gradingCost)) {
+        gEntry.totalCost = num(card.gradingCost);
+        gEntry.gradingFee = num(card.gradingCost);
+        gradingFeesFixed++;
+      }
+    });
+    if (gradingFeesFixed) msg.push(gradingFeesFixed + ' grading entry fees synced from inventory');
     showToast('📋 ' + msg.join(', '));
   }
 }
@@ -2463,6 +2476,15 @@ window.saveModal = async function() {
         action: 'New Grade',
         notes: 'Auto-created from inventory'
       });
+    } else {
+      // Update existing grading entry's fee to match inventory card
+      var existingEntry = D.grading.find(function(g) { return g.cardId === row.id; });
+      if (existingEntry) {
+        existingEntry.totalCost = num(row.gradingCost) || existingEntry.totalCost;
+        existingEntry.gradingFee = num(row.gradingCost) || existingEntry.gradingFee;
+        existingEntry.company = row.gradingCompany || existingEntry.company;
+        existingEntry.cardName = row.cardName || existingEntry.cardName;
+      }
     }
   }
   
