@@ -2488,6 +2488,14 @@ window.saveModal = async function() {
     }
   }
   
+  // Remove grading entry when inventory card switches to Raw or Cracked
+  if (window.modal.type === 'inventory' && (row.status === 'Raw' || row.status === 'Cracked')) {
+    var gradingIdx = D.grading.findIndex(function(g) { return g.cardId === row.id; });
+    if (gradingIdx !== -1) {
+      D.grading.splice(gradingIdx, 1);
+    }
+  }
+  
   saveData();window.modal=null;render();
 };
 
@@ -3690,6 +3698,11 @@ window.quickStatus = function(idx, newStatus) {
     }
   } else {
     card.status = newStatus;
+    // Remove grading entry when switching to Raw or Cracked
+    if (newStatus === 'Raw' || newStatus === 'Cracked') {
+      var gIdx = D.grading.findIndex(function(g) { return g.cardId === card.id; });
+      if (gIdx !== -1) D.grading.splice(gIdx, 1);
+    }
   }
   
   saveData();
